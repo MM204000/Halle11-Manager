@@ -68,8 +68,7 @@ RAIL = [
      "Farbton: Je dunkler das Blau, desto höher der Wert – unabhängig vom Status. Der eingerahmte Wert ist die "
      "aktuelle Annahme (Miete Basis, Sollzins wie eingegeben)."),
     (43, "IRR-Matrix",
-     "Für jede Kombination wird die vollständige Zahlungsreihe über die Haltedauer neu gerechnet (ausgeblendete "
-     "Nebenrechnung, Zeilen 65–115): Die Mietänderung wirkt in jedem Jahr mit der Mietsteigerung fort, die "
+     "Für jede Kombination wird die vollständige Zahlungsreihe über die Haltedauer neu gerechnet: Die Mietänderung wirkt in jedem Jahr mit der Mietsteigerung fort, die "
      "Wertsteigerung bestimmt Verkaufspreis, Verkaufskosten und Steuer beim Verkauf."),
 ]
 SECTIONS = (8, 20, 43)
@@ -160,9 +159,9 @@ def _fill_rule(ws, ref, formula, color, **kw):
     ws.conditional_formatting.add(ref, FormulaRule(formula=[formula], stopIfTrue=True, fill=C.fill(color), **kw))
 
 
-def _uebersicht(ws, row):
+def _uebersicht(ws, row, c="J"):
     """P3-03: „↑ Übersicht“ rechtsbündig im Abschnittskopf (Zell-Link auf den Seitenanfang)."""
-    cell = ws[f"J{row}"]
+    cell = ws[f"{c}{row}"]
     C.text_link(cell, "↑ Übersicht", ws.title, size=C.T_MICRO, bold=False)
     cell.alignment = C.align("right", "center", 1)
 
@@ -179,10 +178,17 @@ def _nav_row(ws, row, back, nxt):
             ws.row_dimensions[r].height = None
     C.footer(ws, row + 2, "C", "M")
     C.set_height(ws, row - 1, C.H_GAP)
-    C.btn_row(ws, row, [dict(c1=back[0], c2=back[1], text=back[2], target=back[3], kind="secondary",
-                             tooltip=f"Zurück zu {back[3]}"),
-                        dict(c1=nxt[0], c2=nxt[1], text=nxt[2], target=nxt[3], kind="primary",
-                             tooltip=f"Weiter zu {nxt[3]}")])
+    for c in C.iter_cells(ws, "C", row, "M", row):     # Reihe frei machen (alte Button-Lage L:M)
+        c.hyperlink = None
+        c.fill = C.NOFILL
+        c.border = Border()
+        if not C.is_formula(c.value):
+            c.value = None
+    for mr in list(ws.merged_cells.ranges):
+        if mr.min_row <= row <= mr.max_row:
+            ws.unmerge_cells(str(mr))
+    C.btn_row(ws, row, [dict(c1=back[0], c2=back[1], text=back[2], target=back[3], kind="secondary"),
+                        dict(c1=nxt[0], c2=nxt[1], text=nxt[2], target=nxt[3], kind="primary")])
     C.set_height(ws, row + 1, C.H_GAP)
 
 
@@ -295,13 +301,13 @@ def apply(wb):
 
     # ---- Abschnitt 3: IRR-Matrix und Verkauf (C:J, P2-04)
     _unmerge(ws, 43, 43, "C", "J")
-    _clear(ws, "I", 43, "J", 43)
-    C.safe_merge(ws, "C", 43, "I", 43)
+    _clear(ws, "H", 43, "J", 43)
+    C.safe_merge(ws, "C", 43, "G", 43)
     c43 = ws["C43"]                         # reine Anzeigeformel (Bandtitel)
     if C.is_formula(c43.value) and "Haltedauer" in c43.value:
         c43.value = '="Eigenkapitalrendite bei Verkauf nach "&Haltedauer&" Jahren – Miete × Wertsteigerung"'
-    C.section(ws, 43, "C", "J")
-    _uebersicht(ws, 43)
+    C.section(ws, 43, "C", "H")             # P3-14: Blockkopf so breit wie IRR-Matrix und Verkaufstabelle (I:J Weißraum)
+    _uebersicht(ws, 43, "H")
     _clear(ws, "I", 44, "J", 63, values=False)
     for row in (44, 53):                    # P30: Unterabschnitte und Tabellen enden an der letzten Datenspalte H
         _clear(ws, "D", row, "J", row, values=False)
@@ -388,14 +394,17 @@ def apply(wb):
     else:
         ws.sheet_properties.outlinePr.summaryBelow = True
     note = ws["C64"]
-    C.set_text(note, "Nebenrechnung zur IRR-Matrix ausgeblendet (Zeilen 65–115) – "
-                     "über das Gliederungssymbol [+] am linken Rand einblenden.")
+    # P3-14: ein neutraler Hinweis ohne Zeilennummern. Excel blendet Gliederungen auf geschützten Blättern nicht ein –
+    # deshalb der Hinweis auf den (kennwortlosen) Blattschutz.
+    C.set_text(note, "Die vollständige Nebenrechnung ist ausgeblendet. Nach „Blattschutz aufheben“ (ohne Kennwort) "
+                     "lässt sie sich über [+] am linken Rand einblenden.")
     note.font = C.font(C.T_SMALL, False, C.MUTED, italic=True)
     note.alignment = C.align("left", "center", 1)
     C.set_height(ws, 64, C.H_ROW)
     # ---- Buttonzeile am Seitenende (P22): „‹ Zurück: Finanzierung“ links, „Weiter: Bankgespräch ›“ rechts bündig M
-    _nav_row(ws, 117, ("C", "C", "‹  Zurück: Finanzierung", "Finanzierung"),
-             ("L", "M", "Weiter: Bankgespräch  ›", "Bankgespräch"))
+    # P1-03: Zurück (C) und Weiter (G:J) gleich breit im Raster der Hauptspalte; „Tilgungsplan“ = Reitername
+    _nav_row(ws, 117, ("C", "C", "‹  Zurück: Tilgungsplan", "Finanzierung"),
+             ("G", "J", "Weiter: Bankgespräch  ›", "Bankgespräch"))
     for row in ws.iter_rows(min_row=1, max_row=64):
         for c in row:
             if c.number_format == "@" and C.is_formula(c.value):

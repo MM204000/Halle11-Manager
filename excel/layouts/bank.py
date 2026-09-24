@@ -113,19 +113,14 @@ def _move_footer(ws, row, c1, c2):
 
 def _nav_row(ws, row, back, nxt, footer_cols):
     """P22: Zurück/Weiter als Buttonzeile am Seitenende (dieselbe Komponente wie S01–S12): Leerzeile · Buttons ·
-    Leerzeile · Seitenfuß. back/nxt: (c1, c2, Text, Zielblatt[, Art]) – Zurück links bündig, Weiter rechts bündig.
-    Formulare (schmale Wertspalten): Zurück als Textlink-Stufe „back“, damit kein Button direkt am anderen klebt."""
+    Leerzeile · Seitenfuß. back/nxt: (c1, c2, Text, Zielblatt) – Zurück links bündig, Weiter rechts bündig, gleich breit."""
     C.set_height(ws, row - 1, C.H_GAP)
-    kind = back[4] if len(back) > 4 else "secondary"
-    items = [dict(c1=back[0], c2=back[1], text=back[2], target=back[3], kind=kind,
-                  tooltip=f"Zurück zu {back[3]}"),
-             dict(c1=nxt[0], c2=nxt[1], text=nxt[2], target=nxt[3], kind="primary", tooltip=f"Weiter zu {nxt[3]}")]
+    items = [dict(c1=back[0], c2=back[1], text=back[2], target=back[3], kind="secondary"),
+             dict(c1=nxt[0], c2=nxt[1], text=nxt[2], target=nxt[3], kind="primary")]
     _move_footer(ws, row + 2, *footer_cols)
     for it in items:
         _unmerge(ws, row, row, it["c1"], it["c2"])
-    out = C.btn_row(ws, row, items)
-    if kind == "back":                      # Textlink-Stufe: bündig an der linken Inhaltskante
-        ws[f"{back[0]}{row}"].alignment = C.align("left", "center", 1)
+    out = C.btn_row(ws, row, items)          # Runde 4 (P1-03): Zurück secondary links · Weiter primary rechts, gleich breit
     C.set_height(ws, row + 1, C.H_GAP)
     return out
 
@@ -161,8 +156,8 @@ BANK_BULLETS = [
     "„Vermögensaufstellung“ sind vorbereitet und fließen in den Block „Sicherheiten & Bonität“ ein.",
     "• Argumentieren Sie mit Kapitaldienstdeckung (DSCR), Eigenkapitalquote, Beleihungsauslauf und dem Cashflow "
     "nach Steuern – das sind die Kennzahlen, auf die Kreditentscheider zuerst schauen.",
-    "• Objektfotos (Außenansicht, Wohnräume, Lageplan): Zeilen 9–16 über das [+] am linken Rand einblenden und "
-    "die Bilder über Einfügen › Bilder in die drei Flächen ziehen.",
+    "• Objektfotos (Außenansicht, Wohnräume, Lageplan): Die Fotoflächen über [+] am linken Rand einblenden und "
+    "die Bilder über Einfügen › Bilder hineinziehen. Das Blatt ist dafür bewusst nicht geschützt.",
 ]
 BANK_LABELS = {
     "H20": "Nettokaltmiete Soll pro Monat",
@@ -174,15 +169,14 @@ BANK_LABELS = {
     "E41": "Beleihungsobjekt (Ort)",
 }
 BANK_CHECKLIST = (
-    "• Selbstauskunft: Haushaltsrechnung und Vermögensaufstellung (Unterreiter oben) ausfüllen und unterschreiben.\n\n"
-    "• Einkommen: die letzten drei Gehaltsabrechnungen bzw. zwei Einkommensteuerbescheide.\n\n"
-    "• Eigenkapital: aktueller Konto- oder Depotauszug.\n\n"
-    "• Objekt: Exposé, Grundbuchauszug, Teilungserklärung, Energieausweis, Wohnflächenberechnung, Fotos.\n\n"
+    "• Selbstauskunft: Haushaltsrechnung und Vermögensaufstellung (Unterreiter oben) ausfüllen und unterschreiben.\n"
+    "• Einkommen: die letzten drei Gehaltsabrechnungen bzw. zwei Einkommensteuerbescheide.\n"
+    "• Eigenkapital: aktueller Konto- oder Depotauszug.\n"
+    "• Objekt: Exposé, Grundbuchauszug, Teilungserklärung, Energieausweis, Wohnflächenberechnung, Fotos.\n"
     "• Vermietung: Mietvertrag bzw. Mietaufstellung.")
 BANK_NOTE = ("¹ Einschließlich Steuereffekt des Objekts (Steuererstattung bzw. -zahlung).  ·  Alle Werte stammen aus "
              "der Kalkulation (Blätter Eingaben, Finanzierung, Projektion, Steuern). Prognosewerte sind Annahmen und "
-             "keine Zusicherung. Haushaltsrechnung und Vermögensaufstellung liegen als separate Vorlagen bei.  ·  "
-             "Objektfotos: Zeilen 9–16 über [+] am linken Rand einblenden.")
+             "keine Zusicherung. Haushaltsrechnung und Vermögensaufstellung liegen als separate Vorlagen bei.")
 PCT1 = ("I22", "C36", "C38", "C39", "C41", "F29", "F30")
 BANK_STATUS = (("C35", "DSCR"), ("C36", "NMR"), ("C39", "IRR"), ("C41", "EKR"), ("I22", "BMR"))
 CASHFLOW_CELLS = ("I29", "I30", "I39")       # Cashflow-Beträge: < 0 rot, ≥ 0 neutral (P1-10)
@@ -293,10 +287,17 @@ def bank(ws):
     ws["I21"].number_format = C.NUMFMT["eur2"]
 
     # ---- Summenstufen (P1-14): Blockergebnisse Gesamtinvestition / Eigenkapital / CF n. St., Zwischensumme CF v. St.
-    C.sum_row(ws, 29, "B", "C", "result")
-    C.sum_row(ws, 28, "E", "F", "result")
+    C.sum_row(ws, 29, "B", "C", "final")
+    C.sum_row(ws, 28, "E", "F", "final")
     C.sum_row(ws, 29, "H", "I", "sub")
-    C.sum_row(ws, 30, "H", "I", "result")
+    C.sum_row(ws, 30, "H", "I", "final")
+    # P1-10: Reserve nach der Endsumme nur nachrichtlich (9 pt kursiv 5B6068, ohne Linie) – die Doppellinie in Z. 29
+    #        bleibt der sichtbare Blockabschluss
+    if ws["B30"].value == "Liquiditätsreserve":
+        C.set_text(ws["B30"], "Liquiditätsreserve (nicht finanziert)")
+    C.sum_row(ws, 30, "B", "C", "memo")
+    ws["B30"].alignment = C.align("left", "center", 1)
+    ws["C30"].alignment = C.align("right", "center", 1)
     for coord in ("B29", "E28", "H29", "H30"):
         ws[coord].alignment = C.align("left", "center", 1)
     for coord in ("C29", "F28", "I29", "I30"):
@@ -319,8 +320,11 @@ def bank(ws):
     if len(charts) >= 2:
         _anchor(charts[0], "B", 44, "C", 57)
         _anchor(charts[1], "E", 44, "I", 57)
-    for r, h in {58: 10, 59: 4, 60: 4}.items():
+    # P3-13: Fußblock mit Überschrift (Unterabschnitt wie „Finanzierungsstruktur“), Absätze mit 6-pt-Fugen
+    for r, h in {58: C.H_GAP, 60: 4}.items():
         C.set_height(ws, r, h)
+    _unmerge(ws, 59, 59, "B", "I")
+    C.section(ws, 59, "B", "I", "Annahmen & Hinweise", level=2, variant="line", height=C.H_HEAD)
 
     # ---- Annahmen, Fußnote ¹ (+ Foto-Hinweis) und Farblegende (P1-01, P1-10)
     _unmerge(ws, 61, 64, "B", "I")
@@ -337,7 +341,7 @@ def bank(ws):
         n = C.lines_needed_metric(C.display_text(cell), C.span_px(ws, "B", "I"), C.T_SMALL)
         need = n * C.line_pt(C.T_SMALL) + 5
         C.set_height(ws, r, min(h for h in C.ROW_RASTER if h >= need))
-    C.set_height(ws, 62, 4)
+    C.set_height(ws, 62, 6)
     legend = ws["B64"]
     legend.value = C.rich([("Farbkennzeichnung der Kennzahlen (Schwellen lt. Konfiguration):   ", C.T_MICRO, False,
                             C.MUTED)] + list(_legend_parts()) +
@@ -350,12 +354,14 @@ def bank(ws):
     #      Abschnittsreihen (Z. 17–30 und 32–41); Navigation nur noch Unterreiter oben + Buttonzeile unten (P22)
     _unmerge(ws, 5, 45, "K", "K")
     _clear(ws, "K", 5, "K", 45)
+    # P1-05 / P2-01: einfache Umbrüche, Höhe aus dem Text (fit='auto' wächst nur, wenn der Text nicht passt),
+    # Innenabstand rechts über feste Umbrüche (hard_wrap) – die Boxen bleiben bündig mit den Abschnittsreihen
     C.callout_box(ws, "K", 17, "K", 18, 30, title="Bessere Konditionen im Bankgespräch",
-                  text="\n\n".join(BANK_BULLETS), pill=False, fit=None)
+                  text="\n".join(BANK_BULLETS), pill=False, fit="auto")
     C.set_height(ws, 17, C.H_BAND)          # Kopf bündig mit den Abschnittsköpfen der Zeile 17
     C.set_height(ws, 18, 6)
     C.callout_box(ws, "K", 32, "K", 33, 41, title="Unterlagen für die Finanzierungsanfrage", text=BANK_CHECKLIST,
-                  pill=False, fit=None)
+                  pill=False, fit="auto")
     C.set_height(ws, 32, C.H_BAND)
     C.set_height(ws, 33, 6)
 
@@ -376,7 +382,8 @@ def _legend_parts():
 
 
 # =============================================================================== Haushaltsrechnung / Vermögensaufstellung
-FORM_WIDTHS = {"A": 4.5, "B": 56, "C": 14, "D": 14, "E": 36, "F": 3,
+# E 42: D:E ist genau so breit wie B – Zurück (B) und Weiter (D:E) sind gleich breite Buttons (P1-03)
+FORM_WIDTHS = {"A": 4.5, "B": 56, "C": 14, "D": 14, "E": 42, "F": 3,
                "G": 12, "H": 12, "I": 12, "J": 2, "K": 12, "L": 12, "M": 12}
 HH_LABELS = {
     "B42": "Bewirtschaftung des kalkulierten Objekts (Jahr 1, inkl. Rücklage)",
@@ -421,14 +428,11 @@ def _form_common(ws, first, last, comment_rows):
 
 
 def _linked(ws, coords):
-    """P31: überschreibbare Verknüpfungen als eigene Eingabe-Variante – 1D4F8A normal auf FFF5D6, Rahmen gestrichelt
-    E6CB77 (Legende im Seitenkopf rechts: „gestrichelt = aus der Kalkulation, überschreibbar“)."""
-    dash = C.side("dashed", C.INPUT_LINE)
+    """P3-20: überschreibbare Verknüpfungen im Eingabezustand „override“ (FFF9EA, Rahmen gestrichelt E6CB77, Schrift
+    1D4F8A normal) – Gelb FFF5D6 bleibt echten Eingaben vorbehalten (Legende im Seitenkopf rechts)."""
     for coord in coords:
         cell = ws[coord]
-        cell.font = C.font(C.T_BODY, False, C.BLUE)
-        cell.fill = C.fill(C.INPUT_BG)
-        cell.border = Border(left=dash, right=dash, top=dash, bottom=dash)
+        C.input_style(cell, "override")
         cell.alignment = C.align("right", "center", 1)
 
 
@@ -459,7 +463,7 @@ def _form_header(ws):
     lg.value = C.rich([("■ ", C.T_LABEL, True, C.INPUT_LINE), ("Eingabe", C.T_LABEL, False, C.MUTED),
                        ("   ·   ", C.T_LABEL, False, C.MUTED),
                        ("□ ", C.T_LABEL, True, C.INPUT_LINE),
-                       ("gestrichelt = aus der Kalkulation, überschreibbar", C.T_LABEL, False, C.MUTED)])
+                       ("gestrichelt = aus Kalkulation, überschreibbar", C.T_LABEL, False, C.MUTED)])
     lg.font = C.font(C.T_LABEL, False, C.MUTED)
     lg.alignment = C.align("right", "top")
 
@@ -474,6 +478,48 @@ def _side_section(ws, row, title, meta=None):
     for c in C.iter_cells(ws, "G", row, "M", row):
         c.value = None if not C.is_formula(c.value) else c.value
     C.section(ws, row, "G", "M", title, meta=meta)
+
+
+def _bank_note(ws, head_row, end_row, title, bullets):
+    """P3-13: Hinweis-Box der rechten Spalte (core.callout_box) – Kopf in head_row, Körper bis end_row. Die Zeilen
+    teilen sich die Höhen mit der Tabelle links; deshalb bleiben alle Höhen unverändert (Kopf ohne 20-pt-Anhebung)."""
+    saved = _heights(ws, range(head_row, end_row + 1))
+    _unmerge(ws, head_row, end_row, "G", "M")
+    _clear(ws, "G", head_row, "M", end_row)
+    text = "\n".join(bullets)
+    C.callout_box(ws, "G", head_row, "M", head_row + 1, end_row, title=title, text=text, pill=False, fit=None)
+    _restore(ws, saved)
+    width = C.span_px(ws, "G", "M")
+    need = C.callout_height(C.lines_needed_metric(ws.cell(head_row + 1, C.col("G")).value, width, C.T_SMALL, False, 1))
+    have = sum(ws.row_dimensions[r].height or 15 for r in range(head_row + 1, end_row + 1))
+    if need > have:
+        print(f"WARNUNG {ws.title}: Hinweis-Box {title!r} braucht {need} pt, hat {have} pt")
+
+
+HH_NOTE = [
+    "• Überschuss: Nach dem neuen Kapitaldienst sollte ein positiver Überschuss bleiben – als Richtwert mindestens "
+    "5 % der Einnahmen als Reserve für Unvorhergesehenes.",
+    "",
+    "• Lebenshaltung: Banken rechnen mit eigenen Pauschalen je Haushaltsmitglied. Liegen Ihre Angaben darunter, "
+    "setzt die Bank die Pauschale an.",
+    "",
+    "• Mieteinnahmen: Neue und bestehende Mieten werden meist nur mit einem Abschlag angerechnet "
+    "(Leerstand, Instandhaltung).",
+    "",
+    "• Verpflichtungen: Kredite, Leasing und Unterhalt vollständig angeben – die Bank sieht sie ohnehin in der "
+    "Schufa-Auskunft.",
+    "",
+    "• Nachweise: Gehaltsabrechnungen, Steuerbescheide und Kontoauszüge sollten die Angaben lückenlos belegen.",
+]
+VA_NOTE = [
+    "• Liquide Reserve: Nach dem Eigenkapitaleinsatz sollten frei verfügbare Mittel bleiben – als Faustregel drei "
+    "bis sechs Nettomonatsgehälter.",
+    "",
+    "• Sicherheiten: Bereits verpfändete Werte stehen der Bank nicht mehr als Sicherheit zur Verfügung.",
+    "",
+    "• Bewertung: Wertpapiere und Beteiligungen werden mit Abschlägen angesetzt – Verkehrswerte mit Auszug oder "
+    "Gutachten belegen.",
+]
 
 
 def _tile_pair(ws, row, left, right):
@@ -524,15 +570,13 @@ def household(ws):
     for r in list(range(18, 27)) + list(range(31, 43)):
         ws[f"D{r}"].number_format = C.NUMFMT["eur_in"]
         ws[f"C{r}"].number_format = C.NUMFMT["eur_in"]
-    for r in (27, 43):
-        C.sum_row(ws, r, "B", "E", "sub")
+    for r in (27, 43):                      # P1-10: Blocksummen als Endsumme (E7EEF7, Doppellinie)
+        C.sum_row(ws, r, "B", "E", "final")
     _gaps(ws, (15, 28, 44))
-    # P29: Spaltenköpfe im Ergebnisband, „Überschuss“ statt „Überschuss pro Monat“
-    for coord, text in (("C45", "PRO MONAT"), ("D45", "PRO JAHR")):
-        cell = ws[coord]
-        C.set_text(cell, text)
-        cell.font = C.font(C.T_LABEL, True, C.BLUE)
-        cell.alignment = C.align("right", "center", 1)
+    # P2-10: das Abschnittsband trägt nur den Titel – die Spalten sind oben benannt
+    for coord in ("C45", "D45"):
+        if not C.is_formula(ws[coord].value):
+            ws[coord].value = None
     C.set_text(ws["B46"], "Überschuss")
 
     # Ergebnis: EINE Statusregel auf Basis der Überschussquote C47 (< 0 rot · < 5 % amber · sonst grün), P1-10
@@ -557,9 +601,10 @@ def household(ws):
                     status_col="I", conditions=conds),
                dict(label="Überschussquote", value="=C47", fmt=C.NUMFMT["pct1"], sub="Ziel ≥ 5 % vom Einkommen",
                     status_col="M", conditions=conds))
+    _bank_note(ws, 35, 47, "Worauf die Bank achtet", HH_NOTE)
     _form_header(ws)
-    _nav_row(ws, 49, ("B", "B", "‹  Zurück: Bankgespräch", BANK, "back"),
-             ("E", "E", "Weiter: Vermögensaufstellung  ›", VA), ("B", "E"))
+    _nav_row(ws, 49, ("B", "B", "‹  Zurück: Bankgespräch", BANK),
+             ("D", "E", "Weiter: Vermögensaufstellung  ›", VA), ("B", "E"))
     _text_formula_general(ws)
     C.cf_close(ws)
 
@@ -583,15 +628,24 @@ def assets(ws):
 
     _linked(ws, VA_LINKED)
     _comment_inputs(ws, range(10, 35), bands)
-    for r in (19, 29):
-        C.sum_row(ws, r, "B", "E", "sub")
+    for r in (19, 29):                      # P1-10: Blocksummen als Endsumme (E7EEF7, Doppellinie)
+        C.sum_row(ws, r, "B", "E", "final")
     # P12: Summenzeile mit EINER Schrift – „–“ in D29 im Stil von C29 (fett 0B2A4A), die Monatsrate wird nicht summiert
     d29 = ws["D29"]
     if d29.value is None:
         d29.value = "–"
     d29.font = C.font(C.T_BODY, True, C.NAVY)
     d29.alignment = C.align("right", "center", 1)
+    # P3-13: Kernaussage fett (Navy, bei < 0 rot); E33 als Kommentar wie Haushalt E26 – ohne Fläche
+    ws["C34"].font = C.font(C.T_BODY, True, C.NAVY)
     C.neg_red(ws, "C34")
+    e33 = ws["E33"]
+    if e33.value is None:
+        e33.value = "aus der Kalkulation (überschreibbar)"
+    e33.fill = C.NOFILL
+    e33.border = Border()
+    e33.font = C.font(C.T_SMALL, False, C.MUTED, italic=True)
+    e33.alignment = C.align("left", "center", 1)
     _gaps(ws, (20, 30))
 
     # Rechte Spalte: Abschnitt + Diagramm, darunter Kennzahl-Kacheln (P2-17) als Anzeige-Verweise
@@ -605,9 +659,10 @@ def assets(ws):
                     sub="Vermögenswerte − Verbindlichkeiten", status=None),
                dict(label="Liquide Mittel nach EK-Einsatz", value="=C34", fmt=C.NUMFMT["eur"],
                     sub='="nach Eigenkapital "&FIXED(C33,0)&" €"', conditions=liq))
+    _bank_note(ws, 27, 34, "Worauf die Bank achtet", VA_NOTE)
     _form_header(ws)
-    _nav_row(ws, 36, ("B", "B", "‹  Zurück: Haushaltsrechnung", HH, "back"),
-             ("E", "E", "↺  Zurück zur Übersicht: Bankgespräch", BANK), ("B", "E"))
+    _nav_row(ws, 36, ("B", "B", "‹  Zurück: Haushaltsrechnung", HH),
+             ("D", "E", "Zur Übersicht: Bankgespräch  ›", BANK), ("B", "E"))
     _text_formula_general(ws)
     C.cf_close(ws)
 

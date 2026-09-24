@@ -278,8 +278,8 @@ SERIES_RULES = [
     (r"^kumulierte tilgung", KUM_TILG, 2.0, "dash"),
     (r"^tilgung", TILG, None, None),
     (r"^bewirtschaftung", BAR_GREY, None, None),
-    (r"^cashflow vor", K.NAVY, 2.0, None),           # Linie im Kombidiagramm (P1-07: 0B2A4A, 2 pt)
-    (r"^cashflow nach", K.BLUE, None, None),
+    (r"^cashflow v(or|\.)", K.NAVY, 2.0, None),       # Linie im Kombidiagramm (P1-07: 0B2A4A, 2 pt)
+    (r"^cashflow n(ach|\.)", K.BLUE, None, None),
     (r"^kumulierter cashflow", K.NAVY, 2.25, None),
     (r"^kumulierte steuer", K.ACCENT, 1.5, None),
     (r"^afa regul", K.BLUE, None, None),
@@ -313,6 +313,7 @@ PIE_RANK = ["0B2A4A", "1D4F8A", "4A86C8", "9CBBE2", "C9D6E6"]
 PIE_RANK7 = ["0B2A4A", "1D4F8A", "2F6BAE", "4A86C8", "7FA7D6", "9CBBE2", "C9D6E6"]
 PIE_INSIDE = 0.35        # Innen-Etikett nur ab 35 % (höchstens zwei je Kreis), sonst außen
 PIE_MAX_INSIDE = 2
+PIE_IN_MAX_PX = 100      # Innen-Etikett höchstens so breit (px), sonst außen
 PIE_ALL_OUT = 5          # mehr als 5 Segmente (S06): alle Etiketten außen mit Führungslinie
 # Kurzlabels der Kategorien: Art → [(Muster, Kurzname)]
 CAT_SHORT = {
@@ -342,7 +343,7 @@ TITLES = {
     "ertrag": "Gesamtertrag nach Steuern (Brücke, T€)",
     "jahr1": "Einnahmen vs. Ausgaben (Jahr 1, € / Monat)",
     "bestand": "Vermögen und Restschuld (Jahre 1–{n}, {u})",
-    "restschuld": "Restschuld am Jahresende bis zur Volltilgung (Jahre 1–{n}, {u})",
+    "restschuld": "Restschuld am Jahresende (Jahre 1–{n}, {u})",
     "cashflow": "Cashflow vor und nach Steuern (Jahre 1–{n}, {u} p. a.)",
     "cf_nach": "Cashflow nach Steuern (Jahre 1–{n}, {u} p. a.)",
     "cf_kum": "Kumulierter Cashflow nach Steuern (Jahre 1–{n}, {u})",
@@ -912,7 +913,7 @@ def style_axes(root, kind, n_cat, size=None, horizontal=False):
                 # Nulllinie 0,75 pt 8A9099 (P1-07), bei negativen Werten 1 pt
                 put(ax, sppr(ln=line(1.0 if lo < 0 else 0.75, K.MUTED2)), o)
             if kind in HBAR_KINDS:
-                put(ax, txpr(9, K.INK2), o)
+                put(ax, txpr(8.5, K.INK2), o)
             else:
                 # rot=60 (= 0,001°, in Excel waagerecht): verhindert in LibreOffice den Zeilenumbruch der Jahreszahlen
                 put(ax, txpr(8, K.MUTED, rot=60 if (time_series and not horizontal and not dash) else None,
@@ -994,7 +995,9 @@ def pie_labels(ser, kind, cats, size=8, bold=False, vals=(), colors=(), rot=0):
     n_pos = sum(1 for x in shares if x > 0)
     inside = set()
     if n_pos <= PIE_ALL_OUT:
-        big = sorted((i for i in range(len(cats)) if shares[i] >= PIE_INSIDE), key=lambda i: -shares[i])
+        # innen nur, wenn das Etikett sicher in die Segmentfläche passt (sonst ragt es über den Kreisrand)
+        big = sorted((i for i in range(len(cats)) if shares[i] >= PIE_INSIDE and K.text_width(
+            f"{pie_label_text(kind, cats[i])} · 00 %", PIE_LBL_IN, True) <= PIE_IN_MAX_PX), key=lambda i: -shares[i])
         inside = set(big[:PIE_MAX_INSIDE])
     del PIE_SMALL[:]
     del PIE_OUT[:]
@@ -1491,7 +1494,8 @@ def pie_need(size, titled, outs):
             top = max(top, (34 if titled else 8) + 18)
         elif cy > 0.5:
             bottom = max(bottom, 20)
-    d = max(70.0, min(260.0, w - left - right, (h - top - bottom) / 0.8))
+    # 8 % Luft neben der Gruppe aus Kreis und Etiketten, damit sie nicht am Rahmen klebt
+    d = max(70.0, min(260.0, 0.92 * (w - left - right), (h - top - bottom) / 0.8))
     return d, left, right, top, bottom
 
 
@@ -1517,7 +1521,7 @@ def pie_layout(root, size=None, titled=True, legend=False, fixed_d=None):
     spread_pie_labels(root, x * w + d / 2, y * h + 0.38 * d, d, w, h)
 
 
-PIE_GAP = 15.0           # Mindestabstand zweier Außen-Etiketten (px, 8,5 pt)
+PIE_GAP = 19.0           # Mindestabstand zweier Außen-Etiketten (px, 8,5 pt)
 
 
 def spread_pie_labels(root, cx, cy, d, w, h):
@@ -1659,7 +1663,8 @@ def style_chart(xml, sheet=None, mark=None, size=None, pie_d=None):
         w, h = size if size else (500, 300)
         top = (34 + (22 if chart.find(q("c:legend")) is not None else 0)) / h
         drop(plot, "layout")
-        plot.insert(0, manual_layout("outer", 0.01, round(top, 4), 0.97, round(max(0.3, 1 - top - 0.03), 4)))
+        # rechts Platz für die Wertbeschriftung am Balkenende (längster Balken)
+        plot.insert(0, manual_layout("outer", 0.01, round(top, 4), 0.87, round(max(0.3, 1 - top - 0.03), 4)))
     elif kind == "afa_kum":
         # rechts ≈ 18 % frei für die Endbeschriftungen der Varianten (P1-15)
         w, h = size if size else (1000, 320)

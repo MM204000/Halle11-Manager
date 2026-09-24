@@ -84,7 +84,7 @@ SUBHEADS = {
     "jahr1": ("Einnahmen vs. Ausgaben", "Jahr 1 · € / Monat"),
     "cashflow": ("Cashflow vor und nach Steuern", "Jahre 1–30 · T€ p. a."),
     "bestand": ("Vermögen und Restschuld", "Jahre 1–35 · T€"),
-    "restschuld": ("Restschuld am Jahresende", "Jahre 1–35 · T€ · bis zur Volltilgung"),
+    "restschuld": ("Restschuld am Jahresende", "Jahre 1–35 · T€ · Jahresende"),
     "kumzins": ("Zinsen, Tilgung und Steuer kumuliert", "Jahre 1–35 · T€"),
     "cf_kum": ("Kumulierter Cashflow nach Steuern", "Jahre 1–35 · T€"),
     "afa": ("Abschreibungen nach Komponenten", "Jahre 1–20 · T€ p. a."),
@@ -94,7 +94,8 @@ SUBHEADS = {
 }
 SUBHEAD_H = 24
 # Zeilenhöhen der Diagrammzone (Abstände): Zeile → pt
-SPACER_ROWS = {27: 10, 28: 10, 29: 10, 48: 10, 49: 10, 50: 10, 69: 9,
+SPACER_ROWS = {**{r: 13 for r in range(11, 27)},           # Kreisreihe etwas niedriger (weniger Leerraum um die Kreise)
+               27: 10, 28: 10, 29: 10, 48: 10, 49: 10, 50: 10, 69: 9,
                87: 6, 88: 6, 89: 6, 90: 6, 91: 6, 110: 10, 111: 10, 112: 10,
                131: 5, 132: 5, 133: 5, 134: 5, 135: 5, 136: 5, 137: 5}
 
@@ -110,8 +111,11 @@ SMALL_TABLES = {
 SUM_ROWS = (161, 167)                     # „Nettoerlös (an Investor)“, „= Gesamtertrag“ → Summenstufe 1 (P1-14)
 
 # ---- Anzeige-Hilfsblöcke (nur Diagramme; im eingeklappten Anhang rechts neben den kleinen Tabellen)
-HH_HEAD, HH_N = 140, 12                   # Haushaltsrechnung: F140:N152
-VA_HEAD, VA_N = 140, 9                    # Vermögensaufstellung: P140:V149
+HH_HEAD, HH_N = 140, 12                   # Haushaltsrechnung: F140:O152 (O = Rang je Position)
+VA_HEAD, VA_N = 140, 9                    # Vermögensaufstellung: P140:W149 (W = Rang je Position)
+# Diagrammplätze (P2-09): die größten Positionen einzeln, ab dem letzten Platz „Übrige (n)“ – statt 12 bzw. 9 Plätzen
+# mit leeren Zeilen unter den Balken
+HH_SLOTS, VA_SLOTS = 8, 6
 AFA_HEAD, AFA_N = 154, 8                  # AfA-Vergleich Summen: F154:I162
 WF_HEAD = 163                             # Wasserfall Gesamtertrag: F163:U167
 J1_HEAD = 169                             # Jahr 1 / Reihennamen: F169:H174
@@ -121,7 +125,7 @@ HH_SHORT = [(r"^wohnen", "Wohnen"), (r"^lebenshaltung", "Lebenshaltung"), (r"^mo
             (r"^versicherung", "Versicherungen"), (r"vorsorge", "Altersvorsorge"), (r"^freizeit", "Freizeit"),
             (r"^unterhalt", "Unterhalt"), (r"kredite", "Kredite"), (r"^bewirtschaftung bestehend", "Bestandsobjekte"),
             (r"^kapitaldienst bestehend", "Bestandsdarlehen"), (r"^kapitaldienst des kalk", "Kapitaldienst neu"),
-            (r"^bewirtschaftung des kalk", "Bewirtschaftung neu")]
+            (r"^bewirtschaftung des kalk", "Bewirtsch. neu")]
 VA_SHORT = []                             # Vermögen: Kategorien wortgleich zu Spalte B (ohne Klammerzusatz, P19)
 
 # ---- Kreise: Legendentexte „Name · 12 %“ (nur Anzeige; Beschriftung der Kleinstsegmente in der Legende, P17)
@@ -319,10 +323,10 @@ def _cashflow_chart(last):
     # P1-07: Säulen positiv 1D4F8A, negativ B42318 – als zwei gestapelte Anzeige-Reihen (Vorzeichen), damit die Farbe in
     # jeder Excel-Version und in LibreOffice gilt (invertIfNegative ohne c14 wäre weiß)
     bar.type, bar.grouping, bar.overlap, bar.gapWidth = "col", "stacked", 100, 80
-    for r, name in ((CF_POS, "Überschuss nach Steuern"), (CF_NEG, "Unterdeckung nach Steuern")):
+    for r, name in ((CF_POS, "Überschuss n. St."), (CF_NEG, "Unterdeckung n. St.")):
         bar.series.append(_series(_r(SHEET, "D", r, last, r), name, cat_ref=cats, cat_num=True))
     line = LineChart()
-    line.series.append(_series(_r(SHEET, "D", 184, last, 184), "Cashflow vor Steuern", cat_ref=cats, cat_num=True))
+    line.series.append(_series(_r(SHEET, "D", 184, last, 184), "Cashflow v. St.", cat_ref=cats, cat_num=True))
     line.y_axis.axId = bar.y_axis.axId
     line.x_axis = bar.x_axis
     bar += line
@@ -517,12 +521,12 @@ def _ranked_series(ws, ch):
     labels = [ws.cell(r, K.col(c[1])).value for r in range(c[2], c[4] + 1)]
     _PENDING["hh" if hh else "va"] = (p, c, labels)
     if hh:
-        r1, r2 = HH_HEAD + 1, HH_HEAD + (p[4] - p[2]) + 1
+        r1, r2 = HH_HEAD + 1, HH_HEAD + min(HH_SLOTS, p[4] - p[2] + 1)
         cats = _r(SHEET, "L", r1, "L", r2)
         ch.series[:] = [_series(_r(SHEET, "M", r1, "M", r2), "Bestehender Haushalt", cat_ref=cats),
                         _series(_r(SHEET, "N", r1, "N", r2), "Neues Objekt", cat_ref=cats)]
     else:
-        r1, r2 = VA_HEAD + 1, VA_HEAD + (p[4] - p[2]) + 1
+        r1, r2 = VA_HEAD + 1, VA_HEAD + min(VA_SLOTS, p[4] - p[2] + 1)
         cats = _r(SHEET, "U", r1, "U", r2)
         ch.series[:] = [_series(_r(SHEET, "V", r1, "V", r2), "Vermögenswerte", cat_ref=cats)]
     ch.grouping, ch.overlap, ch.gapWidth = "clustered", 100, 60
@@ -671,19 +675,23 @@ def helper_blocks(ws):
         (sh, vc, vr1, _, vr2), (csh, cc, cr1, _, _), labels = _PENDING[key]
         n = vr2 - vr1 + 1
         if key == "hh":      # Haushalt: zwei Reihen (bestehend / neues Objekt)
-            cols = [K.L(_col(c0) + k) for k in range(9)]
-            lab, val, key_, obj, kk, pos, lab_k, v1, v2 = cols
-            names = ("Haushalt (Diagramm)", "Wert", "Sortier", "Objekt", "Rang", "Position", "Label", "Bestand",
-                     "Objekt neu")
+            cols = [K.L(_col(c0) + k) for k in range(10)]
+            lab, val, key_, obj, kk, pos, lab_k, v1, v2, rk = cols
+            names = ("Haushalt (Diagramm)", "Wert", "Sortier", "Objekt", "Platz", "Position", "Label", "Bestand",
+                     "Objekt neu", "Rang")
+            slots = HH_SLOTS
         else:                # Vermögen: eine Reihe
-            cols = [K.L(_col(c0) + k) for k in range(7)]
-            lab, val, key_, kk, pos, lab_k, v1 = cols
+            cols = [K.L(_col(c0) + k) for k in range(8)]
+            lab, val, key_, kk, pos, lab_k, v1, rk = cols
             obj = v2 = None
-            names = ("Vermögen (Diagramm)", "Wert", "Sortier", "Rang", "Position", "Label", "Wert sortiert")
+            names = ("Vermögen (Diagramm)", "Wert", "Sortier", "Platz", "Position", "Label", "Wert sortiert", "Rang")
+            slots = VA_SLOTS
         heads = dict(zip(cols, names))
         _helper_head(ws, head, cols[0], cols[-1], heads)
         r1, r2 = head + 1, head + n
         rngv, rngk = f"${val}${r1}:${val}${r2}", f"${key_}${r1}:${key_}${r2}"
+        rngr = f"${rk}${r1}:${rk}${r2}"
+        cnt = f'COUNTIF({rngv},">0")'
         for i in range(n):
             r = r1 + i
             _put(ws, f"{lab}{r}", _short(labels[i], short_table), h="left")
@@ -693,14 +701,28 @@ def helper_blocks(ws):
                 _put(ws, f"{obj}{r}", f'=IF(ISNUMBER(SEARCH("kalkulierten",{_r(csh, cc, cr1 + i)})),1,0)', num)
             _put(ws, f"{kk}{r}", i + 1, "0")
             _put(ws, f"{pos}{r}", f'=IF({kk}{r}<=COUNTIF({rngv},">0"),MATCH(LARGE({rngk},{kk}{r}),{rngk},0),"")', "0")
-            _put(ws, f"{lab_k}{r}", f'=IF({pos}{r}="","",INDEX(${lab}${r1}:${lab}${r2},{pos}{r}))', h="left")
+            _put(ws, f"{rk}{r}", f'=IF({key_}{r}>0,COUNTIF({rngk},">"&{key_}{r})+1,99)', "0")
+            lab_f = f'IF({pos}{r}="","",INDEX(${lab}${r1}:${lab}${r2},{pos}{r}))'
+            last = i + 1 == slots
+            if last:        # letzter Diagrammplatz: bei mehr Positionen „Übrige (n)“ mit der Restsumme
+                lab_f = f'IF({cnt}>{slots},"Übrige ("&({cnt}-{slots}+1)&")",{lab_f})'
+            _put(ws, f"{lab_k}{r}", "=" + lab_f, h="left")
             if key == "hh":
                 objk = f"INDEX(${obj}${r1}:${obj}${r2},{pos}{r})"
                 valk = f"INDEX({rngv},{pos}{r})"
-                _put(ws, f"{v1}{r}", f'=IF({pos}{r}="",0,IF({objk}=1,0,{valk}))', num)
-                _put(ws, f"{v2}{r}", f'=IF({pos}{r}="",0,IF({objk}=1,{valk},0))', num)
+                f1 = f'IF({pos}{r}="",0,IF({objk}=1,0,{valk}))'
+                f2 = f'IF({pos}{r}="",0,IF({objk}=1,{valk},0))'
+                if last:
+                    rest = f"({rngr}>={slots})*{rngv}"
+                    f1 = f"IF({cnt}>{slots},SUMPRODUCT({rest}*(${obj}${r1}:${obj}${r2}=0)),{f1})"
+                    f2 = f"IF({cnt}>{slots},SUMPRODUCT({rest}*(${obj}${r1}:${obj}${r2}=1)),{f2})"
+                _put(ws, f"{v1}{r}", "=" + f1, num)
+                _put(ws, f"{v2}{r}", "=" + f2, num)
             else:
-                _put(ws, f"{v1}{r}", f'=IF({pos}{r}="",0,INDEX({rngv},{pos}{r}))', num)
+                f1 = f'IF({pos}{r}="",0,INDEX({rngv},{pos}{r}))'
+                if last:
+                    f1 = f"IF({cnt}>{slots},SUMPRODUCT(({rngr}>={slots})*{rngv}),{f1})"
+                _put(ws, f"{v1}{r}", "=" + f1, num)
 
     ranked("hh", HH_HEAD, "F", HH_SHORT)
     ranked("va", VA_HEAD, "P", VA_SHORT)
