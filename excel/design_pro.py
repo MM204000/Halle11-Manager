@@ -22,17 +22,36 @@ from openpyxl.utils import get_column_letter, column_index_from_string
 from openpyxl.worksheet.hyperlink import Hyperlink
 from PIL import Image
 
-# ============================================================================ Design-Tokens
-TEAL, TEAL_MID, ACC = "0E4A4F", "2E7F80", "4FA3A5"
-TEAL_L, TEAL_XL, SUM_BG, HEAD_BG = "E6F0F0", "F2F6F6", "F4F7F7", "F3F4F5"
+# ============================================================================ Design-Tokens / Farbthemen
+# Rollen: TEAL = Primärfarbe (Banner, Titel), TEAL_MID = Sekundär, ACC = Akzent, TEAL_L/TEAL_XL = helle Flächen.
+THEMES = {
+    "blau": dict(
+        TEAL="0B2A4A", TEAL_MID="1D4F8A", ACC="4A86C8", TEAL_L="E7EEF7", TEAL_XL="F3F7FC", SUM_BG="F5F8FC",
+        ON_DARK_2="C8D7EB", ON_DARK_ACC="9CBBE2",
+        INPUT_BG="FFF5D6", INPUT_LINE="E6CB77", INPUT_FG="1D4F8A",
+        GROUP={"ein": "C4C8CE", "inp": "E6B940", "aus": "0B2A4A", "ber": "4A86C8", "bank": "8FA9C9", "anh": "DADCDF"},
+        SERIES=["0B2A4A", "4A86C8", "9CBBE2", "1D4F8A", "C5CDD8", "6E7F96"],
+        PIE_MAIN="2D63A6",
+        LOGO_DARK=(11, 42, 74), LOGO_LIGHT=(156, 187, 226),
+        INPUT_WORD="Gelb", LINK_WORD="Blau",
+    ),
+    "rot": dict(
+        TEAL="7A1422", TEAL_MID="A3202F", ACC="D2495B", TEAL_L="F8E8EA", TEAL_XL="FCF4F5", SUM_BG="FCF6F7",
+        ON_DARK_2="F0CBD1", ON_DARK_ACC="EBA3AE",
+        INPUT_BG="EAF1FA", INPUT_LINE="B9CFE8", INPUT_FG="2F6FB0",
+        GROUP={"ein": "C4C8CE", "inp": "2F6FB0", "aus": "7A1422", "ber": "D2495B", "bank": "C79AA1", "anh": "DADCDF"},
+        SERIES=["7A1422", "D2495B", "EBA3AE", "A3202F", "C9CDD2", "6E7480"],
+        PIE_MAIN="B32A3B",
+        LOGO_DARK=(122, 20, 34), LOGO_LIGHT=(235, 163, 174),
+        INPUT_WORD="Blau", LINK_WORD="Rot",
+    ),
+}
 INK, INK2, MUTED, MUTED2 = "1A1D21", "3A3F45", "5B6068", "8A9099"
-LINE, LINE2 = "E6E8EB", "D5D9DE"
-ON_DARK, ON_DARK_2, ON_DARK_ACC = "FFFFFF", "CFE3E3", "A9D6D6"
-RED, AMB, GRN, BLUE = "B42318", "B54708", "1F7A4D", "2F6FB0"
-INPUT_BG, INPUT_LINE = "EAF1FA", "B9CFE8"
+LINE, LINE2, HEAD_BG = "E6E8EB", "D5D9DE", "F3F4F5"
+ON_DARK = "FFFFFF"
+RED, AMB, GRN = "B42318", "B54708", "1F7A4D"
 SANS, DISPLAY = "Aptos", "Aptos Display"
 
-GROUP = {"ein": "C4C8CE", "inp": BLUE, "aus": TEAL, "ber": "6E9C9E", "bank": "7F9BB8", "anh": "DADCDF"}
 TAB_GROUP = {"Cockpit": "aus", "Diagramme": "aus", "Eingaben": "inp", "Steuern": "ber", "Projektion": "ber",
              "Finanzierung": "ber", "AfA-Vergleich": "ber", "Sensitivität": "ber", "Bankgespräch": "bank",
              "Haushaltsrechnung": "bank", "Vermögensaufstellung": "bank", "Hinweise": "anh", "Konfiguration": "anh"}
@@ -42,26 +61,43 @@ GROUP_LABEL = {"ein": "Leitfaden", "inp": "Eingaben", "aus": "Auswertung", "ber"
 # Vorlagenfarben (Pro 1)
 O_BG, O_DARK, O_SAND, O_SAND2, O_BRASS, O_WHITE = "F4F0E8", "0F1C16", "EBE6DB", "E2DCCE", "A08A55", "FFFFFF"
 
-TEXT_MAP_LIGHT = {"0C0F0D": INK, "6B685E": MUTED, "B9B4A6": MUTED2, "4E7A62": TEAL_MID, "A08A55": TEAL_MID,
-                  "C6A45C": AMB, "6F8F7A": GRN, "8C3B2E": RED, "173026": TEAL, "F4F0E8": INK, "EBE6DB": MUTED}
-TEXT_MAP_DARK = {"F4F0E8": ON_DARK, "EBE6DB": ON_DARK_2, "B9B4A6": ON_DARK_2, "A08A55": ON_DARK_ACC,
-                 "C6A45C": ON_DARK_ACC, "0C0F0D": ON_DARK, "0F1C16": ON_DARK, "6B685E": ON_DARK_2}
 CF_FONT_MAP = {"9DB4A6": GRN, "E0A898": RED, "C6A45C": AMB, "4E7A62": GRN, "8C3B2E": RED, "8C7748": AMB}
 SCALE_MAP = {"E9C6BB": "F6D3CD", "C3D8CA": "CDE8D8", "FFFFFF": "FFFFFF"}
 NUMFMT_MAP = {
     "0.00%": "0.00 %", "0.0%": "0.0 %", "0%": "0 %", "0.00\\x": '0.00"×"', '0.0"-fach"': '0.0"-fach"',
     '\\+0%;\\-0%;"Basis"': '+0 %;-0 %;"Basis"', '\\+0.0%;\\-0.0%;"Basis"': '+0.0 %;-0.0 %;"Basis"',
 }
-TEXT_FIXES = {
-    "Weiß mit Messinglinie – ausfüllen": "Blau hinterlegt – hier eingeben",
-    "Grün – Eingabe im Leitfaden": "Teal – übernommen aus dem Leitfaden",
-    "grün / messing / rot (Konfiguration)": "grün / gelb / rot (Schwellen: Konfiguration)",
-}
 
 
-TEXT_REGEX = [(re.compile(r"Weiße Felder"), "Blau hinterlegte Felder"), (re.compile(r"weiße Felder"), "blau hinterlegte Felder"),
-              (re.compile(r"\(weiß\)"), "(blau)"), (re.compile(r"Grün geschriebene"), "Teal geschriebene"),
-              (re.compile(r"grün geschriebene"), "teal geschriebene")]
+def apply_theme(name):
+    """Setzt die Farbrollen des gewählten Themas als Modulkonstanten."""
+    t = THEMES[name]
+    g = globals()
+    g.update({k: v for k, v in t.items()})
+    g["ON_DARK_ACC"] = t["ON_DARK_ACC"]
+    g["TEXT_MAP_LIGHT"] = {"0C0F0D": INK, "6B685E": MUTED, "B9B4A6": MUTED2, "4E7A62": t["TEAL_MID"],
+                           "A08A55": t["TEAL_MID"], "C6A45C": AMB, "6F8F7A": GRN, "8C3B2E": RED, "173026": t["TEAL"],
+                           "F4F0E8": INK, "EBE6DB": MUTED}
+    g["TEXT_MAP_DARK"] = {"F4F0E8": ON_DARK, "EBE6DB": t["ON_DARK_2"], "B9B4A6": t["ON_DARK_2"], "A08A55": t["ON_DARK_ACC"],
+                          "C6A45C": t["ON_DARK_ACC"], "0C0F0D": ON_DARK, "0F1C16": ON_DARK, "6B685E": t["ON_DARK_2"]}
+    ser = t["SERIES"]
+    g["SERIES_MAP"] = {"0f1c16": ser[0], "173026": ser[3], "a08a55": ser[1], "c6a45c": ser[2], "6f8f7a": "3E8E6A",
+                       "6b685e": ser[5], "b9b4a6": ser[4], "e2dcce": "E6E8EB", "8c3b2e": RED, "4f81bd": ser[1],
+                       "7f9aa6": ser[2], "ffffff": "FFFFFF"}
+    g["TEXT_FIXES"] = {
+        "Weiß mit Messinglinie – ausfüllen": f"{t['INPUT_WORD']} hinterlegt – hier eingeben",
+        "Grün – Eingabe im Leitfaden": f"{t['LINK_WORD']} – übernommen aus dem Leitfaden",
+        "grün / messing / rot (Konfiguration)": "grün / gelb / rot (Schwellen: Konfiguration)",
+    }
+    iw, lw = t["INPUT_WORD"], t["LINK_WORD"]
+    g["TEXT_REGEX"] = [(re.compile(r"Weiße Felder"), f"{iw} hinterlegte Felder"),
+                       (re.compile(r"weiße Felder"), f"{iw.lower()} hinterlegte Felder"),
+                       (re.compile(r"\(weiß\)"), f"({iw.lower()})"),
+                       (re.compile(r"Grün geschriebene"), f"{lw} geschriebene"),
+                       (re.compile(r"grün geschriebene"), f"{lw.lower()} geschriebene")]
+
+
+apply_theme("blau")
 
 
 def fix_text(v):
@@ -201,7 +237,7 @@ def restyle_cell(ws, c, o, ctx):
     if not o.locked:
         style_text(c, o, False)
         c.fill = fill(INPUT_BG)
-        c.font = font_like(c.font, color=BLUE, b=True)
+        c.font = font_like(c.font, color=INPUT_FG, b=True)
         ln = side("thin", INPUT_LINE)
         c.border = Border(left=ln, right=ln, top=ln, bottom=ln)
         return
@@ -536,10 +572,6 @@ def design_workbook(src, tmp):
 # ============================================================================ Diagramme & Logo
 NS = {"c": "http://schemas.openxmlformats.org/drawingml/2006/chart",
       "a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
-SERIES_MAP = {"0f1c16": TEAL, "173026": TEAL_MID, "a08a55": ACC, "c6a45c": "A9B8C6", "6f8f7a": "3E8E6A",
-              "6b685e": "8A9199", "b9b4a6": "C4C8CE", "e2dcce": "E6E8EB", "8c3b2e": RED, "4f81bd": BLUE,
-              "7f9aa6": "7F9BB8", "ffffff": "FFFFFF"}
-
 
 def a(tag):
     ns, t = tag.split(":")
@@ -561,8 +593,68 @@ def set_run_props(rpr, size, color, bold=None):
     lat.set("typeface", SANS)
 
 
+def _walls(tag):
+    el = etree.Element(a(tag))
+    etree.SubElement(el, a("c:thickness")).set("val", "0")
+    sp = etree.SubElement(el, a("c:spPr"))
+    etree.SubElement(sp, a("a:noFill"))
+    ln = etree.SubElement(sp, a("a:ln"))
+    etree.SubElement(ln, a("a:noFill"))
+    return el
+
+
+def _view3d(rot_x, rot_y, right_angle, perspective=None):
+    v = etree.Element(a("c:view3D"))
+    etree.SubElement(v, a("c:rotX")).set("val", str(rot_x))
+    etree.SubElement(v, a("c:rotY")).set("val", str(rot_y))
+    etree.SubElement(v, a("c:depthPercent")).set("val", "100")
+    etree.SubElement(v, a("c:rAngAx")).set("val", "1" if right_angle else "0")
+    if perspective is not None and not right_angle:
+        etree.SubElement(v, a("c:perspective")).set("val", str(perspective))
+    return v
+
+
+def make_3d(root):
+    """Säulen- und Kreisdiagramme in schemakonforme 3D-Varianten überführen."""
+    chart = root.find(a("c:chart"))
+    plot = chart.find(a("c:plotArea"))
+    kind = None
+    for bc in plot.findall(a("c:barChart")):
+        bc.tag = a("c:bar3DChart")
+        for tag in ("c:overlap", "c:serLines"):
+            for el in bc.findall(a(tag)):
+                bc.remove(el)
+        for pos in list(bc.iter(a("c:dLblPos"))):
+            pos.getparent().remove(pos)
+        gw = bc.find(a("c:gapWidth"))
+        gd = etree.Element(a("c:gapDepth"))
+        gd.set("val", "80")
+        shape = etree.Element(a("c:shape"))
+        shape.set("val", "box")
+        if gw is not None:
+            gw.set("val", str(min(int(gw.get("val", "150")), 90)))
+            gw.addnext(gd)
+        else:
+            bc.find(a("c:axId")).addprevious(gd)
+        gd.addnext(shape)
+        kind = "bar"
+    for pc in plot.findall(a("c:pieChart")):
+        pc.tag = a("c:pie3DChart")
+        for el in pc.findall(a("c:firstSliceAng")):
+            pc.remove(el)
+        kind = "pie"
+    if kind is None:
+        return
+    view = _view3d(35, 0, False, 20) if kind == "pie" else _view3d(12, 18, True)
+    plot.addprevious(view)
+    if kind == "bar":
+        for tag in ("c:floor", "c:sideWall", "c:backWall"):
+            plot.addprevious(_walls(tag))
+
+
 def style_chart(xml):
     root = etree.fromstring(xml)
+    make_3d(root)
     # Serienfarben (Text wird separat gesetzt)
     for clr in root.iter(a("a:srgbClr")):
         v = clr.get("val", "").lower()
@@ -596,16 +688,22 @@ def style_chart(xml):
     for dl in root.iter(a("c:dLbls")):
         for rpr in dl.iter(a("a:defRPr")):
             set_run_props(rpr, 800, INK2)
+    # Kreisdiagramme: hellere Hauptfarbe (3D-Schattierung bleibt lesbar)
+    for tag in ("c:pieChart", "c:pie3DChart"):
+        for pc in root.iter(a(tag)):
+            for clr in pc.iter(a("a:srgbClr")):
+                if clr.get("val", "").upper() == SERIES[0]:
+                    clr.set("val", PIE_MAIN)
     # Kreisdiagramme: Beschriftung außen, gut lesbar
-    for tag in ("c:pieChart", "c:doughnutChart"):
+    for tag in ("c:pieChart", "c:pie3DChart", "c:doughnutChart"):
         for pc in root.iter(a(tag)):
             for pos in pc.iter(a("c:dLblPos")):
-                if tag == "c:pieChart":
+                if tag != "c:doughnutChart":
                     pos.set("val", "outEnd")
             for rpr in pc.iter(a("a:defRPr")):
                 set_run_props(rpr, 800, INK2, True)
             for dl in pc.iter(a("c:dLbls")):
-                if dl.find(a("c:dLblPos")) is None and tag == "c:pieChart":
+                if dl.find(a("c:dLblPos")) is None and tag != "c:doughnutChart":
                     pos = etree.Element(a("c:dLblPos"))
                     pos.set("val", "outEnd")
                     anchor = dl.find(a("c:txPr")) if dl.find(a("c:txPr")) is not None else dl.find(a("c:spPr"))
@@ -613,6 +711,14 @@ def style_chart(xml):
                         anchor.addnext(pos)
                     else:
                         dl.insert(0, pos)
+    # Liniendiagramme: kräftigere, runde Linien
+    for lc in root.iter(a("c:lineChart")):
+        for ser in lc.findall(a("c:ser")):
+            sp = ser.find(a("c:spPr"))
+            if sp is not None:
+                for ln in sp.findall(a("a:ln")):
+                    ln.set("w", str(max(int(ln.get("w", "0") or 0), 31750)))
+                    ln.set("cap", "rnd")
     # Diagrammfläche ohne Rahmen
     cs_sp = root.find(a("c:spPr"))
     if cs_sp is not None:
@@ -626,7 +732,7 @@ def style_chart(xml):
 def recolor_png(data):
     im = Image.open(io.BytesIO(data)).convert("RGBA")
     px = im.load()
-    targets = [((15, 28, 22), (14, 74, 79)), ((160, 138, 85), (169, 214, 214)), ((198, 164, 92), (169, 214, 214)),
+    targets = [((15, 28, 22), LOGO_DARK), ((160, 138, 85), LOGO_LIGHT), ((198, 164, 92), LOGO_LIGHT),
                ((244, 240, 232), (255, 255, 255))]
     w, h = im.size
     for y in range(h):
@@ -660,6 +766,7 @@ def postprocess(tmp, dst):
 
 if __name__ == "__main__":
     src, dst = sys.argv[1], sys.argv[2]
+    apply_theme(sys.argv[3] if len(sys.argv) > 3 else "blau")
     tmp = dst + ".tmp.xlsx"
     design_workbook(src, tmp)
     postprocess(tmp, dst)

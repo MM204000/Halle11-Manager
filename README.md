@@ -30,14 +30,17 @@ Sie wird von `excel/build_immobilien_kalkulation.py` erzeugt (`pip install openp
 
 ## Excel: Immobilien-Kalkulationstool Pro (Premium-Design)
 
-`excel/Immobilien-Kalkulationstool_Pro_3.xlsx` ist das Kalkulationstool Pro im überarbeiteten Premium-Design.
-Es wird aus der Vorlage `excel/quelle/Immobilien-Kalkulationstool_Pro_1.xlsx` erzeugt:
+`excel/Immobilien-Kalkulationstool_Pro_4_blau.xlsx` (empfohlen) und `excel/Immobilien-Kalkulationstool_Pro_4_rot.xlsx`
+sind das Kalkulationstool Pro im Premium-Design mit 3D-Säulen- und 3D-Kreisdiagrammen.
+Beide werden aus der Vorlage `excel/quelle/Immobilien-Kalkulationstool_Pro_1.xlsx` erzeugt:
 
 ```
 pip install openpyxl lxml pillow
-python excel/design_pro.py excel/quelle/Immobilien-Kalkulationstool_Pro_1.xlsx excel/Immobilien-Kalkulationstool_Pro_3.xlsx
+python excel/design_pro.py excel/quelle/Immobilien-Kalkulationstool_Pro_1.xlsx excel/Immobilien-Kalkulationstool_Pro_4_blau.xlsx blau
+python excel/design_pro.py excel/quelle/Immobilien-Kalkulationstool_Pro_1.xlsx excel/Immobilien-Kalkulationstool_Pro_4_rot.xlsx rot
 ```
 
-Das Skript verändert ausschließlich die Darstellung (Kopfleiste, Typografie, Farben, Tabellen, Kacheln,
-Schaltflächen, Hinweise, Zahlenformate, Diagramme, Logo). Formeln, Namen, Blattschutz und Datenüberprüfungen
-bleiben unverändert. Nach dem Erzeugen die Mappe einmal in Excel öffnen oder mit LibreOffice neu berechnen.
+Das Skript verändert ausschließlich die Darstellung (Farbthema, Kopfleiste, Typografie, Tabellen, Kacheln,
+Schaltflächen, Hinweise, Zahlenformate, Diagramme inkl. 3D, Logo). Formeln, Namen, Blattschutz und
+Datenüberprüfungen bleiben unverändert. Nach dem Erzeugen die Mappe einmal in Excel öffnen oder mit
+LibreOffice neu berechnen.
