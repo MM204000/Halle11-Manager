@@ -322,8 +322,9 @@ def tiles(ws):
 # --------------------------------------------------------------------------------------------- Karten
 def _label(cell, text, kind):
     if text is not None:
-        cell.value = text if is_formula(text) else None
-        if not is_formula(text):
+        if text.startswith("=IF("):          # dynamische Beschriftung (Anzeigeformel)
+            cell.value = text
+        else:                                # statischer Text, auch „= Summe …“
             set_text(cell, text)
     if kind == "sub":
         cell.font = font(T_SMALL, False, MUTED)
