@@ -16,6 +16,11 @@ Komponentensprache (Runde 2, CORE_API.md): Raster = core.ROW_RASTER, Typo-Skala 
 core.BTN. Statusfarben-Disziplin (P1-10): große Kennzahlen neutral (kpi_statusfarbe), keine Statusflächen über
 Matrizen (status_flaeche), keine Emoji (emoji); kpi_ampel akzeptiert Pill/Chip/Kante/Statusspalte im Umfeld der Zahl.
 Callout-Körper (core.callout_box, Höhe nach Textlänge) sind vom Zeilenraster ausgenommen.
+Runde 3 (review3): P11 „Wertfarbe = Status“ – eine per Regel gefärbte Kachelzahl ist nur dann ein Befund
+(kpi_statusfarbe), wenn die Kachel kein Statuswort „● …“ zeigt (Chip/inline aus core.tile). Neu: nav_rueckweg (P05,
+jedes sichtbare Blatt hat einen Zell-Link auf ein anderes Blatt), formel_text (P16, Formel + „@“), minus_typo (P23,
+Bindestrich statt „−“ in Zellen, bedingten Formaten und Diagrammachsen; je Blatt und Format gebündelt), neg_rot (P15,
+negative Beträge in core.sum_row-Zwischen-/Endsummen ohne Rot; Steuerwirkungszeilen „Zahlung/Erstattung“ ausgenommen).
 Selbsttest (python excel/lint_pro.py --selftest) prüft jede Regel und als Gegenprobe, dass core.tile/callout_box/btn
 keinen Befund auslösen.
 
@@ -76,17 +81,25 @@ RULES = {
     "zeilenraster":    (WARNUNG, "Zeilenhöhe außerhalb des Rasters core.ROW_RASTER (P1-17)"),
     "theme_schrift":   (WARNUNG, "Designschriftart (Theme) nicht Calibri/Calibri Light"),
     # Komponentensprache Runde 2 (CORE_API.md): Typo-Skala, Statusfarben-Disziplin, Buttons
-    "typo_skala":      (FEHLER, "Schriftgröße außerhalb der Typo-Skala core.TYPE_SCALE 8/9/10/12,5/16/20/22/30 pt (P3-11)"),
+    "typo_skala":      (FEHLER, "Schriftgröße außerhalb der Typo-Skala core.TYPE_SCALE 8/8,5/9/10/12,5/16/20/22/30 pt (P3-11, P40)"),
     "emoji":           (WARNUNG, "Emoji/Farbsymbol (⚠ ℹ 🟢 …) statt monochromer Zeichen ● ▲ ■ › (Statusfarben-Disziplin)"),
-    "kpi_statusfarbe": (WARNUNG, "Große Kennzahl (≥ 16 pt) in Status-Schriftfarbe grün/amber – Zahl neutral, Status als Pill/Chip/Kante (P1-10)"),
+    "kpi_statusfarbe": (WARNUNG, "Große Kennzahl (≥ 16 pt) in Statusfarbe ohne Statuswort daneben – Farbe als einziger Träger (P11: Wertfarbe = Status nur mit „● Wort“)"),
     "status_flaeche":  (WARNUNG, "Statusfarbe über eine ganze Fläche/Matrix (bedingte Füllung ≥ 3 × 2 Zellen oder grüne/amber Schrift > 12 Zellen)"),
-    "button_hoehe":    (WARNUNG, "Button-Zeile weicht von der Button-Höhe ab (primary/secondary/ghost 25,5 pt, soft/chip 22,5 pt – P1-13)"),
+    # Runde 3 (review3 P05, P16, P23, P15)
+    "nav_rueckweg":    (FEHLER, "Sichtbares Blatt ohne ausgehenden Zell-Link auf ein anderes Blatt (Zell-Link-Rückfall der Navigation, P05)"),
+    "formel_text":     (FEHLER, "Formelzelle mit Textformat „@“ (Excel zeigt nach Bearbeiten die Formel statt des Ergebnisses, P16)"),
+    "minus_typo":      (WARNUNG, "Zahlenformat zeigt negatives Vorzeichen als Bindestrich „-“ statt typografischem Minus „−“ (P23)"),
+    "neg_rot":         (WARNUNG, "Negative Summe/Endsumme (core.sum_row) ohne Negativ-Rot (P15)"),
+    "button_hoehe":    (WARNUNG, "Button-Zeile weicht von der Button-Höhe ab (primary/secondary/ghost 25,5 pt, soft/chip/input 22,5 pt – P1-13)"),
 }
 
 # Bewusste Ausnahmen: (Blatt, Zelle oder Bereich oder "*", Regel) → Begründung
 AUSNAHMEN = {
     ("AfA-Vergleich", "D7", "grau_klein"): "Farblegende: „grau = nicht anwendbar“ zeigt die Graustufe der inaktiven Zeilen",
     ("Finanzierung", "D7", "grau_klein"): "Farblegende: „grau = entfällt“ zeigt die Graustufe der entfallenen Werte",
+    # Wunsch G (Runde 3): Kennzahlen-Check und Kachelwerte stehen bewusst neutral, Status im Chip H20:H25 bzw. L16/O16/R16
+    ("Dashboard", "E20:E25", "kpi_ampel"): "Istwert neutral, Status im Chip H20:H25 derselben Zeile (P1-10)",
+    ("Dashboard", "K15:R15", "kpi_ampel"): "Kachelwert neutral, Status in der Kontextzeile L16/O16/R16 (P1-10)",
 }
 
 ALLOWED_FONTS = {"Calibri", "Calibri Light"}
@@ -332,6 +345,28 @@ def fmt_class(fmt):
     return ("other", None)
 
 
+def hyphen_minus(fmt, value=None):
+    """Zeigt das Format ein negatives Vorzeichen als Bindestrich „-“? (P23: typografisches Minus „−“)
+    Mehrteilige Formate: Negativ-Sektion enthält „-“ (frei, \\- oder in Anführungszeichen). Einteilige Formate und
+    Standard setzen „-“ automatisch – das zählt nur, wenn der Wert bekannt und negativ ist."""
+    if not isinstance(fmt, str) or fmt.strip() == "@":
+        return False
+    secs = _split_sections(fmt)
+    if any(re.match(r"\s*\[(<|>|=|<=|>=|<>)-?[\d.]+\]", x) for x in secs):
+        return False                 # bedingte Formate: nicht eindeutig zuordenbar
+    bare0 = re.sub(r'"[^"]*"|\\.|\[[^\]]*\]', "", secs[0])
+    if fmt in ("General", "Standard") or len(secs) == 1:
+        if fmt not in ("General", "Standard") and not re.search(r"[0#?]", bare0):
+            return False             # Datum/Text
+        return value is not None and not isinstance(value, bool) and isinstance(value, (int, float)) and value < 0
+    neg = re.sub(r"\[[^\]]*\]", "", secs[1])
+    return "-" in neg
+
+
+def STATUS_WORD_FMT(numfmt):
+    return isinstance(numfmt, str) and "●" in numfmt
+
+
 # =============================================================================== Hilfen
 def rgb_of(color):
     try:
@@ -527,6 +562,7 @@ class Linter:
         self.only = only_sheet
         self.skip = set(skip)
         self.found = []
+        self.minus_cells = []     # (Blatt, Zelle, Format, Anzeige) – je Blatt und Format gebündelt gemeldet
         self.geo = {}
         self.merged = {}
         self.names = {}
@@ -595,6 +631,9 @@ class Linter:
             self.check_validation(ws)
             self.check_links(ws)
             self.check_drawing(ws, wv)
+            self.check_nav(ws)
+            self.check_neg(ws, wv)
+        self.report_minus()
         if not self.only:
             self.check_dxf()
             self.check_theme()
@@ -664,6 +703,8 @@ class Linter:
                     self.add(title, ref, "einzug", f"indent={al.indent:g}, horizontal={h}")
                 if al.shrink_to_fit:
                     self.add(title, ref, "schrumpfen", "shrink_to_fit=1")
+                if c.data_type == "f" and (c.number_format or "").strip() == "@":
+                    self.add(title, ref, "formel_text", f"Formel mit Format „@“: {short(c.value, 40)}")
                 text, kind, runs = self.display_text(c, wv[ref])
                 if text is None or text == "":
                     continue
@@ -679,6 +720,10 @@ class Linter:
                 emo = EMOJI_RE.findall(text)
                 if emo:
                     self.add(title, ref, "emoji", f"„{''.join(dict.fromkeys(emo))}“ in „{short(text, 40)}“")
+                if kind == "num" and self.in_print(ws, col, r):
+                    vv = wv[ref].value if c.data_type == "f" else c.value
+                    if hyphen_minus(c.number_format, vv):
+                        self.minus_cells.append((title, ref, c.number_format, text))
                 if kind == "num" and sizes and max(sizes) >= KPI_BIG_PT:
                     colr = STATUS_FONT.get(rgb_of(f.color) if f is not None else None)
                     if colr:
@@ -893,9 +938,124 @@ class Linter:
             if is_empty(cell.value) or float(cell.font.sz or 11) < KPI_BIG_PT:
                 continue
             v = wv.cell(r, c).value if cell.data_type == "f" else cell.value
-            if isinstance(v, (int, float)) and not isinstance(v, bool):
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and not self.status_word_near(ws, c, r):
                 self.add(ws.title, cell.coordinate, "kpi_statusfarbe",
-                         f"{float(cell.font.sz):g}-pt-Kennzahl per Regel {colr} gefärbt")
+                         f"{float(cell.font.sz):g}-pt-Kennzahl per Regel {colr} gefärbt, aber kein „● Wort“ in der Kachel")
+
+    def status_word_near(self, ws, c, r):
+        """P11 „Wertfarbe = Status“: Die Farbe der Kachelzahl ist zulässig, wenn die Kachel den Status zusätzlich als Wort
+        zeigt (core.tile: Chip „● prüfen“ rechts in der Fußzeile oder bedingtes Zahlenformat @* "● prüfen" inline).
+        Gesucht wird in der Kachelbreite (Verbund der Label-/Wertzelle) von der Label- bis zur Fußzeile."""
+        anchors, _ = self.merges(ws)
+        c1, c2 = c, c
+        for (ac, ar) in ((c, r - 1), (c, r)):
+            if (ac, ar) in anchors:
+                c2 = max(c2, anchors[(ac, ar)][0])
+        rows = range(max(1, r - 1), r + 4)
+        for rr in rows:
+            for cc in range(c1, c2 + 1):
+                cell = ws.cell(rr, cc)
+                v = cell.value
+                if isinstance(v, str) and "●" in v or STATUS_WORD_FMT(cell.number_format):
+                    return True
+        for cf in ws.conditional_formatting:
+            hit = any(rg.min_col <= c2 and rg.max_col >= c1 and rg.min_row <= rows[-1] and rg.max_row >= rows[0]
+                      for rg in cf.sqref.ranges)
+            if hit and any(rule.dxf is not None and rule.dxf.numFmt is not None
+                           and STATUS_WORD_FMT(rule.dxf.numFmt.formatCode) for rule in cf.rules):
+                return True
+        return False
+
+    # ------------------------------------------------------------------ Runde 3: Navigation, Negativ-Rot, Minus
+    def check_nav(self, ws):
+        """P05: Jedes sichtbare Blatt hat mindestens einen Zell-Link auf ein anderes Blatt (Rückfall, falls Formen/
+        Makros nicht greifen – z. B. Breadcrumb Z. 5 oder „‹ Start“)."""
+        if ws.sheet_state != "visible":
+            return
+        for row in ws.iter_rows():
+            for c in row:
+                locs = []
+                hl = c.hyperlink
+                if hl is not None:
+                    locs.append(hl.location or (str(hl.target) if hl.target and str(hl.target).startswith("#") else None))
+                if c.data_type == "f" and isinstance(c.value, str) and "HYPERLINK(" in c.value.upper():
+                    m = re.search(r'HYPERLINK\(\s*"#?([^"]+)"', c.value, re.I)
+                    locs.append(m.group(1) if m else None)
+                for loc in locs:
+                    if not loc:
+                        continue
+                    res = self.resolve(loc)
+                    if isinstance(res, tuple) and res[0] != ws.title:
+                        return
+        self.add(ws.title, "-", "nav_rueckweg", "kein Zell-Link auf ein anderes Blatt (Breadcrumb Z. 5 / „‹ Start“ fehlt)")
+
+    def red_cells(self, ws):
+        """Zellen mit bedingter roter Schrift (core.neg_red / status_cf rot)."""
+        key = ("red", ws.title)
+        if key not in self.geo:
+            out = set()
+            red = core.RED.upper()
+            for cf in ws.conditional_formatting:
+                if not any(rule.dxf is not None and rule.dxf.font is not None and rgb_of(rule.dxf.font.color) == red
+                           for rule in cf.rules):
+                    continue
+                for rg in cf.sqref.ranges:
+                    for rr in range(rg.min_row, rg.max_row + 1):
+                        for cc in range(rg.min_col, rg.max_col + 1):
+                            out.add((cc, rr))
+            self.geo[key] = out
+        return self.geo[key]
+
+    def check_neg(self, ws, wv):
+        """P15: negative Beträge in Zwischen-/Endsummen (core.sum_row 'sub'/'final') sind rot B42318 – per neg_red,
+        [Red] im Format oder fester roter Schrift. Gemeldet wird nur, was im Build tatsächlich negativ ist."""
+        geo = self.g(ws)
+        navy, tint, line_sub = core.NAVY.upper(), core.TINT.upper(), getattr(core, "LINE_SUB", "D5DEEA").upper()
+        red = core.RED.upper()
+        _, inner = self.merges(ws)
+        hits = defaultdict(list)
+        for row in ws.iter_rows():
+            if any(x.data_type == "s" and isinstance(x.value, str) and "Erstattung" in x.value for x in row):
+                continue             # Steuerwirkung „+ Zahlung / – Erstattung“: negativ = Erstattung, bleibt neutral
+            for c in row:
+                if c.data_type not in ("f", "n") or (c.column, c.row) in inner or is_empty(c.value):
+                    continue
+                v = wv.cell(c.row, c.column).value if c.data_type == "f" else c.value
+                if not isinstance(v, (int, float)) or isinstance(v, bool) or v >= 0 or round(v, 6) == 0:
+                    continue
+                if geo.row_hidden(c.row) or geo.col_hidden(c.column) or not self.in_print(ws, c.column, c.row):
+                    continue
+                f, fl, bd = c.font, c.fill, c.border
+                if f is None or not f.b or rgb_of(f.color) != navy:
+                    continue
+                final = (fl is not None and fl.fill_type == "solid" and rgb_of(fl.fgColor) == tint
+                         and bd is not None and bd.bottom is not None and bd.bottom.style == "double")
+                sub = (bd is not None and bd.top is not None and bd.top.style == "thin"
+                       and rgb_of(bd.top.color) == line_sub)
+                if not (final or sub):
+                    continue
+                fmt = c.number_format or ""
+                if "Erstattung" in fmt or "Zahlung" in fmt or fmt.strip() == "@" or fmt_class(fmt)[0] not in ("eur", "num"):
+                    continue
+                secs = _split_sections(fmt)
+                if len(secs) > 1 and re.search(r"\[(Red|Rot)\]", secs[1], re.I):
+                    continue
+                if (c.column, c.row) in self.red_cells(ws):
+                    continue
+                hits[c.row].append((c.coordinate, "Endsumme" if final else "Zwischensumme", format_number(float(v), fmt)))
+        for r, lst in hits.items():          # je Zeile eine Meldung
+            ref = lst[0][0] if len(lst) == 1 else f"{lst[0][0]}:{lst[-1][0]}"
+            self.add(ws.title, ref, "neg_rot", f"{lst[0][1]} Zeile {r}: {len(lst)} negative Beträge (z. B. {lst[0][2]}) nicht rot")
+
+    def report_minus(self):
+        """minus_typo gebündelt: je Blatt und Formatcode eine Meldung (sonst hunderte gleichartige Zeilen)."""
+        groups = defaultdict(list)
+        for sh, ref, fmt, text in self.minus_cells:
+            groups[(sh, fmt)].append((ref, text))
+        for (sh, fmt), cells in groups.items():
+            ref, text = cells[0]
+            more = f" (+{len(cells) - 1} Zellen)" if len(cells) > 1 else ""
+            self.add(sh, ref, "minus_typo", f"Format {fmt!r}, z. B. „{short(text, 20)}“{more}")
 
     # ------------------------------------------------------------------ Druck, Gültigkeit, Links
     def check_print(self, ws):
@@ -1051,9 +1211,11 @@ class Linter:
             self.add(sheet, ref, "link_ziel", f"Diagramm „{name}“: {part} fehlt")
             return
         root = ET.fromstring(data)
-        bad_fonts, small = set(), set()
+        bad_fonts, small, minus = set(), set(), set()
         for el in root.iter():
             t = el.tag.split("}")[1]
+            if t == "numFmt" and el.get("sourceLinked") != "1" and hyphen_minus(el.get("formatCode")):
+                minus.add(el.get("formatCode"))
             if t == "latin":
                 tf = el.get("typeface")
                 if tf and not tf.startswith("+") and tf not in ALLOWED_FONTS:
@@ -1062,6 +1224,8 @@ class Linter:
                 small.add(int(el.get("sz")) / 100)
         for tf in sorted(bad_fonts):
             self.add(sheet, ref, "schriftart", f"Diagramm „{name}“: „{tf}“")
+        for fc in sorted(minus):
+            self.add(sheet, ref, "minus_typo", f"Diagramm „{name}“: Achsen-/Beschriftungsformat {fc!r}")
         if small:
             self.add(sheet, ref, "diagramm_schrift", f"Diagramm „{name}“: {', '.join(f'{s:g}' for s in sorted(small))} pt")
 
@@ -1073,6 +1237,8 @@ class Linter:
                 self.add("(Mappe)", f"dxf {i}", "schriftart", f"bedingte Formatierung: „{f.name}“")
             if f is not None and f.sz and float(f.sz) < 8:
                 self.add("(Mappe)", f"dxf {i}", "schrift_min", f"bedingte Formatierung: {float(f.sz):g} pt")
+            if dxf.numFmt is not None and hyphen_minus(dxf.numFmt.formatCode):
+                self.add("(Mappe)", f"dxf {i}", "minus_typo", f"bedingtes Zahlenformat {dxf.numFmt.formatCode!r}")
 
     def check_theme(self):
         data = self.pkg.read("xl/theme/theme1.xml")
@@ -1314,6 +1480,13 @@ def selftest():
     core.status_cf(ws, "H20:I23", [("H20<0", "red"), ("ISNUMBER(H20)", "green")], font_color=False, fill_bg=True)
     core.btn(ws, "K", 30, "L", "Weiter  ›", "T", kind="primary")                    # button_hoehe
     ws.row_dimensions[30].height = 30
+    ws["F32"], ws["F32"].number_format = "=1+1", "@"                                  # formel_text
+    ws["F33"], ws["F33"].number_format = -5, '#,##0" €";-#,##0" €"'                  # minus_typo
+    ws["B35"], ws["C35"] = "= Ergebnis", -1200                                        # neg_rot (Endsumme ohne Rot)
+    ws["C35"].number_format = core.NUMFMT["eur"] if hasattr(core, "NUMFMT") else '#,##0" €"'
+    core.sum_row(ws, 35, "B", "C", stage="final", neg=False)
+    ws["H40"], ws["H40"].font = 0.043, Font(name="Calibri", sz=20, bold=True, color=core.NAVY)   # kpi_statusfarbe (Regel)
+    core.status_cf(ws, "H40", [("H40<0.05", "amber")])
     # Gegenprobe: neue Bausteine dürfen keine Befunde auslösen (Kachel mit Chip, Callout mit Texthöhe)
     ok = wb.create_sheet("OK")
     for c in "BCDEFGH":
@@ -1324,6 +1497,14 @@ def selftest():
                      text="Ein Satz, der die Kennzahl einordnet und über zwei Zeilen umbricht, damit die Höhe krumm wird.",
                      conditions=[("B11<0.05", "amber"), ("ISNUMBER(B11)", "green")])
     core.btn(ok, "B", 14, "C", "Weiter  ›", "OK", kind="primary")
+    ok["B20"] = "Zurück"
+    ok["B20"].hyperlink = Hyperlink(ref="B20", location="'T'!A1")                  # nav_rueckweg: OK hat einen Rückweg
+    ok["E20"], ok["E20"].number_format = -5, core.NUMFMT["eur"]                       # typografisches Minus: kein Befund
+    for x in ("B20", "E20", "B22", "C22"):
+        ok[x].font = Font(name="Calibri", sz=10)
+    ok["B22"], ok["C22"] = "= Cashflow", -300
+    ok["C22"].number_format = core.NUMFMT["eur"]
+    core.sum_row(ok, 22, "B", "C", stage="final")                                     # neg_red automatisch: kein Befund
     ok.page_setup.paperSize = 9
     ok.print_area = "A1:M40"
     assert ok.row_dimensions[11].height not in RASTER, "Gegenprobe braucht eine krumme Callout-Höhe"
@@ -1334,7 +1515,8 @@ def selftest():
     want = {"einzug", "schrumpfen", "schrift_min", "grau_klein", "schriftart", "text_ueberlauf", "zahl_raute",
             "einheit_doppelt", "fehlerwert", "diagramm_verdeckt", "fixierlinie", "druck_papier", "druck_bereich",
             "gueltigkeit", "link_ziel", "umbruch_hoehe", "zeile_zu_niedrig",
-            "typo_skala", "emoji", "kpi_statusfarbe", "status_flaeche", "button_hoehe"}
+            "typo_skala", "emoji", "kpi_statusfarbe", "status_flaeche", "button_hoehe",
+            "nav_rueckweg", "formel_text", "minus_typo", "neg_rot"}
     missing = want - got
     false_pos = [f"{f['ref']} {f['rule']}: {f['msg']}" for f in found if f["sheet"] == "OK"]
     print("Selbsttest:", "OK" if not missing else f"FEHLT {sorted(missing)}", f"({len(want)} Regeln)")

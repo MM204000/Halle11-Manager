@@ -7,6 +7,7 @@ fix(files) erhält das entpackte Paket als dict {pfad: bytes} und ändert es an 
 - Präsentationsblätter ohne Zeilen-/Spaltenköpfe, Objekte im Blattschutz geschützt      P3-02
 - dxf-Einträge ohne Schriftnamen (Altschriften Fraunces/Inter aus der Vorlage)          P3-06
 - Datenbalken als Vollton ohne Verlauf (x14-Erweiterung, Excel 2010+)                   Wunsch G
+- Gliederung: [+]/[–] an der Abschnittszeile über dem Block (summaryBelow=0)            Wunsch D (Runde 3)
 """
 import os
 import posixpath
@@ -115,6 +116,27 @@ def fix_tab_color(name, root):
     tc.set("rgb", "FF" + G.tab_color(name))
 
 
+# Blätter, deren eingeklappte Blöcke UNTER ihrem Abschnittskopf liegen: Gliederungssymbol an der Kopfzeile.
+# LibreOffice verwirft <outlinePr> beim Neuberechnen, deshalb hier nach der Neuberechnung setzen.
+OUTLINE_ABOVE = ("Steuern", "Diagramme", "Sensitivität")
+
+
+def fix_outline(name, root):
+    if name not in OUTLINE_ABOVE:
+        return
+    pr = root.find(q("sheetPr"))
+    if pr is None:
+        pr = etree.Element(q("sheetPr"))
+        root.insert(0, pr)
+    op = pr.find(q("outlinePr"))
+    if op is None:
+        op = etree.Element(q("outlinePr"))
+        tc = pr.find(q("tabColor"))
+        pr.insert(0 if tc is None else list(pr).index(tc) + 1, op)   # Reihenfolge: tabColor, outlinePr, pageSetUpPr
+    op.set("summaryBelow", "0")
+    op.set("summaryRight", "1")
+
+
 def fix_view(name, root):
     if name in G.PRESENTATION or G.STEP_RE.match(name):
         for sv in root.iter(q("sheetView")):
@@ -193,6 +215,7 @@ def fix(files):
             fix_tab_color(name, root)
             fix_validations(name, root)
             fix_view(name, root)
+            fix_outline(name, root)
             fix_databars(root)
             files[p] = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
         except Exception as exc:  # ein Blatt darf den Nachlauf nicht abbrechen

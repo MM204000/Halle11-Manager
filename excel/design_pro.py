@@ -55,8 +55,10 @@ THEMES = {
         ON_DARK_2="C8D7EB", ON_DARK_ACC="9CBBE2",
         INPUT_BG="FFF5D6", INPUT_LINE="E6CB77", INPUT_FG="1D4F8A",
         GROUP={"ein": "C4C8CE", "inp": "E6B940", "aus": "0B2A4A", "ber": "4A86C8", "bank": "8FA9C9", "anh": "DADCDF"},
-        SERIES=["0B2A4A", "4A86C8", "9CBBE2", "1D4F8A", "C5CDD8", "6E7F96"],
-        PIE_MAIN="2D63A6",
+        # P18: feste Palette – Hauptgröße Navy, Vergleich Akzent/hell, Ausgaben in der Grau-Familie
+        SERIES=["0B2A4A", "4A86C8", "8FB3DE", "1D4F8A", "C9CED6", "5B6068"],
+        PIE_RAMP=["0B2A4A", "1D4F8A", "2F6BAE", "4A86C8", "8DB3DE", "C9DBEF"],   # Kreise: 6-stufige Blau-Rampe
+        PIE_MAIN="1D4F8A",
         LOGO_DARK=(11, 42, 74), LOGO_LIGHT=(156, 187, 226),
         INPUT_WORD="Gelb", LINK_WORD="Blau",
     ),
@@ -99,7 +101,7 @@ def apply_theme(name):
     g["TEXT_MAP_DARK"] = {"F4F0E8": ON_DARK, "EBE6DB": t["ON_DARK_2"], "B9B4A6": t["ON_DARK_2"], "A08A55": t["ON_DARK_ACC"],
                           "C6A45C": t["ON_DARK_ACC"], "0C0F0D": ON_DARK, "0F1C16": ON_DARK, "6B685E": t["ON_DARK_2"]}
     ser = t["SERIES"]
-    g["SERIES_MAP"] = {"0f1c16": ser[0], "173026": ser[3], "a08a55": ser[1], "c6a45c": ser[2], "6f8f7a": "3E8E6A",
+    g["SERIES_MAP"] = {"0f1c16": ser[0], "173026": ser[3], "a08a55": ser[1], "c6a45c": ser[2], "6f8f7a": ser[2],
                        "6b685e": ser[5], "b9b4a6": ser[4], "e2dcce": "E6E8EB", "8c3b2e": RED, "4f81bd": ser[1],
                        "7f9aa6": ser[2], "ffffff": "FFFFFF"}
     g["TEXT_FIXES"] = {
@@ -279,7 +281,7 @@ def restyle_cell(ws, c, o, ctx):
             label_row = c.row in ctx["tile_label_rows"]
             c.fill = fill(TEAL if label_row else TEAL_XL)
             if is_tile_label(o):
-                c.font = Font(name=SANS, sz=8, b=True, color=ON_DARK)
+                c.font = Font(name=SANS, sz=8.5, b=True, color=ON_DARK)   # T_LABEL (Runde 3)
                 c.alignment = Alignment(horizontal="left", vertical="center", indent=1, wrap_text=False, shrink_to_fit=False)
             elif is_tile_value(o):
                 c.font = Font(name=DISPLAY, sz=20 if o.size >= 16 else 12.5, b=True, color=TEAL)
@@ -335,7 +337,7 @@ def restyle_cell(ws, c, o, ctx):
             c.border = Border(left=d, right=d, top=d, bottom=d)
         elif o.bold and o.size < 10:  # Spaltenkopf
             c.fill = fill(HEAD_TINT)
-            c.font = Font(name=SANS, sz=8, b=True, color=TEAL_MID)
+            c.font = Font(name=SANS, sz=8.5, b=True, color=TEAL_MID)   # Tabellenkopf T_LABEL (Runde 3)
             if isinstance(o.value, str) and not is_formula(o.value) and len(o.value) <= 40:
                 if c.data_type == "s" and o.value.upper() != o.value:
                     c.value = o.value.upper()
@@ -541,7 +543,7 @@ def design_workbook(src, tmp):
         for part in (ws.oddFooter.left, ws.oddFooter.right):
             part.size = 8
             part.font = "Calibri,Regular"
-            part.color = MUTED2
+            part.color = MUTED
 
     # ---- globale Regeln (früh) → Blatt-Layouts → globale Regeln (final) → Dashboard → Druck
     import global_rules

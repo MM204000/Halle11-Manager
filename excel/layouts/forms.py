@@ -1,15 +1,16 @@
-"""Formularblätter Eingaben, Konfiguration, Hinweise (Agent E) – ruhiger „Private Banking“-Stil, Runde 2.
+"""Formularblätter Eingaben, Konfiguration, Hinweise (Agent E) – ruhiger „Private Banking“-Stil, Runde 3.
 
-Komponentensprache ausschließlich aus core.py (P1-12/P1-14/P1-18/P2-12):
-  Seitenkopf core.page_header (Überzeile „<REITER> › <BLATT>“, Titel 22 pt, Untertitel 10 pt, Meta rechts 9 pt) ·
-  Abschnittskopf core.section (Ebene 1 hell E7EEF7 + Akzentkante, Ebene 2 EEF3FA-Tabellenkopf) ·
-  Summenstufen core.sum_row (Zwischensumme / Blockergebnis) · Zahlenformate core.NUMFMT/numfmt ·
-  Zeilenhöhen core.fit_row (Calibri-Metrik, Raster 18/30/42/n×13+8) · Rich-Text core.rich · Fuß core.footer.
+Komponentensprache ausschließlich aus core.py:
+  Seitenkopf core.page_header (P04: Eyebrow links / Unterreiter rechts · Titel + Objekt · Untertitel + „Erstellt für“) ·
+  Abschnittskopf core.section (Ebene 1 E7EEF7 + Akzentkante, Ebene 2 EEF3FA-Tabellenkopf) ·
+  Summenhierarchie core.sum_row (P12: 'sub' · genau ein 'final' je Abschnitt · 'memo' für nachrichtliche Kennzahlen) ·
+  Zahlenformate core.NUMFMT/numfmt (P24/P38: Einheiten Jahre/Monate/m² im Format, „–“ für berechnete Nullen) ·
+  Zeilenhöhen core.fit_row (Hinweise: metric=True, n × 12,5 + 8 pt, P27) · Rich-Text core.rich · Fuß core.footer.
 
 Inhaltsbreite aller drei Blätter: Kopfleiste endet bei 1 368 px (core.NAV_MIN_PX), P3-07/Befund „Inhaltsbreite“:
-  Eingaben    A 31 | B 308 | C:D 322 | E 87 | F 56 | G:L 543  → 1 347 px (+ Randspalte M 21 = 1 368)
-  Konfiguration A 31 | B 301 | C 84 | D 77 | E 308 | F 14 | G 553 → 1 368 px
-  Hinweise    A 31 | B 210 | C 511 | D 385 | E 231 → 1 368 px (Breiten nach minimaler Gesamtzeilenzahl)
+  Eingaben    A 31 | B 300 | C:D 350 | E 88 | F 56 | G:L 543  → 1 368 px (Randspalte M liegt hinter der Kopfleiste)
+  Konfiguration A 31 | B 301 | C 76 | D 70 | E 308 | F 40 (Rinne) | G 542 → 1 368 px
+  Hinweise    A 31 | B 210 | C 550 | D 382 | E 195 → 1 368 px (Breiten nach minimaler Zeilenzahl ohne Grenzfälle)
 
 Nur Darstellung: Formeln und Eingabewerte bleiben unverändert; verändert werden nur Stile, Zahlenformate,
 statische Beschriftungen (auf die nichts verweist), Verbünde, Spaltenbreiten und Zeilenhöhen.
@@ -53,6 +54,22 @@ def _width(ws, letter, w):
     d.width = w
 
 
+def _width_px(ws, letter, px):
+    """Spaltenbreite so setzen, dass core.col_px genau `px` Pixel ergibt (Excel-Raster, Ziffernbreite 7 px)."""
+    w = round((px + 0.3) / 7, 2)
+    for _ in range(40):
+        _width(ws, letter, w)
+        got = C.col_px(ws, letter)
+        if got == px:
+            return
+        w = round(w + (0.01 if got < px else -0.01), 2)
+
+
+def _widths_px(ws, spec):
+    for letter, px in spec:
+        _width_px(ws, letter, px)
+
+
 def _unmerge_row(ws, row, c1, c2):
     for mr in list(ws.merged_cells.ranges):
         if mr.min_row <= row <= mr.max_row and not (mr.max_col < C.col(c1) or mr.min_col > C.col(c2)):
@@ -83,8 +100,14 @@ def _plain(v):
     return str(v) if v is not None else ""
 
 
-def _header(ws, eyebrow, title, subtitle, last, meta=None):
-    """Seitenkopf Z. 4–7 nach Standard (P1-18) – Flächen/Linien rechts davon leeren."""
+OBJ_CONTEXT = ("=Obj_Name", '=IFERROR(IF(Erstellt_fuer="","","Erstellt für "&Erstellt_fuer),"")')
+
+
+def _header(ws, eyebrow, title, subtitle, last):
+    """Seitenkopf-Vorlage Z. 4–7 (P04, core.page_header): Z. 5 Eyebrow links (rechts die Unterreiter-Formen),
+    Z. 6 Titel links + Objekt rechts, Z. 7 Untertitel links + „Erstellt für …“ rechts – alle rechten Elemente
+    bündig an der rechten Inhaltskante (Spalte `last`). Das Eyebrow ist zugleich Zell-Link zur Startseite
+    (Rückfall ohne Formen-Links, Nutzerentscheidung 1)."""
     for r in (4, 5, 6, 7):
         _unmerge_row(ws, r, 2, last)
         for c in C.iter_cells(ws, 2, r, last, r):
@@ -93,13 +116,11 @@ def _header(ws, eyebrow, title, subtitle, last, meta=None):
             c.fill = NOFILL
             c.border = Border()
             c.hyperlink = None
-    C.page_header(ws, "B", C.L(last), eyebrow, title, subtitle)
+    C.page_header(ws, "B", C.L(last), eyebrow, title, subtitle, context=OBJ_CONTEXT)
     ws.row_dimensions[4].height = 10
-    if meta:
-        m = ws.cell(7, last)
-        m.value = meta
-        m.font = font(T_SMALL, False, MUTED)
-        m.alignment = align("right", "top", 1)
+    e = ws["B5"]
+    e.hyperlink = Hyperlink(ref="B5", location=C.link_loc("Start"), display=e.value,
+                            tooltip="Zur Startseite – alle Bereiche")
 
 
 def _section(ws, row, c1, c2, title, extra=None, num=None, up=False):
@@ -111,12 +132,12 @@ def _section(ws, row, c1, c2, title, extra=None, num=None, up=False):
         parts += [(num, T_H3, True, ACCENT), ("   ", T_H3, True, NAVY)]
     parts.append((title, T_H3, True, NAVY))
     if extra:
-        parts.append(("     " + _typo(extra), T_SMALL, False, MUTED))
+        parts.append(("   " + _typo(extra), T_SMALL, False, MUTED))
     first = ws.cell(row, C.col(c1))
     first.value = C.rich(parts)
     if up:
         cell = ws.cell(row, C.col(c2))
-        C.text_link(cell, "↑ Übersicht", ws.title, C.link_target(ws.title), size=T_MICRO, bold=False,
+        C.text_link(cell, "↑ Übersicht", ws.title, C.link_target(ws.title), size=C.T_LABEL, bold=False,
                     tooltip="Zum Seitenanfang mit der Sprungleiste")
         cell.alignment = align("right", "center", 1)
     return first
@@ -154,15 +175,25 @@ EIN_DERIVED = {33: "Notar – Betrag", 34: "Grundbuch – Betrag", 35: "Makler �
                44: "Grundschuldbestellung – Betrag", 45: "Disagio – Betrag"}
 # Haarlinie über der ersten berechneten Zeile eines Abschnitts (erst Annahmen, dann Ergebnisse, dann Summe)
 EIN_RULE_ABOVE = (33, 44, 54, 90, 135)
-# Summenstufen (P1-14): genau ein Blockergebnis je Abschnitt
-EIN_SUB = (56, 112, 113)
-EIN_RESULT = (36, 46, 58, 71, 92, 114, 138)
-# Zahlenformate (P2-12): zweite Nachkommastelle nur bei Zinsen/Tilgung, Makler und Steuersätzen
+# Summenhierarchie (Runde 3, P12): je Abschnitt GENAU EINE Endsumme ('final'), Zwischensummen 'sub'
+# (ohne Fläche, Oberlinie D5DEEA), Kennzahlen nach der Endsumme nachrichtlich ('memo', 9 pt kursiv) –
+# so steht die Doppellinie nie mitten im Abschnitt als scheinbares Ende.
+EIN_SUB = (56, 58, 112, 113)
+EIN_SUB_NOTOP = (113,)                      # zweite Zwischensumme direkt unter der ersten
+EIN_RESULT = (36, 46, 59, 71, 92, 114, 138)
+EIN_MEMO = (37, 72, 73, 93, 115, 116, 117, 139)
+# Zahlenformate (P2-12/P24): zweite Nachkommastelle nur bei Zinsen/Tilgung, Makler und Steuersätzen
 EIN_PCT2 = {31, 98, 99, 101, 105, 106, 108, 111, 124, 136, 137, 138, 139}
-EIN_INT = {21, 68, 85, 100, 103, 107, 110, 129, 143}
 EIN_INPUTS = range(104, 112)
-# Einheit genau einmal (P3-08); § 82b: „Jahr(e)“ (P2-12)
-EIN_UNIT = {91: None, 93: None, 68: "Jahr(e)"}
+# Einheiten im Zahlenformat (P38): Jahre / Monate / m² – Spalte E nur noch für Qualifier („pro Monat“, „je m²“)
+_M = C.MINUS
+FMT_YEARS = '[=1]0" Jahr";[=0]"–";0" Jahre"'        # berechnet/übernommen: 0 → „–“
+FMT_MONTHS = '[=1]0" Monat";[=0]"–";0" Monate"'
+FMT_QM = f'#,##0" m²";"{_M}"#,##0" m²";"–"'
+EIN_YEARS = {21, 68, 100, 103, 110, 107, 129, 143}
+EIN_MONTHS = {85}
+EIN_QM = {14, 15}
+EIN_UNIT_CLEAR = EIN_YEARS | EIN_MONTHS | EIN_QM | {91, 93}
 STEP_PREFIX = re.compile(r"^Eingabe im Leitfaden, Schritt (\d\d)\s*(?:–\s*)?")
 
 # Beschriftung kürzen (P1-04): Zeile → (neue Beschriftung, Zusatz vor dem Hinweis oder None)
@@ -181,6 +212,7 @@ EIN_LABELS = {
     78: ("Umlagefähige Betriebskosten", "Vorauszahlung Mieter"),
     80: ("davon nicht umlagefähig", "Verwaltung WEG, Rücklage, Sonstiges"),
     81: ("davon Zuführung zur Erhaltungsrücklage", "in der nicht umlagefähigen Position enthalten"),
+    85: ("Anfangsleerstand (Renovierung / Neuvermietung)", None),
     86: ("Sonstige Werbungskosten p. a.", "Steuerberatung, Kontoführung, Fahrten"),
     101: ("Darlehen I – Anschlusszins (Annahme)", "nach Ablauf der Zinsbindung"),
     113: ("Gesamtinvestition", "Kaufpreis + Kaufnebenkosten + Finanzierungsnebenkosten + Maßnahmen Jahr 1"),
@@ -197,8 +229,22 @@ EIN_LABELS = {
     138: ("Grenzbelastung Privat (ESt + Soli + KiSt)", None),
     145: ("Verkaufspreis manuell", "leer = Wertentwicklung lt. Prognose"),
 }
-# Redaktionell gekürzte Hinweise (einzeilig in G:L)
-EIN_HINTS = {22: "Gehört nicht zu den Gebäude-AK (nicht abschreibbar), unterliegt aber der GrESt (BFH II R 49/17)"}
+# Redaktionell gekürzte Hinweise – möglichst einzeilig in G:L (gleichmäßiger 18-pt-Rhythmus, P27)
+EIN_HINTS = {
+    15: "ETW: Miteigentumsanteil × Grundstücksfläche (lt. Teilungserklärung); nur Bodenrichtwert-Methode",
+    20: "Einbauküche, Möbel: grunderwerbsteuerfrei (§ 2 GrEStG), gesondert linear abschreibbar",
+    22: "Gehört nicht zu den Gebäude-AK (nicht abschreibbar), unterliegt aber der GrESt (BFH II R 49/17)",
+    50: "BMF-Arbeitshilfe; abweichend per Gutachten oder plausibler Kaufvertragsaufteilung (BFH IX R 26/19)",
+    67: "Automatik: netto > 15 % der Gebäude-AK in 3 Jahren → Herstellungskosten (AfA statt Sofortabzug)",
+    68: "1 Jahr = Sofortabzug; 2–5 Jahre = gleichmäßige Verteilung (nur Privatvermögen, Wohngebäude)",
+    70: "Nicht steuerrelevant, z. B. Mieterwechsel – erhöht nur den Eigenkapitalbedarf",
+    81: "Im nicht umlagefähigen Hausgeld enthalten – steuerlich erst bei Verausgabung (BFH IX R 19/24)",
+    127: "Ohne erweiterte Kürzung, z. B. 400 %; mit erweiterter Kürzung entfällt die GewSt auf Mieterträge",
+    129: "Nur Methode Gutachten: kürzere Nutzungsdauer per Gutachten (BFH IX R 25/19; BMF 22.2.2023)",
+    130: "Automatisch, sobald vorteilhaft (§ 7 Abs. 5a S. 4 EStG): linear nach Restwert und Restnutzungsdauer",
+    131: "5 % p. a. für 4 Jahre; Bauantrag 1.1.2023 – 30.9.2029, EH 40 + QNG, Baukosten ≤ 5.200 €/m²",
+    132: "Sanierungsgebiet / Baudenkmal: 9 % p. a. (Jahre 1–8), 7 % p. a. (Jahre 9–12) auf bescheinigte Kosten",
+}
 EIN_HEAD = {"B": ("POSITION", "left"), "C": ("WERT", "right"), "E": ("EINHEIT", "left"),
             "F": ("QUELLE", "left"), "G": ("HINWEIS / STEUERLICHE EINORDNUNG", "left")}
 
@@ -262,11 +308,18 @@ def _choices(wb):
 
 
 def _ein_fmt(r, fmt, entry):
-    """Zahlenformat nach Katalog (P2-12): Anzeige mit „–“ für 0, Eingabefelder mit sichtbarer 0."""
+    """Zahlenformat nach Katalog (P2-12/P38): Anzeige mit „–“ für 0, Eingabefelder (gelb) mit sichtbarer 0;
+    Jahre / Monate / m² als Einheit im Format."""
     if r == 93:
         return NUMFMT["mult1"]
     if r == 16:
         return NUMFMT["year"]
+    if r in EIN_YEARS:
+        return NUMFMT["years_in"] if entry else FMT_YEARS
+    if r in EIN_MONTHS:
+        return FMT_MONTHS
+    if r in EIN_QM:
+        return FMT_QM
     if fmt is None or fmt == "General" or "yy" in fmt.lower():
         return fmt
     if "%" in fmt:
@@ -275,8 +328,6 @@ def _ein_fmt(r, fmt, entry):
         return C.numfmt("pct2" if r in EIN_PCT2 else "pct1", entry)
     if "€" in fmt:
         return C.numfmt("eur2" if ".00" in fmt else "eur", entry)
-    if r in EIN_INT:
-        return C.numfmt("int0", entry)
     if fmt.startswith("#,##0"):
         return C.numfmt("num", entry)
     return fmt
@@ -289,20 +340,18 @@ def eingaben(wb):
     global _CHOICES
     _CHOICES = _choices(wb)
 
-    # ---- Spalten: Inhaltsbreite 1 347 px + Randspalte M → Kopfleiste endet wie überall bei 1 368 px
+    # ---- Spalten (P04/Befund „rechte Kante“): Inhalt A:L = 1 368 px = rechte Kante der Kopfleiste; die Randspalte M
+    #      liegt dahinter (Kopfleiste endet an L). Wertspalte C:D 350 px, damit Auswahltexte links einzeilig stehen (P28).
     _ungroup_cols(ws)
-    for letter, w in (("B", 44), ("C", 23), ("D", 23), ("E", 12.5), ("F", 8)):
-        _width(ws, letter, w)
-    for ci in range(7, 12):
-        _width(ws, get_column_letter(ci), 12.9)
-    _width(ws, "L", 13.3)
+    _widths_px(ws, (("B", 300), ("C", 175), ("D", 175), ("E", 88), ("F", 56),
+                    ("G", 90), ("H", 90), ("I", 90), ("J", 90), ("K", 90), ("L", 93)))
+    _width(ws, "M", 3)
 
-    # ---- Seitenkopf (P1-18)
+    # ---- Seitenkopf (P04): Objekt / „Erstellt für“ rechts an der Inhaltskante
     _header(ws, "Eingaben  ›  Alle Annahmen", "Eingaben",
-            "Alle Annahmen auf einen Blick – Werte stammen aus dem Leitfaden und werden dort geändert; "
-            "direkt editierbar sind nur die Profi-Felder für Darlehen II.", L_,
-            meta='=IFERROR(IF(Erstellt_fuer="","","Erstellt für "&Erstellt_fuer),"")')
-    # Legende rechts neben der Sprungleiste (Zeile 8, Formen von navigation.py)
+            "Alle Annahmen auf einen Blick – geändert wird im Leitfaden; direkt editierbar sind nur die "
+            "Profi-Felder für Darlehen II.", L_)
+    # Legende rechts neben der Sprungleiste (Zeile 8, Formen von navigation.py) – bündig an der Inhaltskante
     _clear_row(ws, 8, 2, L_)
     C.safe_merge(ws, "H", 8, "L", 8)
     lg = ws["H8"]
@@ -310,7 +359,7 @@ def eingaben(wb):
                        ("        ■  ", T_BODY, False, BLUE), ("aus dem Leitfaden – dort ändern", T_SMALL, False, BLUE),
                        ("        ■  ", T_BODY, False, INK), ("berechnet", T_SMALL, False, INK)])
     lg.font = font(T_SMALL, False, MUTED)
-    lg.alignment = align("right", "center", 1)
+    lg.alignment = align("right", "center")
     ws.row_dimensions[8].height = 30
 
     # ---- Abschnitte: Ebene 1 (hell) + Tabellenkopf Ebene 2 + Datenzeilen
@@ -337,12 +386,15 @@ def eingaben(wb):
         for c in C.iter_cells(ws, 2, r, L_, r):
             c.border = Border(top=side("thin", LINE2), bottom=side("hair", LINE))
 
-    # ---- Summenstufen (P1-14): Zwischensumme F3F7FC · Blockergebnis E7EEF7 mit Doppellinie
+    # ---- Summenhierarchie (P12): Zwischensumme · genau eine Endsumme je Abschnitt · Kennzahlen nachrichtlich
     for r in EIN_SUB + EIN_RESULT:
-        C.sum_row(ws, r, "B", "L", "sub" if r in EIN_SUB else "result")
+        stage = "sub" if r in EIN_SUB else "final"
+        C.sum_row(ws, r, "B", "L", stage, top=r not in EIN_SUB_NOTOP)
         ws.cell(r, 2).alignment = align("left", "center", 1, wrap=True)
         for cc in (5, 7):
             ws.cell(r, cc).font = font(T_SMALL, False, MUTED)
+    for r in EIN_MEMO:
+        C.sum_row(ws, r, "B", "L", "memo")
 
     # ---- Profi-Felder (Darlehen II): Eingabezellen über C:D
     for r in EIN_INPUTS:
@@ -394,10 +446,8 @@ def _data_row(ws, wb, steps, r, last):
     if hint:
         hint = hint.replace(" | ", " · ")
         hint = _typo(hint[0].upper() + hint[1:])
-    # Einheit genau einmal
-    if r in EIN_UNIT:
-        e.value = EIN_UNIT[r]
-    elif isinstance(e.value, str) and e.value.strip() in ("€", "%"):
+    # Einheit genau einmal: Jahre / Monate / m² stehen im Zahlenformat (P38)
+    if r in EIN_UNIT_CLEAR or (isinstance(e.value, str) and e.value.strip() in ("€", "%")):
         e.value = None
     # Zeilenstil: keine senkrechten Linien, Haarlinie über die volle Breite
     for c in C.iter_cells(ws, 2, r, last, r):
@@ -412,11 +462,15 @@ def _data_row(ws, wb, steps, r, last):
     col_c = cval.font.color.rgb[-6:] if (cval.font.color is not None and isinstance(cval.font.color.rgb, str)) else INK
     linked = col_c.upper() == BLUE
     entry = r in EIN_INPUTS
-    cval.font = font(T_BODY, False, BLUE if linked else INK)
     fmt = cval.number_format
     is_text = (fmt in (None, "General")) and not isinstance(cval.value, (int, float)) and r != 16
     cval.number_format = _ein_fmt(r, fmt, entry)
-    cval.alignment = align("right", "center", 1, wrap=is_text)
+    # Texte links, Zahlen rechts (P28). Alle Text-/Auswahlwerte einheitlich 9 pt (eine Größe je Werttyp) –
+    # so passt auch die längste Auswahloption der meisten Felder einzeilig; Zahlen bleiben 10 pt.
+    opts = _CHOICES.get(cval.value[1:], []) if (is_text and C.is_formula(cval.value)) else []
+    longest = max(opts, key=lambda t: C.text_width(t)) if opts else None
+    cval.font = font(T_SMALL if is_text else T_BODY, False, BLUE if linked else INK)
+    cval.alignment = align("left" if is_text else "right", "center", 1, wrap=is_text)
     # Einheit
     e.font = font(T_SMALL, False, MUTED)
     e.alignment = align("left", "center", 1)
@@ -443,20 +497,16 @@ def _data_row(ws, wb, steps, r, last):
     g.alignment = align("left", "center", 1, wrap=True)
     C.safe_merge(ws, "G", r, "L", r)
     # Zeilenhöhe: Calibri-Metrik; Auswahlfelder nach der längsten Option (Excel passt die Höhe nicht nach)
-    hints = None
-    if is_text and C.is_formula(cval.value):
-        opts = _CHOICES.get(cval.value[1:], [])
-        if opts:
-            hints = {"C": max(opts, key=lambda t: C.text_width(t))}
-    _row_height(ws, r, "B", "L", hints)
+    _row_height(ws, r, "B", "L", {"C": longest} if longest else None)
 
 
 # ================================================================================================ Konfiguration
 KON_BANDS = {  # Zeile → (Titel, Zusatz mit Rechtsgrundlage/Quelle)
     8: ("Grunderwerbsteuer nach Bundesland", "§ 11 GrEStG · Landesgesetze, Übersicht z. B. finanz-tools.de (Stand 2026)"),
-    27: ("Einkommensteuertarif 2026", "Quelle: gesetze-im-internet.de (§ 32a EStG i. d. F. ab VZ 2026)"),
-    43: ("Körperschaftsteuersatz nach Kalenderjahr", "§ 23 KStG · Investitionssofortprogramm 2025"),
-    56: ("Konstanten und Schwellenwerte", "steuerliche Parameter"),
+    27: ("Einkommensteuertarif 2026", "§ 32a EStG"),
+    43: ("Körperschaftsteuersatz nach Kalenderjahr",
+         "§ 23 KStG · ab 2028 −1 %-Punkt p. a. bis 10 % (2032) · zzgl. Soli 5,5 %"),
+    56: ("Konstanten und Schwellenwerte", None),
     74: ("Ampel-Schwellenwerte", "Cockpit, Dashboard, Leitfaden und Sensitivität"),
 }
 KON_TABLES = [(10, 25), (28, 40), (45, 54), (57, 72), (76, 80)]
@@ -469,7 +519,6 @@ KON_NOTES = {
     31: "69.879 – 277.825 €: 0,42·x – 11.135,63",
     37: "ab 277.826 €: 0,45·x – 19.470,38",
     38: "5,5 % der ESt/KSt; Freigrenze 2026: 20.350 € / 40.700 € ESt",
-    45: "ab 2028 −1 %-Punkt p. a. bis 10 % (2032); zzgl. Soli 5,5 %",
     58: "innerhalb von 3 Jahren nach Anschaffung (AK Gebäude)",
     59: "im Jahr der Anschaffung und in den 3 Folgejahren",
     61: "je m² Wohnfläche · bei Überschreitung entfällt § 7b ganz",
@@ -510,20 +559,20 @@ def konfiguration(wb):
     ws = wb["Konfiguration"]
     last = 7  # G
     _ungroup_cols(ws)
-    for letter, w in (("B", 43), ("C", 12), ("D", 11), ("E", 44), ("F", 2), ("G", 79)):
-        _width(ws, letter, w)
+    # Breiten (P26): Rinne F 40 px (≥ 4 Zeichen) zwischen Tabellen und Auswahllisten; Summe A:G = 1 368 px
+    _widths_px(ws, (("B", 301), ("C", 76), ("D", 70), ("E", 308), ("F", 40), ("G", 542)))
 
     _header(ws, "Anhang  ›  Konfiguration", "Konfiguration", None, last)
     w = ws["B7"]
     w.value = C.rich([("▲  Expertenbereich", T_BODY, True, AMBER),
-                      ("   ·   Werte hier zentral pflegen – Änderungen wirken auf alle Blätter; Reihenfolge der "
-                       "Auswahllisten nicht ändern · Rechtsstand September 2026", T_BODY, False, MUTED)])
+                      ("   ·   Änderungen wirken auf alle Blätter – Reihenfolge der Auswahllisten nicht ändern",
+                       T_BODY, False, MUTED)])
     w.font = font(T_BODY, False, MUTED)
     w.alignment = align("left", "top")
     ws.row_dimensions[7].height = 22
 
     # Quellen wandern in die Abschnittsköpfe (Zusatz), die Fußnotenzeilen werden Abstandszeilen
-    for a in ("E9", "E10", "B26", "B41"):
+    for a in ("E9", "E10", "B26", "B41", "E45"):  # E45: KSt-Hinweis steht jetzt im Abschnittskopf (P29)
         ws[a].value = None
 
     # ---- Datenzeilen B:E
@@ -587,7 +636,7 @@ def konfiguration(wb):
     _section(ws, 8, "G", "G", "Auswahllisten", "Dropdown-Quellen · Reihenfolge nicht ändern")
     ws.row_dimensions[9].height = C.H_HEAD
     for r, labels in ((9, {"B": ("BUNDESLAND", "left"), "C": ("STEUERSATZ", "right"), "D": ("GÜLTIG SEIT", "center")}),
-                      (44, {"B": ("KALENDERJAHR", "left"), "C": ("STEUERSATZ", "right"), "E": ("HINWEIS", "left")}),
+                      (44, {"B": ("KALENDERJAHR", "left"), "C": ("STEUERSATZ", "right")}),
                       (75, {"B": ("KENNZAHL", "left"), "C": ("GRÜN AB", "right"), "D": ("GELB AB", "right"),
                             "E": ("HINWEIS", "left")})):
         for c in C.iter_cells(ws, 2, r, 5, r):
@@ -601,14 +650,33 @@ def konfiguration(wb):
             c.fill = NOFILL
             c.border = Border()
         ws.row_dimensions[r].height = C.H_ROW
-    ws.row_dimensions[42].hidden = True  # zweite Leerzeile vor dem KSt-Abschnitt (Abstand wie überall)
+    # Z. 42: Fuge vor „AfA-Methode Gebäude“ rechts (P27) – 12 pt, weil links schon Z. 41 als Abstand dient
+    ws.row_dimensions[42].hidden = False
+    ws.row_dimensions[42].height = C.H_GAP
     for r in (26, 27, 41):  # Listeneinträge in Sonderzeilen mittig (Befund Auswahllisten)
         ws.cell(r, 7).alignment = align("left", "center", 1)
+    # Tabellen ohne eigene Kopfzeile (ESt-Tarif, Konstanten): Spaltenlabels im Abschnittskopf (P29)
+    for r in (27, 56):
+        for coord, text, h in ((f"C{r}", "WERT", "right"), (f"E{r}", "HINWEIS", "left")):
+            c = ws[coord]
+            C.set_text(c, text)
+            c.font = font(C.T_LABEL, True, BLUE)
+            c.alignment = align(h, "center", 1)
+    # Nullkonvention (P38): Anzeigeformat mit „–“ für die Tarif-/Baukostengrenzen
+    for coord in ("C28", "C29", "C30", "C31", "C61", "C62"):
+        ws[coord].number_format = NUMFMT["eur"]
 
     _footer(ws, 82, 2, last, gap=C.H_ROW)
 
 
 # ================================================================================================ Hinweise
+# Redaktionell gestraffte Annahmetexte: klar ein- oder zweizeilig über C:E (keine Grenzfälle, P27)
+HIN_TEXT = {
+    31: "Konstanter Grenzsteuersatz (Privat) bzw. KSt-Staffel + Soli (+ GewSt) – keine vollständige "
+        "Veranlagungsrechnung, keine Progressionswirkung des Objekts auf das übrige Einkommen.",
+    33: "Zuführungen zur WEG-Erhaltungsrücklage und zur eigenen Instandhaltungsrücklage sind Liquiditätsabflüsse, "
+        "aber nicht sofort steuerwirksam; Verausgabungen der WEG sind nicht separat modelliert.",
+}
 HIN_TOPICS = {29: "Zeitraster", 30: "Finanzierung", 31: "Steuersatz", 32: "AfA-Kombination", 33: "Rücklagen",
               34: "GmbH", 35: "Prognose", 36: "Haftung"}
 
@@ -617,13 +685,13 @@ def hinweise(wb):
     ws = wb["Hinweise"]
     last = 5
     _ungroup_cols(ws)
-    for letter, w in (("B", 30), ("C", 73), ("D", 55), ("E", 33)):
-        _width(ws, letter, w)
+    # A:E = 1 368 px; C/D/E so gewählt, dass kein Eintrag knapp an einer Umbruchgrenze liegt (gleichmäßige Luft)
+    _widths_px(ws, (("B", 210), ("C", 550), ("D", 382), ("E", 195)))
     _header(ws, "Anhang  ›  Hinweise", "Hinweise",
-            "Steuerliche Regelungen, Rechtsgrundlagen und Modellannahmen · Rechtsstand September 2026 "
-            "(Wachstumsbooster / Investitionssofortprogramm 2025, JStG 2024, EStG i. d. F. 2026) · "
-            "keine Steuerberatung im Einzelfall", last)
+            "Steuerliche Regelungen und Modellannahmen · Rechtsstand September 2026 (Investitionssofortprogramm "
+            "2025, JStG 2024) · keine Steuerberatung im Einzelfall", last)
 
+    # ---- Teil 1: Tabelle mit Spaltenkopf; Zeilenhöhe = Zeilen × 12,5 + 8 pt, Text oben (P27, core.fit_row metric)
     _section(ws, 8, "B", "E", "Steuerliche Regelungen und ihre Umsetzung im Tool", "17 Themen · Kurzfassung")
     _clear_row(ws, 9, 2, last)
     C.section(ws, 9, "B", "E", None, level=2,
@@ -631,7 +699,6 @@ def hinweise(wb):
                       "D": ("UMSETZUNG IM TOOL", "left"), "E": ("FUNDSTELLE", "left")})
     spec = {2: (T_BODY, True, NAVY), 3: (T_BODY, False, INK), 4: (T_BODY, False, INK), 5: (T_SMALL, False, MUTED)}
     for r in range(10, 27):
-        n = 1
         for cc, (sz, bd, colr) in spec.items():
             c = ws.cell(r, cc)
             c.fill = NOFILL
@@ -640,28 +707,35 @@ def hinweise(wb):
                 C.set_text(c, _typo(c.value))
             c.font = font(sz, bd, colr)
             c.alignment = align("left", "top", 1, wrap=True)
-            n = max(n, C.lines_needed_metric(_plain(c.value), C.col_px(ws, cc), sz, bd, 1))
-        ws.row_dimensions[r].height = n * 13 + 8
+        C.fit_row(ws, r, "B", "E", metric=True)
     _clear_row(ws, 27, 2, last, values=False)
     ws.row_dimensions[27].height = C.H_GAP
 
-    _section(ws, 28, "B", "E", "Modellannahmen und Vereinfachungen", "Grenzen des Modells")
-    width = C.span_px(ws, 3, 4)
+    # ---- Teil 2: Thema | Annahme – Text über C:E (volle Breite), Spaltenlabel im Abschnittskopf (P29)
+    _section(ws, 28, "B", "E", "Modellannahmen")
+    lab = ws["C28"]
+    C.set_text(lab, "VEREINFACHUNG IM MODELL")
+    lab.font = font(C.T_LABEL, True, BLUE)
+    lab.alignment = align("left", "center", 1)
     for r in range(29, 37):
         text = re.sub(r"^\s*[•●]\s*", "", _plain(ws.cell(r, 2).value))
+        topic = HIN_TOPICS.get(r, "")
+        if topic and text.lower().startswith(topic.lower() + ":"):  # Stichwort nicht wiederholen („GmbH: …“)
+            text = text[len(topic) + 1:].lstrip()
+            text = text[:1].upper() + text[1:]
+        text = HIN_TEXT.get(r, text)
         _clear_row(ws, r, 2, last)
-        C.set_text(ws.cell(r, 2), HIN_TOPICS.get(r, ""))
+        C.set_text(ws.cell(r, 2), topic)
         ws.cell(r, 2).font = font(T_BODY, True, NAVY)
         ws.cell(r, 2).alignment = align("left", "top", 1, wrap=True)
-        C.safe_merge(ws, "C", r, "D", r)
+        C.safe_merge(ws, "C", r, "E", r)
         t = ws.cell(r, 3)
         C.set_text(t, _typo(text))
         t.font = font(T_BODY, False, INK)
         t.alignment = align("left", "top", 1, wrap=True)
         for c in C.iter_cells(ws, 2, r, last, r):
             c.border = Border(bottom=side("hair", LINE2))
-        n = C.lines_needed_metric(t.value, width, T_BODY, False, 1)
-        ws.row_dimensions[r].height = n * 13 + 8
+        C.fit_row(ws, r, "B", "E", metric=True)
     _footer(ws, 38, 2, last)
 
 

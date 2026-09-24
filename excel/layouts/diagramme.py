@@ -42,7 +42,8 @@ FOOT_ROW = 209                          # Fuß (Haftung/Impressum) direkt unter 
 
 # Horizont je Datenzeile auf „Diagramme“ (letzte Spalte): Bestände 35 J., Cashflow 30 J., AfA/Steuer 20 J.
 HORIZON = {r: "AL" for r in (179, 180, 181, 182, 183, 189, 190, 191, MARK_ROW)}
-HORIZON.update({r: "AG" for r in (184, 185, 186, CF_POS, CF_NEG)})
+HORIZON.update({r: "AG" for r in (184, 185, CF_POS, CF_NEG)})
+HORIZON[186] = "AL"                     # kumulierter Cashflow: 35 J. wie „Kumulierte Zinsen …“ daneben (P44)
 HORIZON.update({r: "W" for r in list(range(192, 198)) + [SONDER_ROW]})
 COCKPIT_LAST = "AG"                     # Cockpit: alle Zeitreihen 30 Jahre (P2-08)
 
@@ -51,7 +52,7 @@ SECTIONS = [
     (9, "Investition, Finanzierung und Kaufpreisaufteilung", "· Zeitpunkt Kauf · Anteile"),
     (30, "Einnahmen, Ausgaben und Cashflow", "· Jahr 1 · Jahre 1–30"),
     (51, "Entwicklung von Vermögen, Darlehen und Cashflow", "· Jahre 1–35 · Jahresende"),
-    (92, "Steuern und Abschreibung", "· Jahre 1–20 · € p. a."),
+    (92, "Steuern und Abschreibung", "· Jahre 1–20 · T€ p. a."),
     (113, "Exit – Verkauf nach der geplanten Haltedauer", "· Verkaufsjahr aus Schritt 11"),
 ]
 DATA_BAND = 138
@@ -97,9 +98,22 @@ HH_SHORT = [(r"^wohnen", "Wohnen"), (r"^lebenshaltung", "Lebenshaltung"), (r"^mo
             (r"^unterhalt", "Unterhalt"), (r"kredite", "Kredite"), (r"^bewirtschaftung bestehend", "Bestandsobjekte"),
             (r"^kapitaldienst bestehend", "Bestandsdarlehen"), (r"^kapitaldienst des kalk", "Kapitaldienst neu"),
             (r"^bewirtschaftung des kalk", "Bewirtschaftung neu")]
-VA_SHORT = [(r"^giro", "Girokonten"), (r"^tagesgeld", "Tages-/Festgeld"), (r"^wertpapier", "Wertpapiere"),
-            (r"^lebens", "Versicherungen"), (r"^bauspar", "Bausparen"), (r"^immobilien", "Immobilien"),
-            (r"^unternehmen", "Beteiligungen"), (r"^fahrzeug", "Fahrzeuge"), (r"^sonstig", "Sonstiges")]
+VA_SHORT = []                             # Vermögen: Kategorien wortgleich zu Spalte B (ohne Klammerzusatz, P19)
+
+# ---- Kreise: Legendentexte „Name · 12 %“ (nur Anzeige; Beschriftung der Kleinstsegmente in der Legende, P17)
+PIE_HEAD, PIE_COL = 140, "AI"
+PIE_SHORT = {
+    "invest": [(r"^kaufpreis", "Kaufpreis"), (r"^kaufneben", "Nebenkosten"), (r"^finanzierungsneben", "Finanzierungskosten"),
+               (r"^ma(ß|ss)nahmen", "Maßnahmen")],
+    "finanz": [(r"^darlehen ii\b", "Darlehen II"), (r"^darlehen i\b", "Darlehen I"), (r"^eigenkapital", "Eigenkapital")],
+    "kpa": [(r"^geb", "Gebäude"), (r"^grund", "Boden"), (r"^beweg", "Inventar"), (r"r(ü|ue)cklage", "Rücklage")],
+    "kanc": [(r"^grunderwerb", "Grunderwerbsteuer"), (r"^notar", "Notar"), (r"^grundbuch", "Grundbuch"),
+             (r"^makler", "Makler"), (r"^sonst", "Sonstige")],
+    "bewirt": [(r"^hausgeld", "Hausgeld"), (r"erhaltungsr", "Erhaltungsrücklage"), (r"^verwaltung", "Verwaltung"),
+               (r"instandhaltung", "Instandhaltung"), (r"^mietausfall", "Mietausfall"), (r"werbungskosten", "Werbungskosten")],
+    "exit": [(r"^verkaufskosten", "Verkaufskosten"), (r"^steuer", "Steuer"), (r"restschuld", "Restschuld"),
+             (r"^nettoerl", "Nettoerlös")],
+}
 
 
 # ============================================================================ Referenzen
@@ -158,10 +172,19 @@ def _r(sheet, c1, r1, c2=None, r2=None):
     return a if c2 is None else f"{a}:${c2}${r2 if r2 is not None else r1}"
 
 
+def _all_series(ch):
+    """Reihen aller Teildiagramme (Kombidiagramme: Säule + Linie)."""
+    out = list(ch.series)
+    for sub in getattr(ch, "_charts", []):
+        if sub is not ch:
+            out += [s for s in sub.series if s not in out]
+    return out
+
+
 def chart_kind(ws, ch):
     """Diagrammart aus den Datenbereichen (unabhängig von Nummer und Titel)."""
     rows, sheets, cols = set(), set(), set()
-    for s in ch.series:
+    for s in _all_series(ch):
         p = _parse(_val_ref(s))
         if p:
             sheets.add(p[0])
@@ -224,7 +247,7 @@ def _jahr1_chart(with_tax):
     """„Einnahmen vs. Ausgaben“ flach gestapelt: Miete · Bewirtschaftung · Zinsen · Tilgung (· Steuer) + Summe."""
     cats = _r(SHEET, "C", 169, "D", 169)
     bar = BarChart()
-    bar.type, bar.grouping, bar.overlap, bar.gapWidth = "col", "stacked", 100, 100
+    bar.type, bar.grouping, bar.overlap, bar.gapWidth = "col", "stacked", 100, 80
     for row, name in ((170, "Nettokaltmiete"), (172, "Bewirtschaftung"), (173, "Zinsen"), (174, "Tilgung")):
         bar.series.append(_series(_r(SHEET, "C", row, "D", row), name, cat_ref=cats))
     if with_tax:
@@ -243,7 +266,7 @@ def _ertrag_chart():
     vier Linienreihen (Wert nur an „ihrer“ Kategorie, Name = Beschriftungstext aus Zelle)."""
     cats = _r(SHEET, "F", WF_HEAD + 1, "F", WF_HEAD + 4)
     bar = BarChart()
-    bar.type, bar.grouping, bar.overlap, bar.gapWidth = "col", "stacked", 100, 60
+    bar.type, bar.grouping, bar.overlap, bar.gapWidth = "col", "stacked", 100, 90
     for c, name in (("I", "Basis"), ("J", "Zufluss"), ("K", "Zufluss (−)"), ("L", "Abfluss"), ("M", "Abfluss (−)"),
                     ("N", "Ergebnis"), ("O", "Ergebnis (−)")):
         bar.series.append(_series(_r(SHEET, c, WF_HEAD + 1, c, WF_HEAD + 4), name, cat_ref=cats))
@@ -257,7 +280,65 @@ def _ertrag_chart():
     return bar
 
 
+def _cashflow_chart(last):
+    """„Cashflow vor und nach Steuern“ als Kombidiagramm (P32): Cashflow n. St. als Säule, v. St. als flache Linie –
+    statt 60 schmaler gruppierter Säulen."""
+    cats = f"{SHEET}!$D${YEAR_ROW}:${last}${YEAR_ROW}"
+    bar = BarChart()
+    bar.type, bar.grouping, bar.overlap, bar.gapWidth = "col", "clustered", 0, 40
+    bar.series.append(_series(_r(SHEET, "D", 185, last, 185), "Cashflow nach Steuern", cat_ref=cats, cat_num=True))
+    line = LineChart()
+    line.series.append(_series(_r(SHEET, "D", 184, last, 184), "Cashflow vor Steuern", cat_ref=cats, cat_num=True))
+    line.y_axis.axId = bar.y_axis.axId
+    line.x_axis = bar.x_axis
+    bar += line
+    for i, s in enumerate(bar.series + line.series):
+        s.idx, s.order = i, i
+    return bar
+
+
+def _pie_kind(ws, ch):
+    t = ws.title
+    if t.startswith("S03"):
+        return "kanc"
+    if t.startswith("S06"):
+        return "bewirt"
+    return chart_kind(ws, ch)
+
+
+def _pie_legend_cats(ws, ch, kind):
+    """Kreis: Kategorien auf Anzeigezellen „Kurzname · 12 %“ umstellen (Legende der Kleinstsegmente)."""
+    if kind not in PIE_SHORT or not ch.series:
+        return
+    s = ch.series[0]
+    p, c = _parse(_val_ref(s)), _parse(_cat_ref(s))
+    if not p or not c:
+        return
+    key = (kind, p)
+    if key not in _PENDING.setdefault("pies", []):
+        _PENDING["pies"].append(key)
+        _PENDING.setdefault("pie_labels", {})[key] = [ws.parent[c[0]].cell(r, K.col(c[1])).value
+                                                        for r in range(c[2], c[4] + 1)]
+    r0 = PIE_HEAD + 1 + sum(k[1][4] - k[1][2] + 2 for k in _PENDING["pies"][:_PENDING["pies"].index(key)])
+    r1 = r0 + (p[4] - p[2])
+    s.cat = AxDataSource(strRef=StrRef(f=_r(SHEET, PIE_COL, r0, PIE_COL, r1)))
+
+
+def _afa_line_series(ch):
+    """AfA-Vergleich „Kumulierte AfA“: Varianten bleiben einzelne Reihen (Farbe nach Anwendbarkeit setzt finish_pro aus
+    den Hilfszeilen F155:I162), dazu die kräftige Linie „Im Modell angewendet“ aus der Summenzeile (P33)."""
+    src = [s for s in ch.series if (p := _parse(_val_ref(s))) and p[0] != SHEET]
+    if not src:
+        return
+    first = _parse(_val_ref(src[0]))
+    _PENDING["model"] = first
+    s_m = _series(_r(SHEET, first[1], MODEL_ROW, first[3], MODEL_ROW), "Im Modell angewendet")
+    s_m.cat = src[0].cat
+    ch.series[:] = src + [s_m]
+
+
 def chart_contents(wb):
+    from openpyxl.chart import PieChart, PieChart3D
     for ws in wb.worksheets:
         if ws.title == "Dashboard":
             continue
@@ -267,7 +348,15 @@ def chart_contents(wb):
                 lit = _literal(s)
                 if lit is not None:
                     s.tx = _label(lit)
+            if isinstance(ch, (PieChart, PieChart3D)):
+                _pie_legend_cats(ws, ch, _pie_kind(ws, ch))
+                continue
             kind = chart_kind(ws, ch)
+            if kind == "cashflow":
+                new = _cashflow_chart(COCKPIT_LAST if ws.title == "Cockpit" else HORIZON[184])
+                new.visible_cells_only = False
+                _replace(ws, idx, ch, new)
+                continue
             if kind == "cf_nach":
                 last = COCKPIT_LAST
                 cats = f"{SHEET}!$D${YEAR_ROW}:${last}${YEAR_ROW}"
@@ -312,20 +401,7 @@ def chart_contents(wb):
                     keep.append(s)
                 ch.series[:] = keep
             if ws.title == "AfA-Vergleich" and isinstance(ch, LineChart):
-                first = _parse(_val_ref(ch.series[0])) if ch.series else None
-                if first and not any("modell" in (x.tx.v or "").lower() for x in ch.series if x.tx is not None):
-                    # angewendete Variante als eigene (kräftige) Linie aus der Summenzeile „Im Modell angewendet“
-                    s_m = _series(_r(SHEET, first[1], MODEL_ROW, first[3], MODEL_ROW), "Im Modell angewendet")
-                    s_m.cat = ch.series[0].cat
-                    ch.series.append(s_m)
-                    _PENDING["model"] = first
-                for s in ch.series:
-                    p = _parse(_val_ref(s))
-                    name = (s.tx.v if s.tx is not None and s.tx.v else "") or ""
-                    if p and "gutachten" in name.lower():
-                        s.val.numRef.f = _r(SHEET, p[1], GUT_ROW, p[3], GUT_ROW)
-                        s.tx = _label(ref=_r(SHEET, "F", NAME_GUT))
-                        _gut_row(wb, p)
+                _afa_line_series(ch)
             for i, s in enumerate(ch.series):
                 s.idx, s.order = i, i
                 p = _parse(_val_ref(s))
@@ -385,7 +461,7 @@ def _ranked_series(ws, ch):
         r1, r2 = VA_HEAD + 1, VA_HEAD + (p[4] - p[2]) + 1
         cats = _r(SHEET, "U", r1, "U", r2)
         ch.series[:] = [_series(_r(SHEET, "V", r1, "V", r2), "Vermögenswerte", cat_ref=cats)]
-    ch.grouping, ch.overlap, ch.gapWidth = "clustered", 100, 40
+    ch.grouping, ch.overlap, ch.gapWidth = "clustered", 100, 60
     for i, s in enumerate(ch.series):
         s.idx, s.order = i, i
 
@@ -443,7 +519,7 @@ def _short(text, table):
     for pat, short in table:
         if re.search(pat, t):
             return short
-    return re.sub(r"\s*\(.*?\)", "", text or "")[:18]
+    return re.sub(r"\s*\(.*?\)", "", text or "").strip()[:30]
 
 
 def helper_blocks(ws):
@@ -461,8 +537,6 @@ def helper_blocks(ws):
     _put(ws, f"G{J1_SUM_VST}", "=C170+C172+C173+C174", num)
     _put(ws, f"H{J1_SUM_VST}", "=D170+D172+D173+D174", num)
     _put(ws, f"F{NAME_D2}", '=IF(MAX(D181:AL181)>0,"Darlehen II","Darlehen II (keines)")', h="left")
-    _put(ws, f"F{NAME_GUT}", f'=IF(MAX(D{GUT_ROW}:M{GUT_ROW})>0,"Gutachten (RND)","Gutachten (RND) – liegt nicht vor")',
-         h="left")
 
     # ---- Wasserfall Gesamtertrag (C164:C167: Kum. Cashflow, Nettoerlös, − Eigenkapital, = Gesamtertrag)
     _helper_head(ws, WF_HEAD, "F", "U", {"F": "Wasserfall (Diagramm)", "G": "Start", "H": "Ende", "I": "Basis",
@@ -508,7 +582,7 @@ def helper_blocks(ws):
             r, sr = AFA_HEAD + 1 + i, vr1 + i
             name, val, st = _r(csh, cc, cr1 + i), _r(sh, vc, sr), _r(sh, stat, sr)
             model = f'{name}="Im Modell angewendet"'
-            _put(ws, f"F{r}", f'=IF({model},"Im Modell",{name})', h="left")
+            _put(ws, f"F{r}", f'=IF({model},"Im Modell",{name}&IF(N({val})=0," – n. v.",""))', h="left")
             _put(ws, f"G{r}", f"=IF({model},{val},0)", num)
             _put(ws, f"H{r}", f'=IF(AND(NOT({model}),LEFT({st},2)="Ja"),{val},0)', num)
             _put(ws, f"I{r}", f'=IF(AND(NOT({model}),LEFT({st},2)<>"Ja"),{val},0)', num)
@@ -554,6 +628,22 @@ def helper_blocks(ws):
     ranked("hh", HH_HEAD, "F", HH_SHORT)
     ranked("va", VA_HEAD, "P", VA_SHORT)
 
+    # ---- Kreise: Legendentexte „Kurzname · 12 %“
+    pies = _PENDING.get("pies", [])
+    if pies:
+        _helper_head(ws, PIE_HEAD, PIE_COL, PIE_COL, {PIE_COL: "Kreise: Legende"})
+        r = PIE_HEAD + 1
+        for key in pies:
+            kind, (sh, vc, vr1, _vc2, vr2) = key
+            labels = _PENDING["pie_labels"][key]
+            tot = _r(sh, vc, vr1, vc, vr2)
+            for i in range(vr2 - vr1 + 1):
+                short = _short(labels[i] if i < len(labels) else "", PIE_SHORT[kind])
+                v = _r(sh, vc, vr1 + i)
+                _put(ws, f"{PIE_COL}{r}", f'="{short} · "&TEXT(IFERROR(MAX(0,{v})/SUM({tot}),0),"0 %")', h="left")
+                r += 1
+            r += 1
+
 
 def time_helper_rows(ws):
     """Zeilen 203/204 der Zeitreihe: Sonder-AfA gesamt, AfA Gutachten (#NV ohne Gutachten)."""
@@ -565,9 +655,9 @@ def time_helper_rows(ws):
         ws.cell(SONDER_ROW, cc).value = f"={L}193+{L}194"
         ws.cell(SONDER_ROW, cc).number_format = num
     gut = _PENDING.get("gut")
-    K.set_text(ws.cell(GUT_ROW, 2), "AfA Gutachten kumuliert (Diagramm)")
-    K.set_text(ws.cell(GUT_ROW, 3), "€")
     if gut:
+        K.set_text(ws.cell(GUT_ROW, 2), "AfA Gutachten kumuliert (Diagramm)")
+        K.set_text(ws.cell(GUT_ROW, 3), "€")
         sh, c1, r1, c2, _ = gut
         src = [K.L(c) for c in range(_col(c1), _col(c2) + 1)]
         any_ref = _r(sh, c1, r1, c2, r1)
@@ -651,6 +741,18 @@ def layout_sheet(ws):
         if kind in GRID:
             c1, c2, r1 = GRID[kind]
             _anchor(ch, c1, c2, r1)
+
+    # ---- Fußnoten unter Diagrammen mit leeren Reihen (statt Legendeneintrag „(keines)“, P19)
+    for coord, text in ((f"{GRID['restschuld'][0]}{GRID['restschuld'][2] + CHART_ROWS}",
+                         '=IF(MAX(D181:AL181)>0,"","Kein zweites Darlehen – dargestellt ist Darlehen I")'),
+                        (f"{GRID['afa'][0]}{GRID['afa'][2] + CHART_ROWS}",
+                         f'=IF(SUM(D{SONDER_ROW}:W{SONDER_ROW})>0,"","Keine Sonder-AfA (§ 7b, § 7h/7i) im Modell")')):
+        c = ws[coord]
+        if c.value is None or K.is_formula(c.value):
+            c.value = text
+            c.font = K.font(K.T_MICRO, False, K.MUTED)
+            c.alignment = K.align("left", "center", 1)
+            ws.row_dimensions[c.row].height = 12
 
     # ---- Datentabellen
     ws.row_dimensions[139].height = 10
@@ -741,8 +843,10 @@ def _body_row(ws, r, last, unit=False):
 def _mark_row(ws):
     """Anzeige-Hilfsreihe für die Markierung des Verkaufsjahres (Säule in den Bestandsdiagrammen)."""
     r = MARK_ROW
-    if ws.cell(r, 2).value is None:
-        K.set_text(ws.cell(r, 2), "Markierung Verkaufsjahr (Diagramm)")
+    if ws.cell(r, 2).value is None or not K.is_formula(ws.cell(r, 2).value):
+        # Reihenname = Beschriftung der Verkaufsmarke in den Bestandsdiagrammen („Verkaufspreis Jahr 12 · 377 T€“)
+        ws.cell(r, 2).value = '="Verkaufspreis Jahr "&Haltedauer'
+
     if ws.cell(r, 3).value is None:
         K.set_text(ws.cell(r, 3), "€")
     for cc in range(_col("D"), _col("AQ") + 1):

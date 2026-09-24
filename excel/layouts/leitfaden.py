@@ -1,8 +1,10 @@
-"""Blatt „Leitfaden“: Seitenkopf mit Start-Aktion, Hinweiszeile, vier Kacheln (EK-Bedarf · Rate · IRR · Cashflow),
+"""Blatt „Leitfaden“: Seitenkopf mit Start-Aktion, Hinweis (C.note), vier Kacheln in kanonischer Reihenfolge
+(Gesamtinvestition · EK-Bedarf · Rate · Cashflow n. St. – P20),
 Schritt-Checkliste (Status ✓/○ · Schritt · Inhalt, einzeilig), zwei Diagramme in der rechten Kachelspalte,
 Button-Reihe (Sekundär links · Primär rechts), Fuß – ausschließlich mit den zentralen Bausteinen aus core.py.
 
-Raster (px): C 56 | D 266 | E 322 | F 322 | G 2 | H 224 | I 98  →  Kacheln C:D | E | F | H:I je 322 px.
+Raster (px): A 18 | B 14 | C 56 | D 266 | E 322 | F 322 | G 2 | H 224 | I 98  →  Kacheln C:D | E | F | H:I je 322 px.
+Linke Satzkante (P39): A + B = 4,5 Zeichen wie auf den B-Blättern → Titel/Inhalt beginnen bei x ≈ 31 px.
 Kachel 4 bleibt in H:I (H10 ist Namensziel LF_CFN). G ist eine 3-px-Spalte = die Fuge zwischen den Kacheln.
 Die zweite Kachelreihe der Vorlage (Z. 12–13, Namensziele LF_CFV/LF_BMR/LF_DSCR/LF_IRR) wird ausgeblendet
 (P3-12: vier Kacheln); ihre Formeln bleiben unverändert.
@@ -16,11 +18,10 @@ from openpyxl.worksheet.hyperlink import Hyperlink
 
 import core as C
 from core import ACCENT, AMBER, BLUE, GREEN, INK2, MUTED, WHITE, align, fill, font, side
-from layouts.start import (cells_of, clear_rows, drop_cf, goal_pct, heights, rich, set_widths, status_line,
-                           unmerge_in, wipe)
+from layouts.start import TILE_SUB, cells_of, clear_rows, drop_cf, heights, rich, set_widths, unmerge_in, wipe
 
 SHEET = "Leitfaden"
-WIDTHS = {"C": 8, "D": 38, "E": 46, "F": 46, "G": 0.25, "H": 32, "I": 14}   # G = 3-px-Fuge vor Kachel 4
+WIDTHS = {"A": 2.5, "B": 2, "C": 8, "D": 38, "E": 46, "F": 46, "G": 0.25, "H": 32, "I": 14}   # G = Fuge vor Kachel 4
 
 # Inhalt der Schrittliste (einzeilig in E:F, ≤ 100 Zeichen)
 CONTENT = [
@@ -51,10 +52,10 @@ def step_sheets(wb):
 
 
 def header(ws):
+    """Seitenkopf (P37: Dachzeile = Kategorie, nie der Blattname) + Hinweis als C.note in Z. 7 (P34).
+    Z. 8 bleibt frei (H_GAP) – dieselbe Luft zwischen Hinweis und Kacheln wie zwischen Kacheln und Abschnittskopf."""
     wipe(ws, "C", 5, "I", 8, formulas=True)              # die Vorlage hat hier keine Formeln
-    C.page_header(ws, "C", "I", "Leitfaden  ·  In zwölf Schritten zur Investitionsentscheidung", "Leitfaden",
-                  "Schritt für Schritt durch Objekt, Kosten, Finanzierung, Steuern und Exit – "
-                  "jede Seite mit Zwischenergebnis und Einordnung.")
+    C.page_header(ws, "C", "I", ("Einstieg", "In zwölf Schritten zur Investitionsentscheidung"), "Leitfaden")
     # Leisten-Aktion oben rechts (entspricht „WEITER ›“ der Schrittseiten); Titelzeile bleibt 30 pt,
     # weiße Ober-/Unterkante lässt den Button optisch so hoch erscheinen wie alle anderen (≈ 34 px)
     C.btn(ws, "H", 6, "I", "Schritt 01 starten  ›", "S01 Objekt", "primary",
@@ -63,31 +64,26 @@ def header(ws):
     ws["H6"].border = Border(top=wht, bottom=wht)
     ws["I6"].border = Border(top=wht, bottom=wht)
     C.set_height(ws, 6, 30)
+    # Hinweis: EINE Bauform (core.note) – Text ohne Link, Aktionslink in eigener Zelle rechts
+    # Hinweis über den Kachelspalten 1–3 (C:G) – rechts darüber steht der Start-Button, darunter bleibt Weißraum
+    C.note(ws, 7, "C", "G",
+           "Gelbe Felder enthalten Beispielwerte – einfach überschreiben. „Kauf als“ wählen Sie auf der Startseite.",
+           link_text="Kauf als wählen  ›", target_sheet="Start", target_cell="D23", link_col="F",
+           tooltip="Pflichtauswahl „Kauf als“ auf der Startseite")
+    heights(ws, {4: 15, 5: 16, 7: C.H_PILL, 8: C.H_GAP})
 
-    # Hinweiszeile (Eingabe-Konvention, ohne Emoji): Beispielwerte + „Kauf als“ auf der Startseite
-    C.safe_merge(ws, "C", 8, "G", 8)
-    h = ws["C8"]
-    h.value = rich(("Hinweis   ", C.T_SMALL, True, INK2),
-                   ("Alle gelben Felder enthalten Beispielwerte – einfach überschreiben. "
-                    "„Kauf als“ (Privatperson oder GmbH) wählen Sie auf der Startseite.", C.T_SMALL, False, INK2))
-    h.font = font(C.T_SMALL, False, INK2)
-    h.alignment = align("left", "center", 1)
-    C.safe_merge(ws, "H", 8, "I", 8)
-    lk = ws["H8"]
-    C.text_link(lk, "Kauf als wählen  ›", "Start", "D23", size=C.T_SMALL, bold=True,
-                tooltip="„Kauf als“ auf der Startseite wählen")
-    lk.hyperlink.location = C.link_loc("Start", "D23")
-    lk.alignment = align("right", "center", 1)
-    for c in "CDEFGHI":
-        cell = ws[f"{c}8"]
-        cell.fill = fill(C.INPUT_BG)
-        cell.border = Border(left=side("thick", C.INPUT_LINE) if c == "C" else None)
-    heights(ws, {4: 15, 5: 16, 7: 22, 8: 22})
+
+GI_TILES = [  # (c1, c2, KPI, Wertformel) – Teilmenge in der kanonischen Reihenfolge (P20); H10 = Namensziel LF_CFN
+    ("C", "D", "GI", "=Gesamtinvestition"),
+    ("E", "E", "EK", "=EK_Bedarf_gesamt"),
+    ("F", "F", "RATE", "=Kapitaldienst_Monat_J1"),
+    ("H", "I", "CF", None),
+]
 
 
 def tiles(ws):
-    """Vier Kacheln (C.tile dark): EK-Bedarf · Rate · IRR · Cashflow n. St.; Werte neutral navy,
-    Status als „●  Wort“ in der Kontextzeile (Z. 11)."""
+    """Vier Kacheln (C.tile dark, eine Anatomie wie Start/Dashboard): Gesamtinvestition · EK-Bedarf · Rate · Cashflow.
+    C10/E10/F10 sind reine Anzeigezellen der Vorlage (nicht referenziert); H10 (LF_CFN) bleibt unverändert."""
     for r in range(9, 14):
         for c in "CDEFGHI":
             ws[f"{c}{r}"].border = Border()
@@ -98,16 +94,9 @@ def tiles(ws):
         ws[f"{c}11"].value = None
     for a in ("D9", "D10", "I9", "I10"):
         ws[a].value = None
-    C.tile(ws, "C", "D", 9, 10, 11, gap_top=True, kpi="EK", label="Eigenkapitalbedarf inkl. Reserve",
-           sub='="Quote "&FIXED(EK_Quote*100,1)&" %  ·  Beleihung "&FIXED(Beleihung*100,1)&" %"')
-    C.tile(ws, "E", "E", 9, 10, 11, gap_top=True, kpi="RATE", sub='="Volltilgung "&Volltilgung_Txt')
-    C.tile(ws, "F", "F", 9, 10, 11, gap_top=True, kpi="IRR", value="=EK_IRR", value_ref="EK_IRR", status="dot", gap_right=False,
-           sub=status_line("IRR", "EK_IRR", goal_pct("Ampel_IRR_gruen") + '&"  ·  Multiple "&FIXED(EK_Multiple,2)&"×"'))
-    lab = ws["F9"]
-    lab.value = '="IRR N. ST. · VERKAUF NACH "&Haltedauer&" J."'
-    lab.data_type = "f"
-    C.tile(ws, "H", "I", 9, 10, 11, gap_top=True, kpi="CF", label="Cashflow n. St. / Monat (Jahr 1)", value_ref="CF_nSt_Monat_J1", status="dot",
-           gap_right=False, sub=status_line("CF", "CF_nSt_Monat_J1", f'"Jahr 2: "&FIXED({C.CF_YEAR2},0)&" € / Monat"'))
+    for c1, c2, key, val in GI_TILES:
+        C.tile(ws, c1, c2, 9, 10, 11, kpi=key, value=val, value_ref=(val or "=CF_nSt_Monat_J1")[1:],
+               label=C.kpi_label(key, caps=True), sub=TILE_SUB[key], gap_right=c1 in ("C", "E"))
     # zweite Kachelreihe der Vorlage (Namensziele) ausblenden – Formeln bleiben unverändert
     clear_rows(ws, 12, 13, "B", "I")
     C.hide_rows(ws, 12, 13)
@@ -156,6 +145,12 @@ def steps(ws):
         C.hairline(ws, r, "C", "F")
         C.set_height(ws, r, C.H_BAND)
     last = FIRST_ROW + N_STEPS - 1
+    # Häkchen-Semantik (P25): ✓ nur für echten Status. Schritt 05 hat keine Pflichtangaben („optional“),
+    # Schritt 12 ist vollständig, wenn alle vorherigen Schritte vollständig sind (reine Anzeigeformeln).
+    s05, s12 = ws[f"C{FIRST_ROW + 4}"], ws[f"C{last}"]
+    C.set_text(s05, "optional")
+    s05.font = font(C.T_MICRO, False, MUTED)
+    s12.value = f'=IF(COUNTIF(C{FIRST_ROW}:C{last - 1},"○")>0,"○","✓")'
     drop_cf(ws, cells_of("C", FIRST_ROW, "F", last))
     rng = f"C{FIRST_ROW}:C{last}"
     ws.conditional_formatting.add(rng, FormulaRule(formula=[f'C{FIRST_ROW}="✓"'],

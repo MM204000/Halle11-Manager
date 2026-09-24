@@ -41,6 +41,9 @@ YEAR_FMT = '"Jahr "0'
 EUR, NUM, PCT1, PCT2 = NUMFMT["eur"], NUMFMT["num"], NUMFMT["pct1"], NUMFMT["pct2"]
 YESNO = NUMFMT["yesno"]
 DASH_FMT = '"–";"–";"–";"–"'        # bedingtes Zahlenformat „entfällt“
+# P24: Steuersätze überall zweistellig (46,26 %). Variante mit führendem „#“ = gleiche Anzeige wie NUMFMT["pct2"];
+# global_rules.numfmt_catalog erkennt sie nicht als „schlichtes Prozentformat“ und setzt sie nicht auf pct1 zurück.
+PCT2K = '#0.00 %;"−"#0.00 %;"–"'
 EYEBROW = {"Projektion": "PROJEKTION  ›  40 JAHRE", "Finanzierung": "FINANZIERUNG  ›  TILGUNGSPLAN",
            "Steuern": "STEUERN  ›  STEUERN & AFA", "AfA-Vergleich": "STEUERN  ›  AFA-VERGLEICH"}
 
@@ -81,7 +84,7 @@ def _rule(ws, ref, formula, fnt=None, fil=None, numfmt=None, border=None):
     ws.conditional_formatting.add(ref, r)
 
 
-def cf_rules(ws, ref, rules, base, year_cond=None):
+def cf_rules(ws, ref, rules, base, year_cond=None, year_fill=TINT):
     """Regeln [(bedingung, Font, numfmt|None[, fill])] für einen Bereich, danach eine Auffangregel mit der Grundfarbe.
 
     - Mit year_cond steht vor jeder Regel eine Kombination (Regel + Verkaufsjahr-Fläche), damit die
@@ -93,10 +96,10 @@ def cf_rules(ws, ref, rules, base, year_cond=None):
         nf = spec[2] if len(spec) > 2 else None
         fl = spec[3] if len(spec) > 3 else None
         if year_cond:
-            _rule(ws, ref, f"AND({cond},{year_cond})", fnt, fill(TINT), nf)
+            _rule(ws, ref, f"AND({cond},{year_cond})", fnt, fill(year_fill), nf)
         _rule(ws, ref, cond, fnt, fl, nf)
     if year_cond:
-        _rule(ws, ref, year_cond, base, fill(TINT))
+        _rule(ws, ref, year_cond, base, fill(year_fill))
     _rule(ws, ref, "TRUE", base)
 
 
@@ -137,32 +140,47 @@ def _calibri(ws):
 
 
 def _up_link(cell, color=BLUE):
-    """„↑ Übersicht“ (P3-03): 8 pt, rechtsbündig, Sprung an den Blattanfang."""
-    C.text_link(cell, "↑ Übersicht", cell.parent.title, size=T_MICRO, bold=False,
+    """„↑ Übersicht“ (P43): immer in Spalte C des Abschnittsbands (fixierter Bereich, bleibt beim Scrollen sichtbar),
+    8,5 pt wie die Band-Meta, rechtsbündig, Sprung an den Blattanfang."""
+    C.text_link(cell, "↑ Übersicht", cell.parent.title, size=C.T_LABEL, bold=False,
                 tooltip="Zurück an den Seitenanfang")
-    cell.font = font(T_MICRO, False, color)
+    cell.font = font(C.T_LABEL, False, color)
     cell.alignment = align("right", "center", 1)
 
 
 # ------------------------------------------------------------------------------------------------ Seitenkopf
-def header(ws, title, subtitle, legend=None):
-    """P1-18: Überzeile „REITER  ›  BLATT“ / H1 22 pt / Untertitel 10 pt 5B6068 (alles im fixierten Bereich B:C);
-    die Legende steht rechts davon ab Spalte D auf Höhe des Untertitels (9 pt, Marken in Farbe)."""
+def header(ws, eyebrow, title, subtitle, legend=None, link=None, edge="M"):
+    """Seitenkopf-Vorlage P04 (C.page_header): Z. 5 Eyebrow „BEREICH  ›  SEITE“ (rechts die Unterreiter-Formen),
+    Z. 6 H1 22 pt und rechts bündig der Rückfall-Link „Eingaben dazu: Sxx … ›“ (P37/P05), Z. 7 Untertitel und rechts
+    bündig die Legende. Rechte Kante = `edge`: auf den 40-Jahres-Blättern Spalte M (Jahr-10-Rasterlinie = rechte Kante
+    der Parameter-/Exit-Blöcke ≈ 1 375 px ≈ Reiterleiste), auf dem AfA-Vergleich Spalte Q (Inhaltskante)."""
+    last = max(LAST, _col(edge))
     for r in (5, 6, 7):
-        for c in C.iter_cells(ws, 3, r, LAST, r):
+        for mr in list(ws.merged_cells.ranges):
+            if mr.min_row == r and mr.min_col >= 4:
+                ws.unmerge_cells(str(mr))
+        for c in C.iter_cells(ws, 3, r, last, r):
             c.border = Border()
             c.fill = NOFILL
-    C.page_header(ws, "B", "C", EYEBROW[ws.title], title, subtitle)
+            if c.column >= 4 and not C.is_formula(c.value):
+                c.value = None
+    C.page_header(ws, "B", "C", eyebrow, title, subtitle)
     ws.row_dimensions[4].height = 12
     ws.row_dimensions[5].height = 18
     ws.row_dimensions[6].height = 30
     ws.row_dimensions[7].height = 22
-    ws["B7"].alignment = align("left", "top")
-    if legend:
-        c = ws["D7"]
-        c.value = legend
-        c.font = font(T_SMALL, False, MUTED)
-        c.alignment = align("left", "top", 1)
+    ws["B7"].alignment = align("left", "center")
+    if legend is not None:
+        C.safe_merge(ws, "D", 7, edge, 7)
+        ws.cell(7, 4).value = legend
+        ws.cell(7, 4).font = font(C.T_LABEL, False, MUTED)
+        ws.cell(7, 4).alignment = align("right", "center")
+    if link:
+        text, target = link
+        C.safe_merge(ws, "D", 6, edge, 6)
+        c = ws.cell(6, 4)
+        C.text_link(c, text, target, size=T_BODY, bold=True, tooltip=f"Eingaben zu diesem Blatt: {target}")
+        c.alignment = align("right", "center")
 
 
 def legend(*items, size=T_SMALL):
@@ -178,7 +196,8 @@ def legend(*items, size=T_SMALL):
 
 
 def year_legend(*extra):
-    return legend(("Verkaufsjahr", "■", ACCENT), ("negatives Ergebnis", "●", RED), *extra)
+    """Kopflegende der Jahrestabellen (8,5 pt, rechtsbündig in Z. 7)."""
+    return legend(("Verkaufsjahr", "■", ACCENT), ("negatives Ergebnis", "●", RED), *extra, size=C.T_LABEL)
 
 
 # ------------------------------------------------------------------------------------------------ Jahrestabelle
@@ -222,7 +241,7 @@ def band(ws, row, title, c2=LAST, years_from=None, meta=None, extra=None):
             c = ws.cell(row, cc)
             c.value = f"={get_column_letter(cc)}${years_from}"
             c.number_format = NUMFMT["year"]
-            c.font = font(T_SMALL, True, NAVY)
+            c.font = font(T_MICRO, False, MUTED)     # P43: dezente Scroll-Orientierung, kein dritter Kopf
             c.alignment = align("right", "center", 1)
 
 
@@ -250,7 +269,8 @@ def data_row(ws, row, kind="data", fmt=NUM, label=None, unit=True):
         C.memo(ws, row, 2, LAST)
         b.alignment = align("left", "center", 1)
     elif kind in STAGE:
-        C.sum_row(ws, row, "B", get_column_letter(LAST), STAGE[kind])
+        # Negativ-Rot setzt negatives() zusammen mit der Verkaufsjahr-Markierung (LibreOffice wertet nur die erste Regel)
+        C.sum_row(ws, row, "B", get_column_letter(LAST), STAGE[kind], neg=False)
     if unit:
         cu.font = font(T_SMALL, False, MUTED, italic=(kind == "memo"))
         cu.alignment = align("center", "center")
@@ -291,14 +311,17 @@ def year_marks(ws, head_ref, cond, band_refs=()):
     _rule(ws, head_ref, cond, Font(color=NAVY, bold=True), fill(ACCENT))
     for ref in band_refs:
         _rule(ws, ref, cond, Font(color=NAVY, bold=True), fill(ACCENT))
-        _rule(ws, ref, "TRUE", Font(color=NAVY, bold=True))
+        _rule(ws, ref, "TRUE", Font(color=MUTED, bold=False))
     return cond
 
 
-def negatives(ws, rows, year_cond):
-    """P2-01: Rot B42318 für negative Werte in Ergebniszeilen; rows: {zeile: grundfarbe}."""
+def negatives(ws, rows, year_cond, finals=()):
+    """P2-01/P15: Rot B42318 für negative Werte in Ergebnis-/Kumulzeilen; rows: {zeile: grundfarbe}.
+    Endsummen (finals, Fläche E7EEF7 = Markierungsfarbe): Verkaufsjahr in C8D7EB und fett, damit die Spalte durchläuft."""
     for r, base in rows.items():
-        cf_rules(ws, f"D{r}:AQ{r}", [(f"D{r}<0", Font(color=RED))], Font(color=base), year_cond)
+        fin = r in finals
+        cf_rules(ws, f"D{r}:AQ{r}", [(f"D{r}<0", Font(color=RED, bold=True if fin else None))],
+                 Font(color=base), year_cond, year_fill=C.MIST if fin else TINT)
 
 
 def render(ws, rows, fmts):
@@ -317,11 +340,18 @@ def render(ws, rows, fmts):
 def projektion(ws):
     _ungroup_cols(ws)
     _width(ws, "C", 12)
-    header(ws, "Projektion", "Miete, Kosten, Cashflow und Vermögen über 40 Jahre · Beträge in € pro Jahr",
-           legend=year_legend(("Steuer: + Zahlung / – Erstattung (nicht rot)", None, None),
-                              ("Jahr 1 = erste 12 Monate ab Kaufdatum", None, None),
-                              ("Jahr 0 = Eigenkapitaleinsatz (Basis der IRR)", None, None)))
+    header(ws, ("Berechnung", "Projektion"), "Projektion",
+           "Miete, Kosten, Cashflow und Vermögen über 40 Jahre  ·  Beträge in € pro Jahr",
+           legend=year_legend(("Steuer: + Zahlung / – Erstattung", None, None),
+                              ("Jahr 1 = erste 12 Monate ab Kauf", None, None)),
+           link=("Eingaben dazu: S11 Prognose & Exit  ›", "S11 Prognose & Exit"))
     year_head(ws, 8, 9, 10)
+    # P29: Spalte C trägt im Kopf „Jahr 0 / Kauf“ – Kopf der Exit-Spalte C49 (Eigenkapitaleinsatz)
+    for r, text, bg in ((8, "Jahr 0", NAVY), (10, "Kauf", BLUE)):
+        c = ws.cell(r, 3)
+        C.set_text(c, text)
+        c.font = font(T_SMALL, r == 8, WHITE)
+        c.alignment = align("right", "center", 1)
     gap(ws, 11, 9)
     rows = {
         12: ("band", "Mieteinnahmen"),
@@ -335,93 +365,129 @@ def projektion(ws):
         28: ("band", "Cashflow"),
         29: ("sub", "= Einnahmenüberschuss vor Finanzierung (NOI)"),
         30: ("davon", "Zinsen"), 31: ("davon", "Tilgung (inkl. Sondertilgung)"),
-        32: ("sub", "– Kapitaldienst (Zinsen + Tilgung)"), 33: ("sub", None),
+        32: ("sub", "– Kapitaldienst (Zinsen + Tilgung inkl. Sondertilgung)"), 33: ("sub", None),
         34: ("memo", "Info: Steuerliches Ergebnis"), 35: ("data", None), 36: ("result", None),
-        37: ("data", None), 38: ("memo", None),
+        37: ("memo", None), 38: ("memo", None),
         39: ("gap",),
         40: ("band", "Vermögensentwicklung"),
         41: ("data", None), 42: ("data", "– Restschuld Jahresende"), 43: ("result", "= Nettovermögen"),
         44: ("memo", "Vermögenszuwachs im Jahr"), 45: ("data", None), 46: ("memo", None),
         47: ("gap",),
         48: ("band", "Exit-Cashflow", None, "· Basis für die Eigenkapitalrendite (IRR)"),
-        49: ("result", "Exit-Cashflow (Jahr 0 = Eigenkapitaleinsatz)"),
+        49: ("result", "= Exit-Cashflow (Jahr 0 = Eigenkapitaleinsatz)"),
         50: ("gap",),
     }
     render(ws, rows, {45: PCT1})
-    # Zeile 48/49 (P2-19): „Jahr 0“ als Kopfelement der Spalte C, Wert C49 fett mit rechter Kante
-    c48 = ws["C48"]
-    C.set_text(c48, "Jahr 0")
-    c48.font = font(T_SMALL, True, NAVY)
-    c48.alignment = align("right", "center", 1)
-    c48.border = Border(bottom=side("thin", BLUE))
-    c49 = ws["C49"]
-    c49.number_format = NUM
-    c49.font = font(T_BODY, True, NAVY)
-    c49.alignment = align("right", "center", 1)
-    b = c49.border
-    c49.border = Border(top=b.top, bottom=b.bottom, right=side("thin", BLUE))
+    # P12: Eigenkapitalrendite als hervorgehobene Kennzahl zwischen den Memo-Zeilen – 10 pt fett 1D4F8A, ohne Fläche
+    for c in C.iter_cells(ws, 2, 45, LAST, 45):
+        c.font = font(T_BODY, True, BLUE)
+    ws.cell(45, 3).font = font(T_SMALL, False, MUTED)
+    # Z. 48/49 (P29): C48 frei für den Rücksprung, C49 wie die Jahreszellen (rechtsbündig, Einzug 1)
+    ws["C49"].number_format = NUM
+    ws["C49"].font = font(T_BODY, True, NAVY)
+    ws["C49"].alignment = align("right", "center", 1)
+    for r in (12, 19, 28, 40, 48):
+        _up_link(ws.cell(r, 3))
     footer(ws, 51)
     grid(ws, [8, 10] + [r for r, s in rows.items() if s[0] != "gap"])
     ws.freeze_panes = "D11"
     # Bedingte Formatierung (nur Anzeige)
     ycond = year_marks(ws, "D8:AQ10", "D$9=Haltedauer")
-    negatives(ws, {15: NAVY, 29: NAVY, 33: NAVY, 34: MUTED, 36: NAVY, 37: INK, 38: MUTED, 43: NAVY, 44: MUTED,
-                   49: NAVY}, ycond)
+    negatives(ws, {15: NAVY, 29: NAVY, 33: NAVY, 34: MUTED, 36: NAVY, 37: MUTED, 38: MUTED, 43: NAVY, 44: MUTED,
+                   49: NAVY}, ycond, finals=(36, 43, 49))
+    C.neg_red(ws, "C49")
     _rule(ws, "D11:AQ49", ycond, None, fill(TINT))
 
 
 # ------------------------------------------------------------------------------------------------ Finanzierung
+KD_LABEL = "Kapitaldienst (Zinsen + Tilgung inkl. Sondertilgung)"   # mappenweit gleiche Beschriftung (P12)
+
+
 def finanzierung(ws):
     _ungroup_cols(ws)
     _width(ws, "C", 12)
-    header(ws, "Finanzierung", "Tilgungsverlauf Darlehen I und II · Annuitätendarlehen mit konstanter Rate",
-           legend=legend(("Verkaufsjahr", "■", ACCENT),
-                         ("Anschlusszins nach der Zinsbindung", "●", BLUE),
-                         ("– = entfällt (getilgt bzw. nicht genutzt)", None, None)))
+    header(ws, ("Berechnung", "Tilgungsplan"), "Tilgungsplan",
+           "Tilgungsverlauf Darlehen I und II  ·  Annuitätendarlehen mit konstanter Rate",
+           legend=legend(("Verkaufsjahr", "■", ACCENT), ("Anschlusszins nach der Zinsbindung", "●", BLUE),
+                         ("– entfällt (getilgt bzw. nicht genutzt)", None, None), size=C.T_LABEL),
+           link=("Eingaben dazu: S07 Finanzierung  ›", "S07 Finanzierung"))
     year_head(ws, 8, 9, 10)
     gap(ws, 11, 9)
     rows = {
         12: ("band", "Darlehen I"),
         13: ("data", None), 14: ("data", None), 15: ("data", None), 16: ("data", None),
         17: ("data", "– Reguläre Tilgung"), 18: ("data", "– Sondertilgung"),
-        19: ("sub", "= Restschuld Jahresende"), 20: ("sub", "= Kapitaldienst (Zins + Tilgung + Sondertilgung)"),
+        19: ("sub", "= Restschuld Jahresende"), 20: ("sub", "= " + KD_LABEL),
         21: ("gap",),
         22: ("band", '="Darlehen II"&IF(Darlehen_II=0,"  ·  nicht genutzt","")'),
         23: ("data", None), 24: ("data", None), 25: ("data", None), 26: ("data", None),
         27: ("data", "– Reguläre Tilgung"), 28: ("data", "– Sondertilgung"),
         29: ("data", "– Tilgungszuschuss (KfW, kein Zahlungsabfluss)"),
-        30: ("sub", "= Restschuld Jahresende"), 31: ("sub", "= Kapitaldienst (Zins + Tilgung + Sondertilgung)"),
+        30: ("sub", "= Restschuld Jahresende"), 31: ("sub", "= " + KD_LABEL),
         32: ("gap",),
         33: ("band", "Summe Darlehen"),
         34: ("data", None), 35: ("data", None), 36: ("data", None),
-        37: ("sub", "= Kapitaldienst gesamt"), 38: ("result", "= Restschuld Jahresende"),
+        37: ("sub", "= Kapitaldienst gesamt (Zinsen + Tilgung inkl. Sondertilgung)"),
+        38: ("result", "= Restschuld Jahresende"),
         39: ("memo", None), 40: ("memo", None),
         41: ("gap",),
     }
     render(ws, rows, {14: PCT2, 24: PCT2, 39: PCT2})
-    # zwei aufeinanderfolgende Zwischensummen bilden einen Block: zweite Zeile ohne eigene Oberlinie
+    # zwei aufeinanderfolgende Summenzeilen bilden einen Block: die zweite ohne eigene kräftige Oberlinie (P12)
     for r in (20, 31):
         for c in C.iter_cells(ws, 2, r, LAST, r):
             c.border = Border(top=side("hair", LINE), bottom=side("hair", LINE))
+    for c in C.iter_cells(ws, 2, 38, LAST, 38):
+        c.border = Border(top=side("hair", LINE), bottom=c.border.bottom)
+    for r in (12, 22, 33):
+        _up_link(ws.cell(r, 3))
+    # P43: Darlehen II ungenutzt → Zeilen 23–31 als Gliederungsgruppe, beim Build eingeklappt; Hinweis im Band
+    d2 = _input_value(ws.parent, "Darlehen_II")
+    for r in range(23, 32):
+        ws.row_dimensions[r].outlineLevel = 1
+        ws.row_dimensions[r].hidden = d2 == 0
+    ws.row_dimensions[32].collapsed = d2 == 0
+    hint = ws.cell(22, KV_LAST)
+    hint.value = ('=IF(Darlehen_II=0,"▸ ausgeblendet  ·  über das „+“ der Gliederung links einblenden",'
+                  '"▸ über die Gliederung links ein-/ausklappbar")')
+    hint.font = font(C.T_LABEL, False, BLUE)
+    hint.alignment = align("right", "center", 1)
+    ws.sheet_format.outlineLevelRow = max(ws.sheet_format.outlineLevelRow or 0, 1)
     footer(ws, 42)
     grid(ws, [8, 10] + [r for r, s in rows.items() if s[0] != "gap"])
     ws.freeze_panes = "D11"
     ycond = year_marks(ws, "D8:AQ10", "D$9=Haltedauer")
     faded = Font(color=FADED, bold=False, italic=True)
     switch = Font(bold=True, color=BLUE)          # Zinswechsel nach der Zinsbindung
-    # P2-02: entfallene Werte „–“ in 98A2B3 kursiv (Darlehen I nach Volltilgung; Darlehen II ungenutzt)
-    for r in range(14, 19):
+    # P2-02/P43: entfallene Werte „–“ in 98A2B3 kursiv, nicht fett – Darlehen I nach Volltilgung (Z. 13–20),
+    # Summenblock nach Volltilgung (Z. 34–40), Darlehen II ungenutzt (Z. 23–31)
+    for r in range(13, 21):
         rules = [("D$13=0", faded, DASH_FMT)] + ([("AND(ISNUMBER(C14),D14<>C14)", switch)] if r == 14 else [])
-        cf_rules(ws, f"D{r}:AQ{r}", rules, Font(color=INK), ycond)
+        cf_rules(ws, f"D{r}:AQ{r}", rules, Font(color=NAVY if r in (19, 20) else INK), ycond)
     for r in range(23, 32):
         rules = [("Darlehen_II=0", faded, DASH_FMT, fill(WHITE) if r in (30, 31) else None)]
         if r == 24:
             rules.append(("AND(ISNUMBER(C24),D24<>C24)", switch))
         cf_rules(ws, f"D{r}:AQ{r}", rules, Font(color=NAVY if r in (30, 31) else INK), ycond)
+    for r in range(34, 41):
+        cf_rules(ws, f"D{r}:AQ{r}", [("D$34=0", faded, DASH_FMT)],
+                 Font(color=NAVY if r in (37, 38) else (MUTED if r > 38 else INK)), ycond,
+                 year_fill=C.MIST if r == 38 else TINT)
     # Beschriftung B:C der inaktiven Zeilen ebenso zurücknehmen (Summenzeilen dann weiß, nicht fett)
     _rule(ws, "B23:C29", "Darlehen_II=0", Font(color=FADED, bold=False, italic=True))
     _rule(ws, "B30:C31", "Darlehen_II=0", Font(color=FADED, bold=False, italic=True), fill(WHITE))
     _rule(ws, "D11:AQ40", ycond, None, fill(TINT))
+
+
+def _input_value(wb, name):
+    """Wert einer Eingabe hinter einem Namen beim Build (nur Konstanten; Formeln → None)."""
+    try:
+        dn = wb.defined_names.get(name)
+        sheet, ref = next(iter(dn.destinations))
+        v = wb[sheet][ref.replace("$", "")].value
+        return None if C.is_formula(v) else v
+    except Exception:
+        return None
 
 
 # ------------------------------------------------------------------------------------------------ Steuern
@@ -434,9 +500,11 @@ STEUERN_LABELS = {
     85: "Veräußerungsgewinn (Preis – Verkaufskosten – Buchwert)",
     86: "Veräußerungsgewinn steuerpflichtig",
     91: "= Nettoerlös nach Steuern und Darlehensablösung",
-    94: "Gesamtertrag nach Steuern",
-    98: "Summe Gebäude-AfA Jahre 1–10 (Standard nach Baujahr)",
-    99: "Steuereffekt der gewählten AfA-Variante (10 Jahre)",
+    94: "= Gesamtertrag nach Steuern",
+    96: "IRR n. St.  ·  Eigenkapitalrendite p. a.",
+    97: "AfA-Vergleich:  Summe Gebäude-AfA Jahre 1–10 (gewählte Variante)",
+    98: "AfA-Vergleich:  Summe Gebäude-AfA Jahre 1–10 (Standard nach Baujahr)",
+    99: "AfA-Vergleich:  Steuereffekt der gewählten Variante (10 Jahre)",
 }
 STEUERN_NOTES = {
     24: "Fallback auf „Automatisch“, wenn Voraussetzungen fehlen (siehe Prüfhinweise im Cockpit)",
@@ -445,9 +513,9 @@ STEUERN_NOTES = {
     99: "gegenüber Standard-AfA · positiv = Steuerersparnis (Liquiditätsvorteil, keine endgültige Ersparnis)",
 }
 STEUERN_FMT = {
-    17: YESNO, 18: PCT2, 19: PCT2, 20: PCT2, 21: YESNO, 22: NUMFMT["years_n"], 23: YESNO,
-    25: PCT2, 26: PCT2, 27: NUMFMT["years_n"], 28: YESNO, 31: '#,##0" €/m²"', 32: YESNO, 35: YESNO,
-    78: NUMFMT["years_n"], 86: YESNO, 87: PCT2, 95: NUMFMT["mult2"], 96: PCT1,
+    17: YESNO, 18: PCT2K, 19: PCT2K, 20: PCT2K, 21: YESNO, 22: NUMFMT["years_n"], 23: YESNO,
+    25: PCT2K, 26: PCT2K, 27: NUMFMT["years_n"], 28: YESNO, 31: C.typo_minus('#,##0" €/m²";-#,##0" €/m²";"–"'),
+    32: YESNO, 35: YESNO, 78: NUMFMT["years_n"], 86: YESNO, 87: PCT2K, 95: NUMFMT["mult2"], 96: PCT1,
 }
 KV_LAST = 13   # M
 
@@ -493,16 +561,20 @@ def _outline(ws, r1, r2, level=1):
 def steuern(ws):
     _ungroup_cols(ws)
     _width(ws, "C", 12)
-    header(ws, "Steuern & AfA", "Abgeleitete Parameter, AfA-Verlauf und steuerliches Ergebnis",
-           legend=year_legend(("Steuer: + Zahlung / – Erstattung (nicht rot, Verrechnung mit anderen Einkünften)",
-                               None, None)))
-    _link(ws, "D", 6, "E", "↓ Jahrestabelle", C.link_row(ws.title, 40))
-    _link(ws, "F", 6, "G", "↓ Exit-Ergebnis", C.link_row(ws.title, 77))
-    for cc in ("D6", "F6"):
-        ws[cc].alignment = align("left", "bottom", 1)
+    header(ws, ("Steuern", "Steuer-Tabelle"), "Steuer-Tabelle",
+           "Abgeleitete Parameter, AfA-Verlauf und steuerliches Ergebnis über 40 Jahre",
+           legend=year_legend(("Steuer: + Zahlung / – Erstattung (Verrechnung mit anderen Einkünften)", None, None)),
+           link=("Eingaben dazu: S09 Steuern  ›", "S09 Steuern"))
     # ---- Parameterblock (P3-04: per Gliederung einklappbar; technische Indizes Ebene 2, bleiben verborgen)
-    band(ws, 8, "Abgeleitete steuerliche Parameter", c2=KV_LAST,
-         meta="▸ ein-/ausklappen über die Gliederung am linken Rand")
+    band(ws, 8, "Abgeleitete steuerliche Parameter", c2=KV_LAST, extra="· über die Gliederung links einklappbar")
+    # Sprunglinks im Band (statt schwebender Textlinks neben dem Titel): rechtsbündig wie die Band-Meta
+    for c1, c2, text, row in (("I", "K", "↓ Jahrestabelle", 40), ("L", "M", "↓ Verkaufsszenario", 77)):
+        C.safe_merge(ws, c1, 8, c2, 8)
+        c = ws[f"{c1}8"]
+        C.text_link(c, text, ws.title, C.link_row(ws.title, row), size=C.T_LABEL, bold=False,
+                    tooltip=f"Springen zu {text[2:]}")
+        c.font = font(C.T_LABEL, False, BLUE)
+        c.alignment = align("right", "center", 1)
     C.hide_rows(ws, 9, 16)
     C.hide_rows(ws, 24, 24)
     kv_rows(ws, [r for r in range(17, 38) if r != 24])
@@ -526,13 +598,13 @@ def steuern(ws):
         63: ("davon", "Finanzierungsnebenkosten und Disagio"),
         64: ("davon", "Erhaltungsaufwand (ggf. verteilt, § 82b EStDV)"),
         65: ("davon", "Abschreibungen"),
-        66: ("sub", "– Werbungskosten / Betriebsausgaben gesamt"), 67: ("result", "= Steuerliches Ergebnis"),
+        66: ("sub", "– Werbungskosten / Betriebsausgaben gesamt"), 67: ("sub", "= Steuerliches Ergebnis"),
         68: ("memo", None), 69: ("data", None), 70: ("memo", None),
         71: ("data", "Körperschaftsteuersatz im Kalenderjahr (nur GmbH)"),
         72: ("data", "Angewendeter Steuersatz (Grenzsatz bzw. KSt + Soli + GewSt)"),
         73: ("result", "= Steuer (+ Zahlung / – Erstattung)"), 74: ("memo", None),
     }
-    render(ws, rows, {71: PCT1, 72: PCT2})
+    render(ws, rows, {71: PCT2K, 72: PCT2})
     grid(ws, [40, 42] + [r for r, s in rows.items() if s[0] != "gap"])
     for r in (44, 59):
         _up_link(ws.cell(r, 3))
@@ -540,13 +612,21 @@ def steuern(ws):
     C.hide_rows(ws, 76, 76)
     # ---- Exit-Block
     band(ws, 77, "Verkaufsszenario (Exit)", c2=KV_LAST, extra="· Steuer und Gesamtrendite")
-    _up_link(ws.cell(77, KV_LAST))
+    _up_link(ws.cell(77, 3))
     kv_rows(ws, range(78, 100))
     kv_sum(ws, 91, "sub")
     kv_sum(ws, 94, "sub")
     kv_sum(ws, 95, "sub", top=False)
-    kv_sum(ws, 96, "result")
-    ws.cell(96, 2).font = font(T_BODY, True, NAVY)
+    kv_sum(ws, 96, "final")
+    # P12: AfA-Vergleich (Z. 97–99) als nachrichtlicher Unterabschnitt unter der Endsumme – Memo-Stil, Luft darüber
+    for r in (97, 98, 99):
+        C.sum_row(ws, r, "B", get_column_letter(KV_LAST), "memo")
+        ws.cell(r, 3).alignment = align("right", "center", 1)
+        ws.cell(r, 5).font = font(T_SMALL, False, MUTED, italic=True)
+    ws.row_dimensions[97].height = C.H_ROW2
+    for cc in range(2, KV_LAST + 1):
+        ws.cell(97, cc).alignment = align(ws.cell(97, cc).alignment.horizontal or "left", "bottom",
+                                          ws.cell(97, cc).alignment.indent)
     _outline(ws, 78, 99, 1)
     ws.sheet_properties.outlinePr = Outline(summaryBelow=False, summaryRight=True, applyStyles=False,
                                             showOutlineSymbols=True)
@@ -560,10 +640,11 @@ def steuern(ws):
     cf_rules(ws, "D71:AQ71", [("Rechtsform_Idx=1", faded, DASH_FMT)], Font(color=INK), ycond)
     _rule(ws, "B71:C71", "Rechtsform_Idx=1", faded)
     negatives(ws, {67: NAVY, 69: INK}, ycond)
+    # Z. 73: Steuer-Sicht laut Beschriftung – negative Werte (Erstattung) bewusst NICHT rot (P07)
+    cf_rules(ws, "D73:AQ73", [], Font(color=NAVY), ycond, year_fill=C.MIST)
     _rule(ws, "D43:AQ74", ycond, None, fill(TINT))
-    # Exit-Block: negative Ergebnisse rot (P2-01, C92 kumulierter Cashflow; C91/C94 Ergebnisse)
-    for ref in ("C91", "C92", "C94"):
-        C.neg_red(ws, ref)
+    # Exit-Block: negative Ergebnisse rot (P2-01, C92 kumulierter Cashflow)
+    C.neg_red(ws, "C92")
 
 
 # ------------------------------------------------------------------------------------------------ AfA-Vergleich
@@ -575,7 +656,7 @@ AFA_VARIANTS = {
     23: ("Degressiv 5 %", "§ 7 Abs. 5a EStG · Baubeginn 10/2023–9/2029"),
     24: ("Linear 3 % + § 7b", "5 % p. a. in Jahren 1–4, danach Restwert-AfA"),
     25: ("Degressiv + § 7b", "kombiniert; die Sonder-AfA mindert den Restwert"),
-    26: ("Im Modell angewendet", "lt. Blatt „Steuern“ · inkl. Sonder-AfA, ohne § 7h/7i"),
+    26: ("Im Modell angewendet", "lt. Steuer-Tabelle · inkl. Sonder-AfA, ohne § 7h/7i"),
 }
 AFA_BASICS = {
     9: "AfA-Basis Gebäude (ohne § 7h/7i-Anteil)",
@@ -598,7 +679,7 @@ AFA_HINTS = {
          "zu linear (Restwert / Restnutzungsdauer) erfolgt automatisch, sobald vorteilhaft – innerhalb der ersten "
          "10 Jahre bei 3 % typisierter Nutzungsdauer nicht."),
     50: ("§ 7h/7i: ", "Erhöhte Absetzungen nach § 7h / § 7i EStG (9 % / 7 %) betreffen nur den bescheinigten "
-         "Sanierungsanteil und sind hier nicht als Variante dargestellt; sie werden im Blatt „Steuern“ zusätzlich "
+         "Sanierungsanteil und sind hier nicht als Variante dargestellt; sie werden in der Steuer-Tabelle zusätzlich "
          "zur regulären AfA der Altsubstanz berechnet."),
 }
 AFA_LAST = 17  # Q
@@ -611,11 +692,17 @@ AFA_SHORT = ('=IF(Is_Degressiv=1,"Degressiv "&FIXED(Degressiv_Satz*100,1)&" %",'
 
 def afa(ws):
     _ungroup_cols(ws)
-    _width(ws, "B", 40)
-    _width(ws, "C", 30)
-    _width(ws, "P", 15)
-    _width(ws, "Q", 15)
-    header(ws, "AfA-Vergleich", "Abschreibungsvarianten für dieses Objekt in den Jahren 1–10")
+    # Spaltenraster (P10/P28): B:C Beschriftung (C breit genug für „Automatisch nach Baujahr (§ 7 Abs. 4 EStG)“),
+    # D:O einheitlich 74 px (Jahre, Σ-Spalten, Kachelrinnen I und N gleich breit), P:Q je 111 px → alle drei Kacheln 296 px
+    _width(ws, "B", 37)
+    _width(ws, "C", 34)
+    for cc in range(4, 16):
+        _width(ws, get_column_letter(cc), 10.57)
+    _width(ws, "P", 15.86)
+    _width(ws, "Q", 15.86)
+    header(ws, ("Steuern", "AfA-Vergleich"), "AfA-Vergleich",
+           "Abschreibungsvarianten für dieses Objekt in den Jahren 1–10  ·  Beträge in €",
+           link=("Eingaben dazu: S10 Abschreibung  ›", "S10 Abschreibung"), edge="Q")
     # ---- Grundlagen + Kacheln
     band(ws, 8, "Grundlagen", c2=AFA_LAST)
     fmts = {9: EUR, 10: EUR, 11: EUR, 12: PCT2, 13: PCT2, 14: '0" Jahre";;"– (kein Gutachten)"', 15: "@"}
@@ -635,18 +722,18 @@ def afa(ws):
     tiles(ws)
     gap(ws, 16, H_GAP)
     # ---- Variantentabelle
-    band(ws, 17, "AfA-Beträge je Jahr", c2=AFA_LAST, extra="· in €",
+    band(ws, 17, "AfA-Beträge je Jahr", c2=AFA_LAST,
          meta="Steuerersparnis = AfA × Steuersatz Jahr 1 · Barwert mit dem Kalkulationszins")
     # Versalien nur für die Textköpfe – „Jahr n“ bleibt in Satzschreibung (Kategorien des Liniendiagramms)
     heads = {"B": ("VARIANTE", "left"), "C": ("ANWENDBAR FÜR DIESES OBJEKT?", "left"),
-             "N": ("Σ JAHRE 1–4", "right"), "O": ("Σ JAHRE 1–10", "right"),
+             "N": ("Σ JAHRE\n1–4", "right"), "O": ("Σ JAHRE\n1–10", "right"),
              "P": ("STEUERERSPARNIS\n1–10 NOMINAL", "right"), "Q": ("BARWERT\nSTEUERERSPARNIS", "right")}
     for k in range(10):
         heads[get_column_letter(4 + k)] = (f"Jahr {k + 1}", "right")
     C.section(ws, 18, "B", get_column_letter(AFA_LAST), level=2, labels=heads, height=C.H_ROW2, caps=False)
     for cc in range(2, AFA_LAST + 1):
         c = ws.cell(18, cc)
-        c.alignment = align(c.alignment.horizontal, "center", 1, wrap=cc >= 16)
+        c.alignment = align(c.alignment.horizontal, "center", 1, wrap=cc >= 14)
     for r in range(19, 27):
         name, basis = AFA_VARIANTS[r]
         key = r == 26
@@ -711,7 +798,9 @@ def afa(ws):
         _clear_row(ws, r, 2, AFA_LAST)
         for c in C.iter_cells(ws, 2, r, AFA_LAST, r):
             c.value = None
-    layout = ((47, 2, 3, 47), (47, 5, AFA_LAST, 49), (48, 2, 3, 48), (48, 5, AFA_LAST, 50))
+    # P33: zwei gleich breite Spaltengruppen mit einer Rinnenspalte; Zeilenhöhe aus dem längeren Block (P27-Raster)
+    split = min(range(5, AFA_LAST - 3), key=lambda k: abs(C.span_px(ws, 2, k) - C.span_px(ws, k + 2, AFA_LAST)))
+    layout = ((47, 2, split, 47), (47, split + 2, AFA_LAST, 49), (48, 2, split, 48), (48, split + 2, AFA_LAST, 50))
     need = {}
     for row, c1, c2, key in layout:
         kw, text = AFA_HINTS[key]
@@ -723,8 +812,7 @@ def afa(ws):
         n = C.lines_needed_metric(kw + text, C.span_px(ws, c1, c2), T_SMALL, False, 1)
         need[row] = max(need.get(row, 1), n)
     for row, n in need.items():
-        need_pt = C.px_pt(n * C.line_pt(T_SMALL) + 10)
-        ws.row_dimensions[row].height = min(h for h in C.ROW_RASTER if h >= need_pt)
+        ws.row_dimensions[row].height = C.text_row_height(n)
     gap(ws, 49, H_GAP)
     C.hide_rows(ws, 50, 51)
     # ---- Diagramme
@@ -732,7 +820,13 @@ def afa(ws):
     for r in range(53, 70):
         ws.row_dimensions[r].height = 15
     place_charts(ws)
-    gap(ws, 70, H_GAP)
+    gap(ws, 70, C.H_ROW)
+    # P19: leere Variante als Fußnote unter den Diagrammen statt unkommentierter Lücke (reine Anzeigeformel)
+    fn = ws["B70"]
+    fn.value = ('=IF(N(C14)=0,"Gutachten (RND): kein Restnutzungsdauer-Gutachten erfasst – Variante ohne Balken '
+                'und Linie","")')
+    fn.font = font(T_MICRO, False, MUTED, italic=True)
+    fn.alignment = align("left", "center", 1)
     C.hide_rows(ws, 71, 72)
     footer(ws, 73, merge_to="Q", line_to=AFA_LAST)
     C.hide_cols(ws, "R", "S")
@@ -744,15 +838,18 @@ def afa(ws):
 
 
 def tiles(ws):
-    """Kacheln rechts neben den Grundlagen (C.tile, light – Private Banking): angewendete Methode als Kurzform,
-    Erläuterung in der Kontextzeile; AfA 1–10; Barwert. Werte über zwei 18-pt-Zeilen (Raster der Grundlagen)."""
+    """Kacheln rechts neben den Grundlagen (C.tile, light – Private Banking, P10/P11): drei gleich breite Kacheln
+    (je 296 px, Rinnenspalten I und N gleich breit), gestreckt über Z. 9–15, damit sie mit der Grundlagenliste
+    abschließen. Kopfstreifen Z. 9 · Wert Z. 10–14 · Fußzeile Z. 15 (Kontext)."""
     specs = (("E", "H", "Im Modell angewendet", AFA_SHORT, "General", "=C26"),
-             ("J", "M", "AfA Jahre 1–10 (angewendet)", "=O26", EUR, "Summe der Gebäude-AfA lt. Blatt „Steuern“"),
+             ("J", "M", "AfA Jahre 1–10 (angewendet)", "=O26", EUR, "Summe der Gebäude-AfA lt. Steuer-Tabelle"),
              ("O", "Q", "Barwert der Steuerersparnis", "=Q26", EUR, "Jahre 1–10, abgezinst mit dem Kalkulationszins"))
+    for r in range(9, 16):
+        ws.row_dimensions[r].height = C.H_ROW
     for c1, c2, lab, val, fmt, sub in specs:
-        C.tile(ws, c1, c2, 9, 10, 12, label=lab, value=val, sub=sub, fmt=fmt, variant="light", value_rows=2,
-               gap_right=False, status=None, neg=False)
-    for r in range(9, 13):
+        C.tile(ws, c1, c2, 9, 10, 15, label=lab, value=val, sub=sub, fmt=fmt, variant="light", value_rows=5,
+               gap_right=False, gap=False, status=None, neg=False)
+    for r in range(10, 15):
         ws.row_dimensions[r].height = C.H_ROW
 
 

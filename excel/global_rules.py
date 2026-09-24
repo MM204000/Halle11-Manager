@@ -15,6 +15,7 @@ import re
 from copy import copy
 
 from openpyxl.styles import Alignment, Border, Font, Protection
+from openpyxl.worksheet.hyperlink import Hyperlink
 from openpyxl.worksheet.pagebreak import Break, ColBreak, RowBreak
 from openpyxl.worksheet.properties import PageSetupProperties
 
@@ -48,7 +49,7 @@ HEADERS = {
     "Eingaben": ("B", "L", "Eingaben", "Eingaben",
                  "Vollständige Übersicht aller Eingaben und Profi-Felder  ·  Gelb hinterlegt = Eingabe, "
                  "blau = aus dem Leitfaden übernommen (dort ändern)"),
-    "Sensitivität": ("C", "M", "Berechnung", "Sensitivität",
+    "Sensitivität": ("C", "M", "Sensitivität", "Sensitivität",
                      "Was passiert, wenn Miete, Zins oder Wertentwicklung anders laufen?  ·  Jahr-1-Größen als "
                      "lineare Näherung, die IRR-Matrix rechnet die volle Zahlungsreihe neu"),
     "Haushaltsrechnung": ("B", "E", "Bank  ›  Haushaltsrechnung", "Haushaltsrechnung",
@@ -93,10 +94,19 @@ NUMFMT_MAP = {
 # Prozent-Regel (P2-12): Eingaben und übernommene Eingaben 0,0 % – zweite Stelle nur, wenn der Wert sie braucht
 # (Makler 3,57 %); berechnete Quoten/Renditen immer 0,0 %. Fachlich zweistellig: Zins-/Tilgungssätze (Bankpraxis)
 # und die angewendeten Steuersätze (46,26 %).
+# Runde 3 (P24 „eine Größe, eine Genauigkeit“): Zins-, Tilgungs-, Steuer- und AfA-Sätze 0,00 %; Kosten-/GrESt-Sätze und
+# Renditen 0,0 %. Gemischte Eingabespalten (S03 Notar/Grundbuch/Makler, S07 Finanzierung) einheitlich 0,00 % – und
+# ihre Spiegel auf „Eingaben“ genauso.
 PCT2_WORDS = ("zins", "tilgung")
-PCT2_CELLS = {"S09 Steuern": ["I11:I14"], "Cockpit": ["G36"], "AfA-Vergleich": ["C12"], "Steuern": ["D72:AQ72"]}
-# DSCR überall mit Faktorzeichen (0,00×)
-DSCR_CELLS = {"Start": ["E31"], "Leitfaden": ["F13"], "S08 Zwischenergebnis": ["D23"], "Dashboard": ["N15", "E22:F22"],
+PCT2_CELLS = {"S09 Steuern": ["I11:I14"], "Cockpit": ["G36"], "AfA-Vergleich": ["C12"],
+              "Steuern": ["C18:C20", "C25:C26", "D71:AQ71", "D72:AQ72", "C87"],
+              "Eingaben": ["C29:C31", "C41", "C43", "C124", "C136:C139"],
+              "Konfiguration": ["C36:C40", "C45:C53"],   # ESt/Soli/KiSt/KSt wie auf „Steuern“ (5,50 %, 15,00 %)
+              "S01 Objekt": ["I12"], "S03 Kaufnebenkosten": ["D13:D15"], "S07 Finanzierung": ["D13:D21"]}
+# Ganzzahlige Prozente (Wunsch B: S05 „Wertsteigernder Anteil“ 100 %)
+PCT0_CELLS = {"S05 Maßnahmen & Reserve": ["D18"], "Eingaben": ["C69"]}
+# DSCR überall mit Faktorzeichen (0,00×); Dashboard F22 (Ziel „≥ 1,20×“) behält sein eigenes Format (Wunsch G)
+DSCR_CELLS = {"Start": ["E31"], "Leitfaden": ["F13"], "S08 Zwischenergebnis": ["D23"], "Dashboard": ["N15", "E22"],
               "Cockpit": ["K24"], "Bankgespräch": ["C35"], "Sensitivität": ["D35:J41"], "Konfiguration": ["C78:D78"]}
 # Formeln/Koeffizienten mit zwei Stellen einheitlich (Konfiguration C32:C35)
 NUM2_CELLS = {"Konfiguration": ["C32:C35"]}
@@ -166,13 +176,11 @@ def _numeric_fmt(fmt):
 
 
 def _map_size(c):
-    """Zwischengrößen auf die Typo-Skala (core.snap_size: 8,5 → 9, 9,5/11 → 10, 12 → 12,5, 14 → 16, < 8 → 8).
-    Ausnahme: 8,5-pt-Versalienlabels werden 8 pt (Versalien-Labels stehen immer in 8 pt)."""
+    """Zwischengrößen auf die Typo-Skala (core.snap_size: 9,5/11 → 10, 12 → 12,5, 14 → 16, < 8 → 8).
+    8,5 pt ist seit Runde 3 eine eigene Stufe (T_LABEL: Versalien-Labels, Tabellenköpfe, Eyebrow) und bleibt."""
     sz = c.font.sz or 11
     if sz in SCALE:
         return sz
-    if sz == 8.5 and c.font.b and isinstance(c.value, str) and not C.is_formula(c.value) and c.value.upper() == c.value:
-        return C.T_MICRO
     return C.snap_size(sz)
 
 
@@ -318,6 +326,10 @@ def numfmt_catalog(ws):
     for ref in NUM2_CELLS.get(t, []):
         for c in _cells(ws, ref):
             c.number_format = C.numfmt("num2", entry=_is_input(c))
+    for ref in PCT0_CELLS.get(t, []):
+        for c in _cells(ws, ref):
+            if c.value is not None and "%" in (c.number_format or ""):
+                c.number_format = C.numfmt("pct0", entry=_is_input(c))
     # „(Jahre)“ im Label → Einheit im Zahlenformat
     for c in list(ws._cells.values()):
         if not (_static(c) and YEARS_LABEL.search(c.value)) or c.column > 3:
@@ -544,7 +556,7 @@ def page_footer(ws, c1, c2, row=None):
 
 UNIT_TEXT = {"€": None, "%": None, "€/Monat": "pro Monat", "€ p. a.": "pro Jahr", "€/m²": "je m²",
              "€/m² p. a.": "je m² p. a.", "% Darlehen": "vom Darlehen", "% der Miete": "der Miete",
-             "% Verkaufspreis": "vom VK-Preis", "fach": "Jahresmieten"}
+             "% Verkaufspreis": "vom VK-Preis", "fach": None}   # Faktor: Einheit „×“ steht im Zahlenformat
 
 
 def forms_pre(ws):
@@ -638,16 +650,17 @@ def note_cols(ws):
 
 
 def bank_defaults(ws):
-    """HH / VA: Ergebniszeilen, kritische Puffer rot/grün, Blattschutz mit entsperrten Eingaben (P2-08, P3-02)."""
+    """HH / VA: Ergebniszeile (Summenstufe „final“), Blattschutz mit entsperrten Eingaben (P2-08, P3-02).
+    Die Statusfarben der Puffer setzt layouts/bank.py (P1-10, Wunsch F) – hier keine zweite Regel."""
     if ws.title == "Haushaltsrechnung":
-        res, crit = 46, ("C46:D46", "$C$46")
+        res = 46
     elif ws.title == "Vermögensaufstellung":
-        res, crit = 32, ("C34", "$C$34")
+        res = 32
     else:
         return
     if ws.title == "Haushaltsrechnung" and isinstance(ws["E46"].value, str) and ws["E46"].data_type == "s":
         C.set_text(ws["E46"], "Banken erwarten > 0 nach neuem Kapitaldienst")
-    C.sum_row(ws, res, "B", "E", "result")  # das EINE Blockergebnis (Summenstufe 2)
+    C.sum_row(ws, res, "B", "E", "final")  # das EINE Blockergebnis
     for c in C.iter_cells(ws, "B", res, "E", res):
         if c.value is not None and c.column <= 4:
             _set_font(c, sz=C.T_H3, b=True, color=C.NAVY)
@@ -655,13 +668,6 @@ def bank_defaults(ws):
         elif c.value is not None:
             _set_font(c, sz=C.T_SMALL, b=False, color=C.MUTED)
     ws.row_dimensions[res].height = C.H_BAND
-    ref, cell = crit
-    if ws.title == "Haushaltsrechnung":  # Status nach der Überschussquote C47 (P1-10): Schrift, keine Fläche
-        conds = [("$C$47<0", "red"), ("$C$47<0.05", "amber"), ("ISNUMBER($C$47)", "green")]
-        C.status_cf(ws, "C46:D46", conds)
-        C.status_cf(ws, "C47", conds)
-    else:
-        C.status_cf(ws, ref, [(f"{cell}<0", "red"), (f"ISNUMBER({cell})", "green")])
     for r in range(9, res + 2):  # Kommentar-/Nachweisspalte neben Eingaben bleibt beschreibbar
         if ws.cell(r, 3).protection.locked is False:
             ws.cell(r, 5).protection = Protection(locked=False)
@@ -677,12 +683,6 @@ def calc_colors(ws):
             continue
         if _rgb(c.font.color) == C.BLUE and not _is_input(c):
             _set_font(c, color=C.INK)
-
-
-def sensitivity_defaults(ws):
-    from openpyxl.formatting.rule import FormulaRule
-    for ref in ("D11", "D62"):  # nur echte negative Ergebnisse rot, keine Flächentönung
-        C.neg_red(ws, ref, bold=True)
 
 
 def early(wb):
@@ -725,8 +725,6 @@ def early(wb):
     for name in CALC_SHEETS:
         if name in wb.sheetnames:
             calc_colors(wb[name])
-    if "Sensitivität" in wb.sheetnames:
-        sensitivity_defaults(wb["Sensitivität"])
 
 
 # =============================================================================== final
@@ -740,8 +738,163 @@ def finish_sheet(ws):
     normalise(ws)
     numfmt_catalog(ws)
     units_once(ws)
+    units_convention(ws)
+    zero_convention(ws)
+    neg_red_net(ws)
+    input_look(ws)
+    breadcrumb_links(ws)
     cf_rules(ws)
     C.cf_close(ws)
+
+
+# ------------------------------------------------------------------------------- Einheiten & Null (P38)
+# Einheiten Jahre/Monate/m² stehen im Zahlenformat, die Einheitenspalte E nur für Qualifier („pro Monat“).
+# Null: gelbe Eingabefelder zeigen 0 sichtbar, berechnete/übernommene Zellen „–“.
+UNIT_FMT = {
+    "years": ('[=1]0" Jahr";0" Jahre"', '[=1]0" Jahr";[=0]"–";0" Jahre"'),
+    "months": ('[=1]0" Monat";0" Monate"', '[=1]0" Monat";[=0]"–";0" Monate"'),
+    "qm": ('#,##0" m²"', f'#,##0" m²";{C._M}#,##0" m²";"–"'),
+}
+UNIT_KIND = {"Jahre": "years", "Jahr(e)": "years", "Jahr": "years", "Monate": "months", "Monat": "months",
+             "m²": "qm"}
+PLAIN_HEADS = {"0", "#,##0", "General"}
+
+
+def _fmt_head(fmt):
+    return (fmt or "General").split(";")[0].replace("\\", "").replace('"', "").strip()
+
+
+def units_convention(ws):
+    t = ws.title
+    if STEP_RE.match(t):
+        vcol = 4
+    elif t == "Eingaben":
+        vcol = 3
+    else:
+        return
+    for r in range(9, ws.max_row + 1):
+        v, e = ws.cell(r, vcol), ws.cell(r, 5)
+        if v.value is None or not (isinstance(v.value, (int, float)) or C.is_formula(v.value)):
+            continue
+        if _fmt_head(v.number_format) not in PLAIN_HEADS:
+            continue
+        unit = e.value.strip() if _static(e) else None
+        label = " ".join(str(ws.cell(r, cc).value or "") for cc in (2, 3) if _static(ws.cell(r, cc))).lower()
+        kind = UNIT_KIND.get(unit) if unit else ("years" if re.search(r"jahre\b", label) else None)
+        if kind is None:
+            continue
+        inp = _is_input(v)
+        v.number_format = UNIT_FMT[kind][0 if inp else 1]
+        if unit:
+            e.value = None
+
+
+def zero_convention(ws):
+    """Berechnete €-Zellen zeigen 0 als „–“ (Eingabefelder behalten „0 €“)."""
+    for c in ws._cells.values():
+        if not C.is_formula(c.value) or _is_input(c):
+            continue
+        fmt = c.number_format or ""
+        parts = fmt.split(";")
+        if len(parts) == 3 and "€" in parts[0] and parts[2].replace("\\", "").strip('" ') in ("0 €", "0.00 €"):
+            c.number_format = ";".join(parts[:2] + ['"–"'])
+
+
+# ------------------------------------------------------------------------------- Negativ-Rot (P15, Sicherheitsnetz)
+NEG_RED_CELLS = {"S12 Ergebnis": ["D21", "D23"], "S09 Steuern": ["I15"], "Cockpit": ["G45"],
+                 "Sensitivität": ["D55:H63"]}
+NEG_RED_ROWS = {"Dashboard": ("Steuerliches Ergebnis", "E", "R")}
+
+
+def _cf_covered(ws, coord):
+    for cf in ws.conditional_formatting:
+        if coord in cf.sqref:
+            return True
+    return False
+
+
+def neg_red_net(ws):
+    """Negative Ergebnis-/Kumulwerte rot – nur wo das Blatt-Modul noch keine Regel gesetzt hat."""
+    refs = list(NEG_RED_CELLS.get(ws.title, []))
+    spec = NEG_RED_ROWS.get(ws.title)
+    if spec:
+        row = _find_row(ws, spec[0], 3)
+        if row:
+            refs.append(f"{spec[1]}{row}:{spec[2]}{row}")
+    for ref in refs:
+        cells = [c for c in _cells(ws, ref) if c.value is not None and _numeric_fmt(c.number_format)
+                 and "Zahlung" not in (c.number_format or "")]
+        todo = [c for c in cells if not _cf_covered(ws, c.coordinate)]
+        for c in todo:
+            C.neg_red(ws, c.coordinate)
+
+
+# ------------------------------------------------------------------------------- Eingabe-Optik (P31)
+COMMENT_COLS = {"Haushaltsrechnung": ("E", 18, 47), "Vermögensaufstellung": ("E", 10, 34)}
+
+
+def input_look(ws):
+    """Jede entsperrte Zelle ist als Eingabe erkennbar. Kommentar-/Nachweisspalten der Bankformulare: zarte
+    Eingabefläche, Unterkante im Eingabegelb, 9 pt kursiv grau (nur wo das Blatt-Modul nichts gesetzt hat)."""
+    spec = COMMENT_COLS.get(ws.title)
+    if not spec:
+        return
+    letter, r1, r2 = spec
+    anchors = _merged_anchor_map(ws)
+    for r in range(r1, r2 + 1):
+        e = ws[f"{letter}{r}"]
+        if e.protection.locked is not False or _fill_rgb(e) is not None:
+            continue
+        a = anchors.get((r, e.column))
+        if a and (a[0], a[1]) != (r, e.column):
+            continue
+        if isinstance(e.value, str) and e.value.isupper():
+            continue
+        e.fill = C.fill(C.NOTE_BG)
+        e.border = Border(bottom=C.side("thin", C.INPUT_LINE))
+        e.font = Font(name=C.SANS, sz=C.T_SMALL, i=True, color=C.MUTED)
+        e.alignment = C.align("left", "center", 1)
+
+
+# ------------------------------------------------------------------------------- Zell-Link-Rückfall (P05)
+CRUMB_TARGET = {"BANK": "Bankgespräch", "STEUERN": "Steuern", "LEITFADEN": "Start"}
+SUBNAV_SHEETS = ("Steuern", "AfA-Vergleich", "Bankgespräch", "Haushaltsrechnung", "Vermögensaufstellung",
+                 "Hinweise", "Konfiguration")
+BACK_EDGE = {"Leitfaden": "I", "Diagramme": "P", "Sensitivität": "M", "Eingaben": "L"}   # rechte Inhaltskante
+
+
+def breadcrumb_links(ws):
+    """Navigation ohne Formen: Eyebrow (Z. 5) ist Zell-Link eine Ebene höher (S01–S12 → Leitfaden, sonst Start bzw.
+    Gruppenblatt); wo Z. 5 rechts frei ist (keine Unterreiter), zusätzlich „‹  Start“ an der Inhaltskante."""
+    t = ws.title
+    if t == "Start":
+        return
+    wbk = ws.parent
+    eb = next((ws.cell(5, cc) for cc in (2, 3) if _static(ws.cell(5, cc)) and ws.cell(5, cc).value.strip()), None)
+    if eb is None:
+        return
+    # Eyebrow einheitlich 8,5 pt fett Versalien 1D4F8A (core.page_header)
+    eb.font = C.font(C.T_LABEL, True, C.BLUE)
+    if STEP_RE.match(t):
+        target = "Leitfaden"
+    else:
+        first = re.split(r"›|·", eb.value)[0].strip().upper()
+        target = CRUMB_TARGET.get(first, "Start")
+    if target == t or target not in wbk.sheetnames:
+        target = "Start"
+    if eb.hyperlink is None:
+        eb.hyperlink = Hyperlink(ref=eb.coordinate, location=C.link_loc(target), tooltip=f"Zurück: {target}")
+    if t in SUBNAV_SHEETS or t in ("Dashboard", "Cockpit") or C.link_target(t) != "A4":
+        return
+    edge = "I" if STEP_RE.match(t) else BACK_EDGE.get(t)
+    if not edge:
+        return
+    cell = ws[f"{edge}5"]
+    anchors = _merged_anchor_map(ws)
+    if cell.value is not None or (5, cell.column) in anchors or cell.column <= eb.column:
+        return
+    C.text_link(cell, f"‹  {target}", target, size=C.T_LABEL, bold=False, tooltip=f"Zurück: {target}")
+    cell.alignment = C.align("right", "bottom")
 
 
 def cf_rules(ws):
@@ -759,7 +912,7 @@ def cf_rules(ws):
 
 def units_once(ws):
     """Eine Einheit wird nur einmal genannt: steht sie schon in der Beschriftung oder im Zahlenformat (×),
-    bleibt die Einheitenspalte leer. § 82b: „Jahr(e)“."""
+    bleibt die Einheitenspalte leer (Jahre/Monate/m² wandern über units_convention ins Zahlenformat)."""
     if ws.title not in ("Eingaben", "Konfiguration"):
         return
     for r in range(9, ws.max_row + 1):
@@ -772,8 +925,6 @@ def units_once(ws):
             e.value = None
         elif "×" in (cval.number_format or "") and unit in ("Jahresmieten", "fach"):
             e.value = None
-        elif "82b" in label and unit == "Jahre":
-            C.set_text(e, "Jahr(e)")
 
 
 def _rich_runs(c):
@@ -813,8 +964,17 @@ def _plain_symbols(text):
 def normalise(ws):
     for c in ws._cells.values():
         _rich_runs(c)
-        if c.number_format and ";" in c.number_format and _is_input(c):
-            c.number_format = _zero_visible(c.number_format)
+        fmt = c.number_format
+        # P16: Formelzellen nie im Textformat „@“ (Excel zeigt sonst beim Bearbeiten die Formel als Text)
+        if fmt == "@" and C.is_formula(c.value):
+            c.number_format = fmt = "General"
+        # P23: typografisches Minus „−“ in allen Zahlenformaten (idempotent; Text/Datum/Bedingungen bleiben)
+        if fmt and fmt not in ("General", "@"):
+            new = C.typo_minus(fmt)
+            if new != fmt:
+                c.number_format = fmt = new
+        if fmt and ";" in fmt and _is_input(c):
+            c.number_format = _zero_visible(fmt)
         al = c.alignment
         f = c.font
         # 1) kein „An Zellgröße anpassen“; Einzug nur mit links/rechts
@@ -1088,13 +1248,16 @@ def print_setup(ws):
             _print(ws, f"A1:H{last}", "landscape", scale=scale, breaks=breaks)
         if ws.freeze_panes is None:
             ws.freeze_panes = "A4"
-    elif t == "Dashboard":  # quer; Seite 1 Kopf, Urteil, Kacheln, Wasserfall | Seite 2 Verlauf, Tabelle, Hinweise
+    elif t == "Dashboard":  # quer, 3 Seiten (Wunsch G): Kopf/Urteil/Kacheln/Check | Vermögensentwicklung |
+        # Kennzahlen im Zeitverlauf + Prüfhinweise – jede Seite vollständig, gemeinsamer Maßstab (≈ 75 %)
         last = _footer_row(ws, 1, 18) or ws.max_row
         cut = _find_row(ws, "Vermögensentwicklung", 18, 28)
+        trend = _find_row(ws, "Kennzahlen im Zeitverlauf", 18, None, r_min=cut + 1)
         hints = _find_row(ws, "Prüfhinweise", 18, None, contains=True, r_min=cut + 1)
-        scale, breaks = _smart(ws, "A", "R", last, forced=(cut,), one_page_segments=True)
-        if scale < 70 or len(breaks) > 1:  # Seite 2 zu lang: Verlauf + Zeitverlauf | Prüfhinweise (3 Seiten, ≥ 70 %)
-            _smart(ws, "A", "R", last, forced=(cut, hints) if hints else (cut,), one_page_segments=True)
+        forced = tuple(r for r in (cut, trend) if r)
+        scale, breaks = _smart(ws, "A", "R", last, forced=forced, one_page_segments=True)
+        if scale < 70 or len(breaks) > len(forced):  # zu lang: Prüfhinweise auf eine eigene Seite
+            _smart(ws, "A", "R", last, forced=tuple(r for r in (cut, trend, hints) if r), one_page_segments=True)
     elif t == "Leitfaden":
         _print(ws, f"A1:I{_footer_row(ws, 1, 9) or 53}", "landscape", 1, 1)
     elif t == "Cockpit":

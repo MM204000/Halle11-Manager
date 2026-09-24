@@ -61,12 +61,15 @@ UPPER = {
         (18, "row", "– Bewirtschaftung Jahr 1 (inkl. Rücklagen)", "eur"),
         (19, "sub", "in % der Nettokaltmiete", "pct1"),
         (20, "result", "= Einnahmenüberschuss (NOI) Jahr 1", "eur"),
-        (22, "l2", "Rendite und Annahmen", None),
+        (22, "l2", "Rendite, Annahmen und Break-even", None),
         (23, "row", "Bruttomietrendite (Jahresmiete / Kaufpreis)", "pct1"),
         (24, "row", "Nettomietrendite (NOI / Gesamtinvestition)", "pct1"),
         (25, "row", "Kaufpreisfaktor (Kaufpreis / Jahresmiete)", "mult1"),
         (26, "row", "Mietsteigerung · Kosten · Wert p. a.", None),
         (27, "row", "Mietausfallwagnis · Leerstand Jahr 1", None),
+        (28, "row", "Eigenkapitalrendite Jahr 1", "pct1"),
+        (29, "row", "Break-even-Miete v. St. / Monat", "eur"),
+        (30, "row", "Break-even-Miete n. St. / Monat", "eur"),
     ],
     "J": [
         (14, "row", "Darlehen gesamt", "eur"),
@@ -82,12 +85,15 @@ UPPER = {
         (25, "row", "Restschuld nach Zinsbindung (Darlehen I)", "eur"),
         (26, "row", "Volltilgung (Restschuld = 0)", None),
         (27, "row", f"Anschlusszins +1{NBSP}%-Pkt. kostet p. a.", "eur"),
+        (28, "row", "Zinsbindung Darlehen I", "years_n"),
+        (29, "row", "Anschlusszins nach Zinsbindung (Annahme)", "pct2"),
+        (30, "row", "Anfängliche Tilgung Darlehen I", "pct2"),
     ],
 }
-# Steuerzeile im Cashflow (P3-08): Das Vorzeichen steht wie bei „– Zinsen“ in der Beschriftung (dynamisch, wie
-# S09 H16), die Beträge erscheinen ohne Vorzeichen. Erstattung (Wert < 0) erhöht den Cashflow → „+ Steuererstattung“.
-TAX_ABS = '#,##0" €";#,##0" €";"–"'
-TAX_LABEL = '=IF(D42<0,"+ Steuererstattung",IF(D42>0,"– Steuerzahlung","± Steuerwirkung"))'
+# Steuerzeile im Cashflow (P07, Cash-Sicht wie S12/Dashboard): + = Geld fließt zu (Erstattung), − = Zahlung.
+# Die Formeln C42:D42 liefern die Steuer-Sicht (Erstattung < 0) – das Vorzeichen wird nur per Format umgedreht.
+TAX_CASH = '"−"#,##0" €";"+"#,##0" €";"–"'
+TAX_LABEL = "± Steuerwirkung (Cash-Sicht)"
 LOWER = {
     "B": [
         (36, "row", "Nettokaltmiete Ist", "eur"),
@@ -96,9 +102,12 @@ LOWER = {
         (39, "row", "– Zinsen", "eur"),
         (40, "row", "– Tilgung", "eur"),
         (41, "sum", "= Cashflow vor Steuern", "eur"),
-        (42, "row", TAX_LABEL, TAX_ABS),
+        (42, "row", TAX_LABEL, TAX_CASH),
         (43, "result", "= Cashflow nach Steuern", "eur"),
         (44, "memo", "nachrichtlich: Warmmiete", "eur"),
+        (45, "l2", "Ausblick Folgejahr (Jahr 2)", None),
+        (46, "row", "Cashflow vor Steuern Jahr 2", "eur"),
+        (47, "row", "Cashflow nach Steuern Jahr 2", "eur"),
     ],
     "F": [
         (35, "row", "Rechtsform", None),
@@ -137,30 +146,37 @@ DISPLAY_FORMULAS = {
     "G26": '=FIXED(Mietsteigerung*100,1)&" % · "&FIXED(Kostensteigerung*100,1)&" % · "&FIXED(Wertsteigerung*100,1)&" %"',
     "G27": '=FIXED(Mietausfall_Pct*100,1)&" % · "&Leerstand_Monate&" Monate"',
     "G35": "=" + RECHTSFORM_SHORT,
+    # Lückenfüller der oberen Karten F/J und der Cashflow-Karte (leere Zellen der Vorlage, reine Anzeige)
+    "G28": "=EKR_Tile",
+    "G29": "=BE_Miete_vSt",
+    "G30": "=BE_Miete_nSt",
+    "K28": "=Zinsbindung_I",
+    "K29": "=Anschlusszins_I",
+    "K30": "=Tilgung_I",
+    "C46": "=INDEX(Projektion!$D$33:$AQ$33,2)/12",
+    "D46": "=INDEX(Projektion!$D$33:$AQ$33,2)",
+    "C47": "=INDEX(Projektion!$D$36:$AQ$36,2)/12",
+    "D47": "=INDEX(Projektion!$D$36:$AQ$36,2)",
 }
 
 
-def _goal(name):
-    return f'="Ziel ≥ "&FIXED({name}*100,1)&" %"'
-
-
-# Kacheln (P1-11): drei Paare „Betrag | Rendite“ – große Kachel in der Beschriftungsspalte (B/F/J, Wert = Formel der
-# Vorlage in Z. 9, J9 ist der Name CF_nSt_Monat_J1), kleine Kachel über die beiden Wertspalten (Anzeigeformel).
-# (c1, c2, kpi, value, Kontextzeile, Status)
+# Kacheln (P11/P20): drei Paare „Betrag | Kennzahl“ auf dem Spaltenraster der Karten darunter. Die großen Kacheln
+# (B/F/J) tragen die Formeln der Vorlage in Z. 9 (J9 = Name CF_nSt_Monat_J1), die kleinen Kacheln (C:D, G:H, K:L)
+# Anzeigeformeln. Kanonischer Satz und Reihenfolge (C.KPI_ORDER): Beträge GI · EK · CF, Kennzahlen BMR · DSCR · IRR.
+# Fußzeile = reiner Kontext (Ziel über C.threshold_text), den Status setzt C.tile selbst (chip bzw. inline).
+# (c1, c2, kpi, value, Kontextzeile)
+CF2 = 'SUBSTITUTE(FIXED(' + C.CF_YEAR2 + ',0),"-","' + C.MINUS + '")'
 TILES = [
-    ("B", "B", "GI", None, '="Kaufpreis "&FIXED(Kaufpreis,0)&" € · Nebenkosten "&FIXED(NK_Quote*100,1)&" %"', None),
-    ("C", "D", "BMR", "=Bruttomietrendite", _goal("Ampel_BMR_gruen"), "chip"),
+    ("B", "B", "GI", None, '="Kaufpreis "&FIXED(Kaufpreis,0)&" € · Nebenkosten "&FIXED(NK_Quote*100,1)&" %"'),
+    ("C", "D", "BMR", "=Bruttomietrendite", "=" + C.threshold_text("BMR")),
     ("F", "F", "EK", None,
-     '=IF(Reserve_Einmalig=0,"ohne Liquiditätsreserve","davon Liquiditätsreserve "&FIXED(Reserve_Einmalig,0)&" €")',
-     None),
-    ("G", "H", "EKR", "=EKR_Tile", _goal("Ampel_EKR_gruen"), "chip"),
-    ("J", "J", "CF", None, '="●  ab Jahr 2: "&FIXED(' + C.CF_YEAR2 + ',0)&" € / Monat"', "dot"),
-    ("K", "L", "IRR", "=IRR_Tile", _goal("Ampel_IRR_gruen"), "chip"),
+     '=IF(Reserve_Einmalig=0,"ohne Liquiditätsreserve","davon Liquiditätsreserve "&FIXED(Reserve_Einmalig,0)&" €")'),
+    ("G", "H", "DSCR", "=DSCR_J1", "=" + C.threshold_text("DSCR")),
+    ("J", "J", "CF", None, '="ab Jahr 2: "&' + CF2 + '&" € / Monat"'),
+    ("K", "L", "IRR", "=IRR_Tile", "=" + C.threshold_text("IRR")),
 ]
-TILE_LABEL = {"CF": "Cashflow n. St. / Monat (Jahr 1)", "EK": "Eigenkapitalbedarf inkl. Reserve",
-              "EKR": "EK-Rendite Jahr 1", "IRR": "IRR n. St. (Haltedauer)"}
-AMPEL = {"G23": "BMR", "G24": "NMR", "K24": "DSCR", "K47": "IRR"}   # Tabellenwerte 10 pt: Status als Schriftfarbe
-NEGATIVE_RED = ("C41:D41", "C43:D43", "K43", "K45")           # echte negative Ergebnisse rot (P1-10)
+AMPEL = {"G23": "BMR", "G24": "NMR", "G28": "EKR", "K24": "DSCR", "K47": "IRR"}   # Tabellenwerte 10 pt: Statusfarbe
+NEGATIVE_RED = ("K43", "C46:D47")      # Kumul- und Cashflow-Werte außerhalb der Summenzeilen (P15)
 
 HINT_ROWS = range(50, 56)
 CHART_TOP, CHART_BOTTOM = 58, 73          # Diagramme füllen B58:D73 | F58:H73 | J58:L73
@@ -312,9 +328,9 @@ def tiles(ws):
         if c.coordinate not in keep:
             c.value = None
             c.hyperlink = None
-    for c1, c2, key, value, sub, status in TILES:
-        C.tile(ws, c1, c2, 8, 9, 10, kpi=key, label=TILE_LABEL.get(key), value=value, sub=sub,
-               status=status, gap_right=(c1 == c2), value_ref=f"${c1}$9")
+    for c1, c2, key, value, sub in TILES:
+        label = C.kpi_label(key, caps=True, formula=True) if key == "IRR" else None
+        C.tile(ws, c1, c2, 8, 9, 10, kpi=key, label=label, value=value, sub=sub, value_ref=f"${c1}$9")
     set_height(ws, 11, 6)       # Fuge Kacheln → Karten: 2 × 6 pt = eine Leerzeile H_GAP
     set_height(ws, 12, 6)
 

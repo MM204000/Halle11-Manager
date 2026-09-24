@@ -9,24 +9,23 @@ from openpyxl.styles import Border
 
 from openpyxl.utils import column_index_from_string, get_column_letter
 
-from core import ACCENT, CONTENT_EDGE, H_GAP, NAV_MIN_PX, NAVY, NOFILL, col_px, fill
+from core import ACCENT, CONTENT_EDGE, H_GAP, NAVY, NOFILL, col_px, fill
 
-# Die Reiter (Formen, navigation.py) enden auf jedem Blatt bei 1 200 px; die Navy-Fläche der Kopfleiste reicht
-# mindestens bis core.NAV_MIN_PX (1 368 px, hinter dem Inhaltsrand der Schritt-Seiten) bzw. bis zur letzten
-# Inhaltsspalte breiterer Blätter (core.CONTENT_EDGE – einzige Quelle, auch für navigation.py).
+# Runde 3 (P01): Kopfband, Reiterleiste und Inhalt enden auf jedem Blatt an derselben Kante. Die genaue Kante
+# (rechte Inhaltskante) misst navigation.py nach der Neuberechnung am fertigen Blatt; hier wird die Navy-Fläche
+# nur großzügig vorgelegt (bis BAND_PREFILL_PX bzw. core.CONTENT_EDGE) – navigation.trim_band schneidet sie
+# exakt zu, navigation.band_extension ergänzt eine angeschnittene Spalte als Fläche.
 JUMP_ROW_SHEETS = ("Eingaben", "Diagramme")  # Zeile 8 trägt die Sprungleiste (navigation.jump_bar)
 BAND_TO = CONTENT_EDGE                       # Kompatibilität für Altaufrufer
+BAND_PREFILL_PX = 1800                       # Vorlage der Navy-Fläche; Zuschnitt auf die Inhaltskante: navigation.py
 
 
 def band_end_col(ws):
-    """Letzte Spalte der Kopfleiste (Zellfläche).
+    """Letzte Spalte der vorgelegten Kopfleisten-Fläche (Zellen).
 
-    - Mindestens alle Spalten, deren rechte Kante innerhalb von NAV_MIN_PX liegt; den Rest bis genau NAV_MIN_PX
-      ergänzt navigation.band_extension als Fläche (so endet die Kopfleiste auf jedem Blatt an derselben Kante,
-      auch wenn hinter dem Inhalt eine sehr breite Spalte folgt).
-    - Breiter Inhalt (core.CONTENT_EDGE, Diagramme): bis zur letzten Inhaltsspalte – spaltenbasiert, weil die Blatt-Module
-      die Spaltenbreiten erst nach diesem Modul setzen.
-    Früher reichte die Fläche bis zur Spalte der alten Marke (z. B. Start bis U = 1 914 px bei 731 px Inhalt)."""
+    Großzügig: alle Spalten bis BAND_PREFILL_PX, mindestens bis core.CONTENT_EDGE bzw. zum breitesten Diagramm –
+    spaltenbasiert, weil die Blatt-Module die Spaltenbreiten erst nach diesem Modul setzen. Den exakten Zuschnitt
+    auf die rechte Inhaltskante (= rechte Kante der Reiterleiste) macht navigation.trim_band am fertigen Blatt."""
     last = column_index_from_string(CONTENT_EDGE[ws.title]) if ws.title in CONTENT_EDGE else 1
     for ch in getattr(ws, "_charts", []):
         to = getattr(ch.anchor, "to", None)
@@ -35,7 +34,7 @@ def band_end_col(ws):
     px, c = 0, 1
     while c < 400:
         w = col_px(ws, get_column_letter(c))          # ausgeblendete Spalten = 0 px (core.col_px)
-        if px + w > NAV_MIN_PX + 6:
+        if px + w > BAND_PREFILL_PX:
             break
         px += w
         c += 1
@@ -43,8 +42,8 @@ def band_end_col(ws):
 
 
 def masthead(ws):
-    """Kopfleiste als Farbfläche: Z. 1 (6 pt) und 2 (33 pt) Navy, Z. 3 (3 pt) Akzentlinie – so breit wie
-    Reiterleiste bzw. Inhalt; dahinter bleibt die Kopfzone weiß."""
+    """Kopfleiste als Farbfläche: Z. 1 (6 pt) und 2 (33 pt) Navy, Z. 3 (3 pt) Akzentlinie. Endet nach dem
+    Zuschnitt (navigation.trim_band) an der rechten Inhaltskante; dahinter bleibt die Kopfzone weiß."""
     for mr in list(ws.merged_cells.ranges):
         if mr.min_row <= 2 <= mr.max_row:
             ws.unmerge_cells(str(mr))

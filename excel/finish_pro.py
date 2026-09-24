@@ -211,25 +211,43 @@ def manual_layout(target=None, x=None, y=None, w=None, h=None):
 
 
 def num_fmt(code):
-    return E("c:numFmt", formatCode=code, sourceLinked="0")
+    """Zahlenformat (nicht quellverknüpft) – Negativ-Sektion immer mit typografischem Minus „−“ (P23)."""
+    return E("c:numFmt", formatCode=K.typo_minus(code), sourceLinked="0")
+
+
+def luminance(hex_):
+    r, g, b = (int(hex_[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in (r, g, b)]
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+
+def text_on(fill):
+    """Beschriftungsfarbe auf einer Fläche: Weiß auf dunklen, Navy auf hellen Tönen (Kontrast ≥ 4,5 : 1)."""
+    return K.WHITE if luminance(fill or "FFFFFF") < 0.22 else K.NAVY
 
 
 
 # ============================================================================ Design-Regeln
 FMT_TEUR = '#,##0," T€"'
+FMT_TEUR1 = '#,##0.0," T€"'
 FMT_EUR = '#,##0" €"'
 FMT_PCT = "0 %"
-LBL_EUR = '#,##0" €";-#,##0" €"'
+LBL_EUR = '#,##0" €";"−"#,##0" €"'
 LBL_EUR_POS = '#,##0" €";;'
-LBL_TEUR1 = '#,##0.0," T€";-#,##0.0," T€";'
-TILG = "9DB9DA"        # Tilgung (hell, noch klar sichtbar auf Weiß)
-BAR_GREY = "9AA4B1"    # Bewirtschaftung / neutrale Kosten
-LINE_GREY = "8A94A6"   # Restschuld, Steuer (Linien)
+LBL_TEUR1 = '#,##0.0," T€";"−"#,##0.0," T€";'
+# ---- Mappenweite Farbzuordnung (P18): Einnahmen/Ergebnis in Blau, Ausgaben in einer Grau-Familie
+INTEREST = "5B6068"    # Zinsen
+TILG = "8C939D"        # Tilgung
+BAR_GREY = "C9CED6"    # Bewirtschaftung
+TAX_PAY = "3A3F45"     # Steuerzahlung (Abfluss, dunkelstes Grau – kein Rot: Rot nur für negative Ergebnisse)
+LINE_GREY = "8A94A6"   # Restschuld (gestrichelt)
+CF_VST = "8FB3DE"      # Cashflow vor Steuern (Säulen)
+NEG_SOFT = "D9A09B"    # negative Jahre (gedämpftes Rot, S12)
 OUTFLOW = "B8C3D1"     # Abfluss in Brücken
-PALE = "C9D9EE"        # nicht anwendbar
-LIGHT_LINE = "9DBBE0"  # Nebenvarianten (Linien)
+PALE = "C9D6E8"        # nicht anwendbar
 LEADER = "9AA5B4"      # Führungslinien Kreis
-WHITE_ON = {K.NAVY, K.BLUE, K.ACCENT, K.RED}      # weiße Beschriftung nur auf diesen Flächen
+GRID_SENS = "D9DEE7"   # Hilfslinien im Sensitivitäts-Panel
+WHITE_ON = {K.NAVY, K.BLUE, K.ACCENT, K.RED, INTEREST, TAX_PAY}   # weiße Beschriftung nur auf diesen Flächen
 
 # Serienfarben nach Name: (Muster, Farbe, Linienstärke pt, Strichart) – mappenweit fest je Kennzahl (P2-07, P2-09)
 SERIES_RULES = [
@@ -240,54 +258,50 @@ SERIES_RULES = [
     (r"^darlehen i\b", K.BLUE, None, None),
     (r"^nettokaltmiete", K.NAVY, None, None),
     (r"^steuererstattung", K.ACCENT, None, None),
-    (r"^steuerzahlung", K.RED, None, None),
-    (r"^kumulierte zinsen", K.BLUE, 2.0, None),
-    (r"^zinsen", K.BLUE, None, None),
-    (r"^kumulierte tilgung", K.ACCENT, 2.0, "dash"),
+    (r"^steuerzahlung", TAX_PAY, None, None),
+    (r"^kumulierte zinsen", INTEREST, 2.0, None),
+    (r"^zinsen", INTEREST, None, None),
+    (r"^kumulierte tilgung", TILG, 2.0, "dash"),
     (r"^tilgung", TILG, None, None),
     (r"^bewirtschaftung", BAR_GREY, None, None),
-    (r"^cashflow vor", K.SKY, None, None),
+    (r"^cashflow vor", K.ACCENT, 2.0, None),          # im Kombidiagramm als Linie (P32)
     (r"^cashflow nach", K.NAVY, None, None),
     (r"^kumulierter cashflow", K.NAVY, 2.25, None),
-    (r"^kumulierte steuer", LINE_GREY, 1.5, None),
-    (r"^afa regul", K.NAVY, None, None),
+    (r"^kumulierte steuer", K.ACCENT, 1.5, None),
+    (r"^afa regul", K.BLUE, None, None),
     (r"sonder-afa", K.ACCENT, None, None),
-    (r"7h", K.BLUE, None, None),
+    (r"7h", K.ACCENT, None, None),
     (r"^bewegliche", K.SKY, None, None),
     (r"^steuerliches ergebnis", K.BLUE, None, None),
-    (r"^steuer\b", LINE_GREY, None, None),
-    (r"^(ü|ue)berschuss", K.ACCENT, None, None),
-    (r"^unterdeckung", K.BLUE, None, None),
+    (r"^steuer\b", K.ACCENT, None, None),
+    (r"^(ü|ue)berschuss", K.BLUE, None, None),
+    (r"^unterdeckung", NEG_SOFT, None, None),
     # Wasserfall / AfA-Summe / Haushalt (Hilfsreihen aus layouts/diagramme.py)
     (r"^basis", None, None, None),
     (r"^zufluss", K.ACCENT, None, None),
     (r"^abfluss", OUTFLOW, None, None),
     (r"^ergebnis", K.NAVY, None, None),
-    (r"^anwendbar", K.ACCENT, None, None),
-    (r"^nicht anwendbar", PALE, None, None),
+    (r"^anwendbar", K.ACCENT, 1.5, None),
+    (r"^nicht anwendbar", PALE, 1.0, None),
     (r"^bestehender haushalt", K.BLUE, None, None),
     (r"^neues objekt", K.ACCENT, None, None),
     (r"^verm(ö|oe)genswerte", K.BLUE, None, None),
-    # AfA-Varianten (AfA-Vergleich, kumuliert): angewendete Variante kräftig, übrige zurückgenommen
-    (r"^im modell", K.NAVY, 3.0, None),
-    (r"^linear 3 ?% ?\+", LIGHT_LINE, 1.25, "dash"),
-    (r"^degressiv ?\+", LINE_GREY, 1.25, "dash"),
-    (r"^linear", LIGHT_LINE, 1.25, None),
-    (r"^degressiv", LINE_GREY, 1.25, None),
-    (r"^gutachten", LINE_GREY, 1.25, "sysDot"),
-    # Mietszenarien (Sensitivität)
-    (r"miete\s*[-−]\s*10", TILG, 1.25, "dash"),
-    (r"miete\s*[-−]\s*5", K.ACCENT, 1.25, "dash"),
+    # AfA-Varianten (AfA-Vergleich, kumuliert): Farbe nach Anwendbarkeit, keine Strichvarianten (P33)
+    (r"^im modell", K.NAVY, 2.5, None),
+    # Mietszenarien (Sensitivität, P30): Basis kräftig, Szenarien fein und durchgezogen
+    (r"miete\s*[-−]\s*10", K.ACCENT, 1.0, None),
+    (r"miete\s*[-−]\s*5", K.SKY, 0.75, None),
     (r"miete\s*basis", K.NAVY, 2.25, None),
-    (r"miete\s*\+\s*5", K.ACCENT, 1.25, None),
-    (r"miete\s*\+\s*10", K.BLUE, 1.25, None),
+    (r"miete\s*\+\s*5", K.SKY, 0.75, None),
+    (r"miete\s*\+\s*10", K.ACCENT, 1.0, None),
 ]
 FALLBACK = [K.NAVY, K.ACCENT, K.SKY, K.BLUE, "6E7F96", K.MIST]
 
-# Kreise: Farbe nach Rang (groß → klein), Navy nur für das Fokussegment (P1-17)
-PIE_RANK = ["1D4F8A", "4A86C8", "8FB3DE", "C8D7EB", "A0A7B1", "6E7F96"]
-PIE_FIXED = {"finanz": [(r"^eigenkapital", K.NAVY), (r"^darlehen ii\b", "8FB3DE"), (r"^darlehen i\b", K.ACCENT)],
-             "exit": [(r"^nettoerl", K.NAVY)]}
+# Kreise: 6-stufige Blau-Rampe nach Rang (groß → klein), Grau nur für „Sonstige“ (P18)
+PIE_RANK = ["0B2A4A", "1D4F8A", "2F6BAE", "4A86C8", "8DB3DE", "C9DBEF"]
+PIE_OTHER = "A0A8B4"
+PIE_FIXED = {"finanz": [(r"^eigenkapital", K.BLUE), (r"^darlehen ii\b", K.ACCENT), (r"^darlehen i\b", "8FB3DE")],
+             "exit": [(r"^nettoerl", K.NAVY)], "*": [(r"^sonstig", PIE_OTHER)]}
 # Kurzlabels der Kategorien: Art → [(Muster, Kurzname)]
 CAT_SHORT = {
     "invest": [(r"^kaufpreis", "Kaufpreis"), (r"^kaufneben", "Nebenkosten"), (r"^finanzierungsneben", "Finanzierungskosten"),
@@ -314,23 +328,25 @@ TITLES = {
     "exit": "Verwendung des Verkaufserlöses",
     "ertrag": "Gesamtertrag nach Steuern (Brücke, T€)",
     "jahr1": "Einnahmen vs. Ausgaben (Jahr 1, € / Monat)",
-    "bestand": "Vermögen und Restschuld (Jahre 1–{n}, €)",
-    "restschuld": "Restschuld am Jahresende bis zur Volltilgung (Jahre 1–{n}, €)",
-    "cashflow": "Cashflow vor und nach Steuern (Jahre 1–{n}, € p. a.)",
-    "cf_nach": "Cashflow nach Steuern (Jahre 1–{n}, € p. a.)",
-    "cf_kum": "Kumulierter Cashflow nach Steuern (Jahre 1–{n}, €)",
-    "kumzins": "Kumulierte Zinsen, Tilgung und Steuer (Jahre 1–{n}, €)",
-    "afa": "Abschreibungen nach Komponenten (Jahre 1–{n}, € p. a.)",
-    "steuer": "Steuerliches Ergebnis und Steuer (Jahre 1–{n}, € p. a.)",
+    "bestand": "Vermögen und Restschuld (Jahre 1–{n}, {u})",
+    "restschuld": "Restschuld am Jahresende bis zur Volltilgung (Jahre 1–{n}, {u})",
+    "cashflow": "Cashflow vor und nach Steuern (Jahre 1–{n}, {u} p. a.)",
+    "cf_nach": "Cashflow nach Steuern (Jahre 1–{n}, {u} p. a.)",
+    "cf_kum": "Kumulierter Cashflow nach Steuern (Jahre 1–{n}, {u})",
+    "kumzins": "Kumulierte Zinsen, Tilgung und Steuer (Jahre 1–{n}, {u})",
+    "afa": "Abschreibungen nach Komponenten (Jahre 1–{n}, {u} p. a.)",
+    "steuer": "Steuerliches Ergebnis und Steuer (Jahre 1–{n}, {u} p. a.)",
     "kanc": "Zusammensetzung der Kaufnebenkosten",
     "bewirt": "Bewirtschaftungskosten (Jahr 1, € p. a.)",
-    "afa_summe": "Summe AfA je Variante (Jahre 1–10)",
-    "afa_kum": "Kumulierte AfA je Variante (Jahre 1–10, €)",
+    "afa_summe": "Summe AfA je Variante (Jahre 1–10, T€)",
+    "afa_kum": "Kumulierte AfA je Variante (Jahre 1–10, {u})",
     "irr": "IRR nach Steuern je Wertsteigerung (Linien: Mietszenarien)",
     "hh": "Ausgaben je Monat (nur Positionen > 0)",
     "va": "Vermögenswerte (nur Positionen > 0)",
 }
 MARK_ROW = 202          # Diagramme: Immobilienwert im Verkaufsjahr (sonst 0), angelegt von layouts/diagramme.py
+AFA_SUM_ROW = 155       # Diagramme F155:I162: AfA je Variante nach Bedeutung (G Modell · H anwendbar · I nicht anwendbar)
+AFA_CLASS = {}          # Variante k → "Anwendbar" / "Nicht anwendbar" (aus den berechneten Hilfszeilen)
 MARK_LAST = "AL"
 
 
@@ -535,22 +551,27 @@ def match_series(name):
 
 
 def short_cat(kind, name):
+    name = (name or "").split(" · ")[0]          # Legendentext „Kurzname · 12 %“ (layouts/diagramme.py)
     for pat, short in CAT_SHORT.get(kind, []):
-        if re.search(pat, (name or "").strip().lower()):
+        if re.search(pat, name.strip().lower()):
             return short
-    return re.sub(r"\s*\(.*?\)", "", name or "")[:22]
+    return re.sub(r"\s*\(.*?\)", "", name)[:22]
 
 
 def pie_colors(kind, cats, vals):
     """Farbe je Segment: feste Farben (Fokus Navy), sonst nach Rang groß → klein."""
     colors = [None] * len(cats)
     for i, c in enumerate(cats):
-        for pat, col in PIE_FIXED.get(kind, []):
+        for pat, col in PIE_FIXED.get(kind, []) + PIE_FIXED["*"]:
             if re.search(pat, (c or "").strip().lower()):
                 colors[i] = col
                 break
     order = sorted(range(len(cats)), key=lambda i: -(vals[i] if i < len(vals) else 0))
-    rank = [c for c in PIE_RANK if c not in colors]
+    n = len(cats)
+    spaced = {1: [0], 2: [0, 3], 3: [0, 3, 4], 4: [0, 2, 4, 5], 5: [0, 1, 3, 4, 5]}.get(n, range(6))
+    rank = [PIE_RANK[i] for i in spaced if PIE_RANK[i] not in colors]
+    if any(c == K.NAVY for c in colors if c):       # Fokussegment navy fest → übrige Stufen ohne die Nachbarstufe 1D4F8A
+        rank = [c for c in rank if c != "1D4F8A"] + (["1D4F8A"] if "1D4F8A" in rank else [])
     k = 0
     for i in order:
         if colors[i] is None:
@@ -611,7 +632,7 @@ def _walls(tag):
 
 MAX_3D_CATS = 8          # Nutzerentscheidung: 3D nur für Kreise und einfache Säulen (≤ 8 Kategorien)
 FLAT_KINDS = {"ertrag", "jahr1", "dash_wf"}   # Wasserfall/Brücken/Einnahmen-Ausgaben immer flach
-KEEP_GAP = {"ertrag", "jahr1", "dash_wf", "afa_summe", "hh", "va"}   # Lücke/Überlappung aus dem Layout-Modul
+KEEP_GAP = {"ertrag", "jahr1", "dash_wf", "afa_summe", "hh", "va", "cashflow"}   # Lücke/Überlappung aus dem Layout-Modul
 
 
 def make_flat(root, n_cat, keep_gap=False):
@@ -671,10 +692,10 @@ def make_3d(root, n_cat, kind_name=None):
         drop(chart, tag)
     v = E("c:view3D")
     if kind == "pie":
-        SE(v, "c:rotX", 30)
+        SE(v, "c:rotX", 40)
         SE(v, "c:rotY", pie_rotation(root))
         SE(v, "c:rAngAx", 0)
-        SE(v, "c:perspective", 15)
+        SE(v, "c:perspective", 10)
     else:
         SE(v, "c:rotX", 10)
         SE(v, "c:rotY", 15)
@@ -798,25 +819,36 @@ def value_range(plot):
     return lo, hi
 
 
-def style_axes(root, kind, n_cat, size=None, horizontal=False):
+def value_format(root, kind, n_cat, size=None):
+    """Achsenformat und Einheit (P09): Jahresreihen immer in T€ (bei kleinen Intervallen mit einer Nachkommastelle),
+    sonst ab 10.000 in T€; die Einheit im Titel folgt dem Achsenformat. Rückgabe (Format, Einheit, Intervall)."""
     plot = root.find(".//" + q("c:plotArea"))
     lo, hi = value_range(plot)
     big = max(abs(lo), abs(hi))
-    if kind == "irr":
-        vfmt = FMT_PCT
-    elif big >= 10000:
-        vfmt = FMT_TEUR
-    else:
-        vfmt = FMT_EUR
     h_px = size[1] if size else 300
     max_ticks = max(3, min(7, int(h_px * 0.62 / 28)))
     unit = nice_unit(hi - lo, max_ticks) if kind not in DIRECT_LABELS else None
+    if kind == "irr":
+        return FMT_PCT, "%", unit
+    if kind in TIME_KINDS or kind in ("cf_nach", "afa_kum", "afa_summe") or big >= 10000:
+        return (FMT_TEUR1 if unit and unit < 1000 else FMT_TEUR), "T€", unit
+    return FMT_EUR, "€", unit
+
+
+def style_axes(root, kind, n_cat, size=None, horizontal=False):
+    plot = root.find(".//" + q("c:plotArea"))
+    lo, hi = value_range(plot)
+    dash = kind in ("dash", "dash_line")
+    vfmt, _u, unit = value_format(root, kind, n_cat, size)
     time_series = n_cat >= 10 and kind not in HBAR_KINDS
     for ax in plot.findall(q("c:valAx")):
         o = ORDER["valAx"]
         sc = ax.find(q("c:scaling"))
         if sc is not None and lo < 0:
             drop(sc, "min")
+        elif sc is not None and kind not in HBAR_KINDS:
+            # Wertachse ab 0 (P08) – keine abgeschnittene Achse, die den Verlauf übertreibt
+            put(sc, E("c:min", 0), ORDER["scaling"])
         if kind in DIRECT_LABELS:
             # direkt beschriftete Diagramme: keine Werteachse, kein Gitter (Werte stehen an den Säulen)
             put_val(ax, "delete", 1, o)
@@ -824,7 +856,7 @@ def style_axes(root, kind, n_cat, size=None, horizontal=False):
         else:
             put_val(ax, "delete", 0, o)
             gl = E("c:majorGridlines")
-            gl.append(sppr(ln=line(0.5, K.LINE)))
+            gl.append(sppr(ln=line(0.5, GRID_SENS if kind == "irr" else K.LINE)))
             put(ax, gl, o)
             drop(ax, "minorGridlines")
         put(ax, num_fmt(vfmt), o)
@@ -833,7 +865,9 @@ def style_axes(root, kind, n_cat, size=None, horizontal=False):
         put_val(ax, "tickLblPos", "nextTo", o)
         put(ax, sppr(nofill=True, ln=line(nofill=True)), o)
         put(ax, txpr(8, K.MUTED), o)
-        if unit and kind != "dash_line":
+        if dash:
+            pass                                   # Dashboard (Agent G): Intervall bleibt (Wasserfall majorUnit 500)
+        elif unit:
             put_val(ax, "majorUnit", ("%g" % unit), o)
         else:
             drop(ax, "majorUnit")
@@ -858,12 +892,13 @@ def style_axes(root, kind, n_cat, size=None, horizontal=False):
             elif horizontal:
                 put(ax, sppr(ln=line(0.75, "C5CDD8")), o)
             else:
-                put(ax, sppr(ln=line(1.0 if lo < 0 else 0.75, K.MUTED2)), o)
+                # Nulllinie deutlich (1 pt 5B6068), wenn es negative Werte gibt (P32)
+                put(ax, sppr(ln=line(1.0, K.MUTED) if lo < 0 else line(0.75, K.MUTED2)), o)
             if kind in HBAR_KINDS:
                 put(ax, txpr(9, K.INK2), o)
             else:
                 # rot=60 (= 0,001°, in Excel waagerecht): verhindert in LibreOffice den Zeilenumbruch der Jahreszahlen
-                put(ax, txpr(8, K.MUTED, rot=60 if (time_series and not horizontal) else None,
+                put(ax, txpr(8, K.MUTED, rot=60 if (time_series and not horizontal and not dash) else None,
                              wrap="none" if time_series else None), o)
             if kind in HBAR_KINDS:
                 sc = ax.find(q("c:scaling"))
@@ -923,29 +958,38 @@ def set_ser_dlbls(ser, dl, order):
         put(ser, dl, order)
 
 
+PIE_SMALL = []           # Segmente < 5 % des zuletzt gestalteten Kreises (stehen nur in der Legende)
+
+
 def pie_labels(ser, kind, cats, size=8, bold=False, vals=(), colors=()):
-    """Kreis: jedes Segment „Kurzname · 12 %“ – große Segmente (≥ 30 %, kurzer Name) innen weiß fett, mittlere außen
-    am Ende, kleine (< 8 %) außen mit Führungslinie per bestFit (keine Überlagerung); 0 %-Segmente ohne Beschriftung."""
+    """Kreis – eine Regel für alle Kreise der Mappe (P17): Segmente ≥ 15 % innen „Kurzname · 12 %“ fett (Weiß bzw. Navy
+    je nach Fläche), 5–15 % außen 9 pt 1A1D21 mit Führungslinie, < 5 % ohne Beschriftung – sie stehen in der Legende
+    rechts („Kurzname · 1 %“). 0 %-Segmente bleiben unbeschriftet (Format [=0])."""
     tot = sum(max(0.0, v) for v in vals) or 1.0
+    del PIE_SMALL[:]
     d = E("c:dLbls")
     for i, name in enumerate(cats):
         short = short_cat(kind, name).replace('"', "")
         share = (max(0.0, vals[i]) / tot) if i < len(vals) else 0
-        inside = share >= 0.3 and len(short) <= 12       # lange Namen passen nicht ins Segment
         col = colors[i] if i < len(colors) else K.BLUE
+        if 0 < share < 0.05:
+            d.append(dlbl_delete(i))
+            PIE_SMALL.append(i)
+            continue
+        inside = share >= 0.15
         lb = SE(d, "c:dLbl")
         SE(lb, "c:idx", i)
         lb.append(num_fmt(f'[=0]"";"{short} · "0 %'))
         lb.append(sppr(nofill=True, ln=line(nofill=True)))
         if inside:
-            lb.append(txpr(max(size, 9), K.WHITE if col in WHITE_ON or col == "1D4F8A" else K.NAVY, True, wrap="none"))
+            lb.append(txpr(9, text_on(col), True, wrap="none"))
         else:
-            lb.append(txpr(size, K.INK, bold, wrap="none"))
-        SE(lb, "c:dLblPos", "ctr" if inside else ("outEnd" if share >= 0.08 else "bestFit"))
+            lb.append(txpr(9, K.INK, False, wrap="none"))
+        SE(lb, "c:dLblPos", "ctr" if inside else "outEnd")
         _flags(lb, showPercent=True)
     d.append(num_fmt('[=0]"";0 %'))
     d.append(sppr(nofill=True, ln=line(nofill=True)))
-    d.append(txpr(size, K.INK, bold, wrap="none"))
+    d.append(txpr(9, K.INK, False, wrap="none"))
     SE(d, "c:dLblPos", "bestFit")
     _flags(d, showPercent=True)
     SE(d, "c:showLeaderLines", 1)
@@ -977,7 +1021,7 @@ def invert_ext(color):
 
 
 def _line_style(ser, so, color, w, dash, hidden=False):
-    if hidden:
+    if hidden or color is None:
         put(ser, sppr(ln=line(nofill=True)), so)
     else:
         put(ser, sppr(ln=line(w or 2.0, color, dash, cap="rnd")), so)
@@ -1023,11 +1067,21 @@ def style_series(root, kind, n_cat, size=None):
                 colors = pie_colors(kind, cats, vals)
                 for i, col in enumerate(colors):
                     put(ser, dpt(i, col, ln=line(1, K.WHITE)), so)
-                narrow = size is not None and size[0] < 360
-                pie_labels(ser, kind, cats, size=9 if narrow else 8, bold=narrow, vals=vals, colors=colors)
+                pie_labels(ser, kind, cats, vals=vals, colors=colors)
                 continue
             m = match_series(name)
             color, w, dash = m if m else (FALLBACK[k % len(FALLBACK)], None, None)
+            if kind == "afa_kum" and not name.lower().startswith("im modell"):
+                # Farbe nach Anwendbarkeit (P33); Legende je Klasse ein Eintrag (Reihenname = Klasse)
+                cls = AFA_CLASS.get(k, "Nicht anwendbar")
+                color, w, dash = match_series(cls)
+                tx = ser.find(q("c:tx"))
+                if tx is not None:
+                    for ch_ in list(tx):
+                        tx.remove(ch_)
+                    SE(tx, "c:v").text = cls
+                if not any(abs(v) > 1e-9 for v in cache_values(ser)):
+                    color = None                       # Variante ohne Werte (z. B. kein RND-Gutachten): keine Linie
             k += 1
             # ---- Linienreihen
             if ctn in ("lineChart", "line3DChart"):
@@ -1055,15 +1109,21 @@ def style_series(root, kind, n_cat, size=None):
                     hidden.append(idx)
                     continue
                 _line_style(ser, so, color, w, dash)
+                end_fmt = None
                 if kind == "irr" and re.search(r"basis", name.lower()):
-                    n = len(cache_values(ser))
+                    end_fmt, end_pos = "0.0 %", "r"                    # Endwert rechts (P30)
+                elif kind == "afa_kum" and name.lower().startswith("im modell"):
+                    end_fmt, end_pos = '"Im Modell · "#,##0.0," T€"', "t"
+                if end_fmt:
+                    n = len(ser.xpath("./c:val//c:pt", namespaces=NS)) or len(cache_values(ser))
                     d = E("c:dLbls")
                     lb = SE(d, "c:dLbl")
                     SE(lb, "c:idx", max(n - 1, 0))
-                    lb.append(num_fmt("0.0 %"))
-                    lb.append(sppr(nofill=True, ln=line(nofill=True)))
+                    lb.append(num_fmt(end_fmt))
+                    lb.append(sppr(solid(K.WHITE), line(nofill=True)) if kind == "afa_kum"
+                              else sppr(nofill=True, ln=line(nofill=True)))
                     lb.append(txpr(8, K.NAVY, True, wrap="none"))
-                    SE(lb, "c:dLblPos", "t")
+                    SE(lb, "c:dLblPos", end_pos)
                     _flags(lb, showVal=True)
                     _flags(d)
                     set_ser_dlbls(ser, d, so)
@@ -1086,11 +1146,11 @@ def style_series(root, kind, n_cat, size=None):
                 if kind == "jahr1":
                     vals = cache_values(ser)
                     if re.search(r"^steuer", name.lower()):
-                        # eine Steuerreihe: links Erstattung (Zufluss), rechts Zahlung (rot)
-                        color = K.RED if name.lower().startswith("steuerzahlung") else K.ACCENT
+                        # eine Steuerreihe: links Erstattung (Zufluss, Blau), rechts Zahlung (Abfluss, dunkles Grau)
+                        color = TAX_PAY if name.lower().startswith("steuerzahlung") else K.ACCENT
                         put(ser, sppr(solid(color), line(0.75, K.WHITE)), so)
                         put(ser, dpt(0, K.ACCENT, ln=line(0.75, K.WHITE), bar=True), so)
-                        put(ser, dpt(1, K.RED, ln=line(0.75, K.WHITE), bar=True), so)
+                        put(ser, dpt(1, TAX_PAY, ln=line(0.75, K.WHITE), bar=True), so)
                     else:
                         put(ser, sppr(solid(color), line(0.75, K.WHITE)), so)
                     d = E("c:dLbls")
@@ -1100,10 +1160,10 @@ def style_series(root, kind, n_cat, size=None):
                             d.append(dlbl_delete(i))
                     fcol = color
                     if re.search(r"^steuer", name.lower()):
-                        fcol = K.ACCENT
+                        fcol = K.ACCENT if vals and vals[0] > 0 else TAX_PAY
                     d.append(num_fmt(LBL_EUR_POS))
                     d.append(sppr(nofill=True, ln=line(nofill=True)))
-                    d.append(txpr(9, K.WHITE if fcol in WHITE_ON else K.NAVY, True, wrap="none"))
+                    d.append(txpr(9, text_on(fcol), True, wrap="none"))
                     SE(d, "c:dLblPos", "ctr")
                     _flags(d, showVal=True)
                     set_ser_dlbls(ser, d, so)
@@ -1175,8 +1235,8 @@ def bestand_extras(root, mark):
         s.append(deepcopy(nv.find(q("c:val"))))
         s.set("helper", "1")
         area.append(s)
-        # Legende: Fläche statt Linie (die Linie ist die Oberkante der Fläche)
-        hidden.append(int(nv.find(q("c:idx")).get("val")))
+        # Legende: die kräftige Navy-Linie steht in der Legende, die Fläche darunter nicht (P08)
+        hidden.append(nxt)
         nxt += 1
     for a_ in axids:
         SE(area, "c:axId", a_)
@@ -1198,25 +1258,26 @@ def bestand_extras(root, mark):
             SE(sr, "c:f").text = f"Diagramme!$B${MARK_ROW}"
             sc = SE(sr, "c:strCache")
             SE(sc, "c:ptCount", 1)
-            SE(SE(sc, "c:pt", idx=0), "c:v").text = "Markierung Verkaufsjahr (Diagramm)"
-            s.append(sppr(solid(K.ACCENT, 55), line(nofill=True)))
+            at = next((i for i, v in enumerate(vals) if v > 0), None)
+            # Reihenname = Zelle B202 („Verkaufspreis Jahr 12“) → Beschriftung „Verkaufspreis Jahr 12 · 377 T€“ (P08)
+            SE(SE(sc, "c:pt", idx=0), "c:v").text = f"Verkaufspreis Jahr {(at or 0) + 1}"
+            s.append(sppr(solid(K.SKY, 50), line(nofill=True)))   # schmale, halbtransparente Markersäule
             SE(s, "c:invertIfNegative", 0)
             d = E("c:dLbls")
-            at = next((i for i, v in enumerate(vals) if v > 0), None)
-            if at is not None:            # Beschriftung etwas oberhalb der Linie, weißer Grund 90 %
+
+            def _mark_lbl(parent, on=True):
+                parent.append(num_fmt('#,##0," T€";;'))
+                parent.append(sppr(solid(K.WHITE), line(0.75, K.TINT)))
+                parent.append(txpr(8, K.BLUE, True, wrap="none"))
+                SE(parent, "c:dLblPos", "outEnd")
+                _flags(parent, showVal=on, showSerName=on)
+                SE(parent, "c:separator").text = " · "
+            if at is not None:            # Beschriftung etwas oberhalb des Punkts, weißer Grund, feiner Rand E7EEF7
                 lb = SE(d, "c:dLbl")
                 SE(lb, "c:idx", at)
-                lb.append(manual_layout(x=0, y=-0.07))
-                lb.append(num_fmt('"Verkauf · "#,##0," T€";;'))
-                lb.append(sppr(solid(K.WHITE, 90), line(nofill=True)))
-                lb.append(txpr(8, K.BLUE, True, wrap="none"))
-                SE(lb, "c:dLblPos", "outEnd")
-                _flags(lb, showVal=True)
-            d.append(num_fmt('"Verkauf · "#,##0," T€";;'))
-            d.append(sppr(solid(K.WHITE, 90), line(nofill=True)))
-            d.append(txpr(8, K.BLUE, True, wrap="none"))
-            SE(d, "c:dLblPos", "outEnd")
-            _flags(d, showVal=True)
+                lb.append(manual_layout(x=0, y=-0.09))
+                _mark_lbl(lb)
+            _mark_lbl(d, on=False)                  # übrige Jahre (Wert 0) ohne Beschriftung
             s.append(d)
             s.append(deepcopy(nv.find(q("c:cat"))))
             val = SE(s, "c:val")
@@ -1236,18 +1297,61 @@ def bestand_extras(root, mark):
     return hidden
 
 
-def pie_layout(root, size=None, titled=True):
-    """Kreis: feste Plotgröße in px (gleicher Durchmesser für gleich große Rahmen), mittig unter dem Titel."""
+def pie_layout(root, size=None, titled=True, legend=False):
+    """Kreis: gleicher Durchmesser für gleich große Rahmen, groß und mittig zwischen Titel und (Kleinstsegment-)Legende."""
     plot = root.find(".//" + q("c:plotArea"))
     drop(plot, "layout")
     w, h = size if size else (400, 300)
-    top = 0.16 if titled else 0.06
-    avail_h = h * (1 - top - 0.08)
-    d = max(60.0, min(230.0, avail_h, w * 0.5))
-    fw, fh = d / w, d / h
+    top = (40 if titled else 24) / h                 # Platz für Titel bzw. Außenbeschriftungen oben
+    bottom = (32 if legend else 18) / h
+    avail_h = h * (1 - top - bottom)
+    d = max(60.0, min(300.0, avail_h * 1.12, w * 0.56))
+    fw, fh = d / w, min(d * 0.8 / h, 1 - top - bottom)
     x = (1 - fw) / 2
-    y = top + (1 - top - 0.08 - fh) / 2
+    y = top + (1 - top - bottom - fh) / 2
     plot.insert(0, manual_layout("inner", round(x, 4), round(y, 4), round(fw, 4), round(fh, 4)))
+
+
+def set_pie_legend(root, n_cat, small, size=None):
+    """Kreis-Legende unten: nur die Kleinstsegmente (< 5 %) als „Kurzname · 1 %“ (übrige Einträge gelöscht)."""
+    chart = root.find(q("c:chart"))
+    drop(chart, "legend")
+    if not small:
+        return False
+    lg = E("c:legend")
+    SE(lg, "c:legendPos", "b")
+    for i in range(n_cat):
+        if i not in small:
+            le = SE(lg, "c:legendEntry")
+            SE(le, "c:idx", i)
+            SE(le, "c:delete", 1)
+    SE(lg, "c:overlay", 0)
+    lg.append(sppr(nofill=True, ln=line(nofill=True)))
+    lg.append(txpr(8, K.INK2))
+    put(chart, lg, ORDER["chart"])
+    return True
+
+
+def legend_hidden(plot, kind, hidden):
+    """Legendeneinträge ohne sichtbares Element (P19): Reihen ohne Werte (nur 0/#NV) – z. B. „Darlehen II“ ohne
+    zweites Darlehen, „Sonder-AfA“ ohne Sonder-AfA; AfA-Vergleich: je Klasse nur ein Eintrag."""
+    out = list(hidden)
+    seen = set()
+    for s in plot.xpath("./*/c:ser", namespaces=NS):
+        idx = int(s.find(q("c:idx")).get("val"))
+        if idx in out:
+            continue
+        vals = cache_values(s)
+        empty = not any(abs(v) > 1e-9 for v in vals)
+        name = ser_name(s).strip().lower()
+        if kind == "afa_kum":
+            if empty or name in seen:
+                out.append(idx)
+            else:
+                seen.add(name)
+        elif empty and kind not in ("ertrag", "jahr1"):
+            out.append(idx)
+    return out
 
 
 # ============================================================================ Hauptfunktion je Diagramm
@@ -1263,16 +1367,18 @@ def style_chart(xml, sheet=None, mark=None, size=None):
     dashboard = kind == "dash"
     width_px = size[0] if size else None
     hidden = []
+    del PIE_SMALL[:]
     if kind == "bestand":
         hidden = bestand_extras(root, mark)
     kind3d = None if dashboard else make_3d(root, n_cat, kind)
     horizontal = plot.find(".//" + q("c:barDir")) is not None and plot.find(".//" + q("c:barDir")).get("val") == "bar"
+    is_pie = kind3d == "pie" or kind in PIE_KINDS
 
-    # Titel: Schrittseiten und Dashboard tragen den Panel-Kopf in der Zelle darüber
+    # Titel: Schrittseiten und Dashboard tragen den Panel-Kopf in der Zelle darüber; Einheit = Achsenformat (P09)
     delete_title = dashboard or bool(re.match(r"S\d\d ", sheet or ""))
     title = TITLES.get(kind)
-    if title and "{n}" in title:
-        title = title.format(n=n_cat)
+    if title:
+        title = title.format(n=n_cat, u=value_format(root, kind, n_cat, size)[1])
     set_title(root, title, delete_title, width_px)
 
     if dashboard:
@@ -1283,12 +1389,15 @@ def style_chart(xml, sheet=None, mark=None, size=None):
         if "helper" in s.attrib:
             del s.attrib["helper"]
 
-    # Legende: unten (schmale Diagramme mit vielen Einträgen rechts, einspaltig); entfällt bei Kreisen und Einzelreihen
-    visible = [s for s in plot.xpath("./*/c:ser", namespaces=NS)
-               if int(s.find(q("c:idx")).get("val")) not in hidden]
-    if not dashboard:
-        pos = "r" if (width_px and width_px < 560 and len(visible) > 3) else "b"
-        set_legend(root, kind3d != "pie" and kind not in PIE_KINDS | {"cf_nach"} and len(visible) > 1, hidden, pos)
+    # Legende: immer unten (Reihenfolge = Stapelreihenfolge); Kreise rechts nur mit den Kleinstsegmenten
+    has_pie_legend = False
+    if is_pie:
+        has_pie_legend = set_pie_legend(root, n_cat, list(PIE_SMALL), size)
+    elif not dashboard:
+        hidden = legend_hidden(plot, kind, hidden)
+        visible = [s for s in plot.xpath("./*/c:ser", namespaces=NS)
+                   if int(s.find(q("c:idx")).get("val")) not in hidden]
+        set_legend(root, kind != "cf_nach" and len(visible) > 1, hidden, "b")
     else:
         lg = chart.find(q("c:legend"))
         if lg is not None:
@@ -1298,18 +1407,20 @@ def style_chart(xml, sheet=None, mark=None, size=None):
     if dashboard and plot.find(q("c:barChart")) is None:
         ax_kind = "dash_line"
     style_axes(root, ax_kind, n_cat, size, horizontal)
-    if kind3d == "pie" or kind in PIE_KINDS:
-        pie_layout(root, size, titled=not delete_title)
+    if is_pie:
+        pie_layout(root, size, titled=not delete_title, legend=has_pie_legend)
 
     put_val(chart, "plotVisOnly", 0, ORDER["chart"])
     put_val(chart, "dispBlanksAs", "gap", ORDER["chart"])
-    # Plot- und Diagrammfläche ohne Füllung und Rahmen (weiß), Grundschrift 8 pt grau
+    # Plot- und Diagrammfläche ohne Füllung und Rahmen (weiß), Grundschrift 8 pt grau; Sensitivität im Panelstil F3F7FC
     psp = plot.find(q("c:spPr"))
     if psp is not None:
         plot.remove(psp)
     ext = plot.find(q("c:extLst"))
     (ext.addprevious if ext is not None else plot.append)(sppr(nofill=True, ln=line(nofill=True)))
-    put(root, sppr(nofill=True, ln=line(nofill=True)), ORDER["chartSpace"])
+    panel = kind == "irr"
+    put(root, sppr(solid(K.TINT_XL), line(nofill=True)) if panel else sppr(nofill=True, ln=line(nofill=True)),
+        ORDER["chartSpace"])
     put(root, txpr(8, K.MUTED), ORDER["chartSpace"])
     put_val(root, "roundedCorners", 0, ORDER["chartSpace"])
     for lat in root.iter(q("a:latin")):
@@ -1326,6 +1437,10 @@ def finish(path):
         files = {i.filename: zin.read(i.filename) for i in infos}
     charts, sheets = chart_sheets(files)
     mark = row_values(files, sheets.get("Diagramme", ""), MARK_ROW)
+    AFA_CLASS.clear()
+    for k in range(8):
+        rv = row_values(files, sheets.get("Diagramme", ""), AFA_SUM_ROW + k)
+        AFA_CLASS[k] = "Anwendbar" if (rv.get("H") or 0) > 0 or (rv.get("G") or 0) > 0 else "Nicht anwendbar"
     sizes = chart_sizes(files)
     for name in sorted(files):
         if name.startswith("xl/charts/chart") and name.endswith(".xml"):

@@ -1,9 +1,10 @@
 """Blatt „Start“: Hero, Entscheidungskarte „① Kauf als“, vier Kennzahl-Kacheln, Ablauf ①–⑥, Legende mit
 Tipp-Kasten, Blätterverzeichnis, Fuß – ausschließlich mit den zentralen Bausteinen aus core.py.
 
-Raster (px): C 126 | D 112 | E 238 | F 238 | G 238  →  C:D = E = F = G (vier gleich breite Spalten).
-  Hero:  Logo-Spalte C:D, Inhalt E:G; Kennzahlen und Buttons exakt in E | F | G (Drittelraster = Kachelspalten 2–4).
-  Kacheln Z. 27–29: C:D | E | F | G, Zeile 29 = Kontextzeile mit Status („●  prüfen  ·  Ziel ≥ 5,0 %“).
+Raster (px, Runde 3 / P01): C 172 | D 112 | E 284 | F 284 | G 284  →  C:D = E = F = G (vier gleich breite Spalten);
+  rechte Kante H ≈ 1 209 px = rechte Kante der Reiterleiste (Kopfband, Hero und Inhalt enden an derselben Spalte).
+  Hero:  Logo-Spalte C:D (Logo zentriert), Inhalt E:G; Kennzahlen und Buttons exakt in E | F | G.
+  Kacheln Z. 27–29: C:D | E | F | G – C.tile: Kopfstreifen · Wert in Statusfarbe · Fußzeile Kontext links / Status rechts.
 Namensziele bleiben an ihrem Platz: Rechtsform = D23, ST_BMR = E28, ST_CF = C31, ST_DSCR = E31, ST_IRR = F31.
 Die zweite Kachelreihe (Z. 30–32, Namensziele ST_CF/ST_DSCR/ST_IRR) wird ausgeblendet (P3-12: Start zeigt vier
 Kacheln); ihre Formeln bleiben unverändert. Geändert werden nur Darstellung, statische Beschriftungen und nicht
@@ -26,7 +27,7 @@ ui = C                                   # Altname (leitfaden.py importiert Helf
 SHEET = "Start"
 HERO_ROWS = range(5, 20)                 # B5:H19 Navy-Fläche, Z. 20 Weißraum
 HERO_COLS = "BCDEFGH"
-WIDTHS = {"C": 18, "D": 16, "E": 34, "F": 34, "G": 34}
+WIDTHS = {"C": 24.6, "D": 16, "E": 40.5, "F": 40.5, "G": 40.5}   # C:D = E = F = G = 284 px
 EMU = 9525                               # EMU je Pixel
 KAUF_ALS = 'CHOOSE(Rechtsform_Idx,"Privatperson","vv-GmbH","GmbH / Holding")'
 
@@ -34,7 +35,7 @@ KAUF_ALS = 'CHOOSE(Rechtsform_Idx,"Privatperson","vv-GmbH","GmbH / Holding")'
 FLOW = [
     ("Kauf als wählen", "Start", "D23",
      "Privatperson oder Gesellschaft – die Auswahl oben steuert Steuern, Exit und Bankunterlagen."),
-    ("Leitfaden: 12 Schritte", "Leitfaden", None,
+    ("Leitfaden: Schritte 01–12", "Leitfaden", None,
      "Vom Objekt bis zum Ergebnis – jede Seite mit Eingaben, Zwischenergebnis und Einordnung."),
     ("Dashboard", "Dashboard", None,
      "Die Gesamtbewertung auf einer Seite: Kennzahlen mit Status, Cashflow und Vermögen."),
@@ -45,7 +46,7 @@ FLOW = [
     ("Bankunterlagen", "Bankgespräch", None,
      "Bankgespräch als A4-Übersicht, dazu Haushaltsrechnung und Vermögensaufstellung."),
 ]
-CIRCLED = "①②③④⑤⑥"
+ETAPPE = "ABCDEF"                        # Etappen A–F („Schritt“ bleibt S01–S12 vorbehalten, P37)
 
 # Blätterverzeichnis in Reiterreihenfolge; „{n}“ = Anzahl Diagramme
 SHEETS = [
@@ -145,15 +146,21 @@ def heights(ws, spec):
         C.set_height(ws, r, h)
 
 
-def status_line(kpi, value_ref, tail, conditions=None):
-    """Kontextzeile einer Kachel mit Status: ="●  prüfen  ·  "&<tail>  (Farbe per C.tile(status='dot')).
-    tail: Excel-Ausdruck (ohne „=“) für den Kontext, z. B. '"Ziel ≥ "&FIXED(Ampel_BMR_gruen*100,1)&" %"'."""
-    conds = C.status_conditions(kpi, value_ref, conditions)
-    return C.status_formula(conds) + '&"  ·  "&' + tail
+def fixed_m(expr, digits=0):
+    """FIXED mit typografischem Minus (P23) – für Anzeigeformeln in Kachel-Fußzeilen („Jahr 2: −274 €“)."""
+    return f'SUBSTITUTE(FIXED({expr},{digits}),"-","{C.MINUS}")'
 
 
-def goal_pct(name):
-    return f'"Ziel ≥ "&FIXED({name}*100,1)&" %"'
+# Kanonische Kachel-Fußzeilen (P11/P20) – wortgleich mit dem Dashboard; Status setzt C.tile selbst (rechts).
+TILE_SUB = {
+    "GI": '="Kaufpreis "&FIXED(Kaufpreis,0)&" €  ·  NK "&FIXED(NK_Quote*100,1)&" %"',
+    "EK": '="Quote "&FIXED(EK_Quote*100,1)&" %  ·  Beleihung "&FIXED(Beleihung*100,1)&" %"',
+    "CF": f'="Jahr 2: "&{fixed_m(C.CF_YEAR2)}&" €"',
+    "BMR": "=" + C.threshold_text("BMR"),
+    "DSCR": '="Jahr 1  ·  "&' + C.threshold_text("DSCR"),
+    "IRR": "=" + C.threshold_text("IRR"),
+    "RATE": '="Volltilgung "&Volltilgung_Txt',
+}
 
 
 def clear_rows(ws, r1, r2, c1="B", c2="H"):
@@ -172,10 +179,10 @@ def purchase_selector(wb):
     ws, s09 = wb[SHEET], wb["S09 Steuern"]
     current = s09["D12"].value
     unmerge_in(ws, "D", 23, "H", 23)
-    for c in "EFGH":                                   # D23:G23 wird ein Feld – Pfeil ▾ und Link in G23 entfallen
+    for c in "EFGH":                                   # D23:F23 wird das Feld, G23 der Auswahl-Knopf (selector)
         ws[f"{c}23"].value = None
         ws[f"{c}23"].hyperlink = None
-    ws.merge_cells("D23:G23")
+    ws.merge_cells("D23:F23")
     sel = ws["D23"]
     sel.value = current
     sel.protection = Protection(locked=False)
@@ -203,14 +210,59 @@ def purchase_selector(wb):
 
 
 # ============================================================================ Hero
-def logo(ws, top_px=3, size_px=140):
-    """Logo als OneCellAnchor mit fester Größe: links bündig in der Logo-Spalte C:D (Kante C + Einzug),
-    vertikal über Eyebrow … Untertitel (Z. 6–11). Feste Größe → unabhängig von Zeilenhöhen, kein Verzerren."""
+def _logo_png(img):
+    """Logo für Navy nachschärfen (P45): Buchstaben Weiß, Ring C8D7EB, Linien leicht verstärkt und voll deckend –
+    das feine Original (Creme/Gold, 512 px) wirkt bei 150 px auf Navy sonst wie ein Wasserzeichen.
+    Liefert einen Pfad auf eine temporäre PNG-Datei (openpyxl liest das Bild beim Speichern)."""
+    import io
+    import tempfile
+    from PIL import Image, ImageFilter
+    im = Image.open(io.BytesIO(img._data())).convert("RGBA")
+    r, g, b, a = im.split()
+    a = a.filter(ImageFilter.MaxFilter(5)).point(lambda v: min(255, int(v * 1.6)))
+    ring = Image.new("L", im.size)
+    px, rp = im.load(), ring.load()
+    for y in range(im.size[1]):
+        for x in range(im.size[0]):
+            pr, pg, pb, pa = px[x, y]
+            if pa and pr - pb > 45:                    # goldener Ring (R ≫ B) → MIST, Rest (Buchstaben) → Weiß
+                rp[x, y] = 255
+    ring = ring.filter(ImageFilter.MaxFilter(5))
+    white = Image.new("RGBA", im.size, (255, 255, 255, 255))
+    mist = Image.new("RGBA", im.size, tuple(int(C.MIST[i:i + 2], 16) for i in (0, 2, 4)) + (255,))
+    out = Image.composite(mist, white, ring)
+    out.putalpha(a)
+    f = tempfile.NamedTemporaryFile(prefix="mm_logo_", suffix=".png", delete=False)
+    out.save(f, format="PNG")
+    f.close()
+    return f.name
+
+
+def logo(ws, size_px=150):
+    """Logo als OneCellAnchor mit fester Größe (kein Verzerren), zentriert in der Logo-Spalte C:D und vertikal
+    zentriert auf die Titelzone Eyebrow … Kennzahlen (Z. 6–15, P45)."""
+    def row_px(r):
+        return round((ws.row_dimensions[r].height or 15) / 0.75)
+    zone = sum(row_px(r) for r in range(6, 16))
+    top = max(0, (zone - size_px) // 2)
+    row, off = 6, top
+    while off >= row_px(row):
+        off -= row_px(row)
+        row += 1
+    left = max(0, (C.span_px(ws, "C", "D") - size_px) // 2)
+    col, coff = 3, left
+    if coff >= C.col_px(ws, "C"):
+        coff -= C.col_px(ws, "C")
+        col = 4
     for img in ws._images:
         a = getattr(img.anchor, "_from", None)
         if a is None or a.col > 3 or not (4 <= a.row <= 12):
             continue
-        marker = AnchorMarker(col=2, colOff=12 * EMU, row=5, rowOff=top_px * EMU)
+        try:
+            img.ref = _logo_png(img)
+        except Exception as exc:                        # Logo bleibt im Original, wenn PIL fehlt
+            print(f"   Hinweis start.logo: Logo nicht umgefärbt ({exc})")
+        marker = AnchorMarker(col=col - 1, colOff=coff * EMU, row=row - 1, rowOff=off * EMU)
         img.anchor = OneCellAnchor(_from=marker, ext=XDRPositiveSize2D(size_px * EMU, size_px * EMU))
         img.width = img.height = size_px
 
@@ -266,24 +318,23 @@ def hero(ws):
     for c in "EFG":
         ws[f"{c}14"].border = Border(top=side("hair", ACCENT))
 
-    # Aktionszeile im selben Raster: Primär (weiß auf Navy) · Ghost · Ghost, 3-px-Fugen in Navy
-    p = C.btn(ws, "E", 17, "E", "Leitfaden starten  ›", "Leitfaden", "primary",
-              tooltip="Zur Übersicht der zwölf Schritte")
+    # Aktionszeile im selben Raster (P06): die Reihenfolge der Seite = Reihenfolge der Buttons.
+    # Primär (weiß auf Navy): zuerst die Pflichtauswahl „Kauf als“ (Sprung auf D23) · Ghost: Leitfaden starten.
+    # Dashboard/Cockpit stehen in der Reiterleiste und entfallen hier.
+    p = C.btn(ws, "E", 17, "E", "Zuerst: Kauf als wählen  ↓", SHEET, "primary", target_cell="D23",
+              tooltip="Pflichtauswahl: Privatperson oder Gesellschaft (Liste)")
     p.font = font(C.T_BODY, True, NAVY)
     ws["E17"].fill = fill(WHITE)
-    C.btn(ws, "F", 17, "F", "Dashboard  ›", "Dashboard", "ghost", tooltip="Gesamtbewertung auf einer Seite")
-    C.btn(ws, "G", 17, "G", "Cockpit  ›", "Cockpit", "ghost", tooltip="Detailkennzahlen und Prüfhinweise")
+    C.btn(ws, "F", 17, "F", "Leitfaden starten  ›", "Leitfaden", "ghost", tooltip="Zur Übersicht der zwölf Schritte")
     gap = side("thick", NAVY)
     edge = side("thin", ACCENT)
     ws["E17"].border = Border(top=side("thin", WHITE), bottom=side("thin", WHITE), left=side("thin", WHITE), right=gap)
-    ws["F17"].border = Border(top=edge, bottom=edge, left=gap, right=gap)
-    ws["G17"].border = Border(top=edge, bottom=edge, left=gap, right=edge)
-    put("E18", "↓  Zuerst unten: Kauf als Privat oder GmbH wählen", C.T_MICRO, False, MIST, h="center")
+    ws["F17"].border = Border(top=edge, bottom=edge, left=gap, right=edge)
 
     for c in HERO_COLS:                                                 # Abschluss: Akzentlinie
         ws[f"{c}19"].border = Border(bottom=side("thick", ACCENT))
     heights(ws, {4: 15, 5: 16, 6: 14, 7: 18, 8: 12, 9: 42, 10: 6, 11: 18, 12: 14, 13: 12, 14: 20, 15: 30,
-                 16: 16, 17: C.H_BTN, 18: 22, 19: 10, 20: 12})
+                 16: 16, 17: C.H_BTN, 18: 12, 19: 10, 20: 12})
     logo(ws)
 
 
@@ -312,32 +363,46 @@ def created_for(ws):
     wb.defined_names["Erstellt_fuer"] = DefinedName("Erstellt_fuer", attr_text="Start!$G$7")
 
 
-# ============================================================================ ① Kauf als – Entscheidungskarte
+# ============================================================================ Kauf als – Entscheidungskarte
+SEL_LINE = "C9A94A"                    # dunkler Eingabe-Goldton: Rahmen der Pflichtauswahl (Eingabefamilie, P06)
+
+
 def selector(ws):
+    """Pflichtauswahl als erkennbare Auswahlliste (P06): Beschriftung „KAUF ALS ▾ / Pflichtauswahl · Liste“,
+    Feld D23:F23 (gelb, Datenüberprüfung Liste) + angedockter Knopf G23 „Auswahl ändern ▾“ (Sprung auf D23 –
+    dort zeigt Excel den Listenpfeil). Beide in EINEM Rahmen der Eingabefamilie (medium C9A94A, links 3 px)."""
     unmerge_in(ws, "C", 21, "H", 22)
-    C.section(ws, 21, "C", "G", "①  Kauf als – Privatperson oder Gesellschaft")
+    C.section(ws, 21, "C", "G", "Kauf als – Privatperson oder Gesellschaft", meta="Pflichtauswahl")
     lab = ws["C23"]
-    lab.value = rich(("KAUF ALS", C.T_BODY, True, NAVY), ("\nPflichtauswahl", C.T_MICRO, False, BLUE))
+    lab.value = rich(("KAUF ALS  ▾", C.T_BODY, True, NAVY), ("\nAuswahlliste", C.T_MICRO, False, BLUE))
     lab.font = font(C.T_BODY, True, NAVY)
     lab.alignment = align("left", "center", 1, wrap=True)
     lab.border = Border()
     lab.fill = C.NOFILL
-    frame = side("medium", BLUE)
-    for c in "DEFG":
+    unmerge_in(ws, "D", 23, "G", 23)
+    for c in "EFG":
+        ws[f"{c}23"].value = None
+    C.safe_merge(ws, "D", 23, "F", 23)
+    frame = side("medium", SEL_LINE)
+    for c in "DEF":
         cell = ws[f"{c}23"]
         cell.fill = fill(C.INPUT_BG)
-        cell.border = Border(top=frame, bottom=frame, left=side("thick", ACCENT) if c == "D" else None,
-                             right=frame if c == "G" else None)
-    for c in "H":
-        ws[f"{c}23"].fill = C.NOFILL
-        ws[f"{c}23"].border = Border()
+        cell.border = Border(top=frame, bottom=frame, left=side("thick", SEL_LINE) if c == "D" else None)
     sel = ws["D23"]
     sel.font = font(C.T_BODY, True, C.INPUT_FG)
     sel.alignment = align("left", "center", 1)
+    # angedockter Auswahl-Knopf (Chip-Stil aus core, im gemeinsamen Rahmen)
+    chip = C.btn(ws, "G", 23, "G", "Auswahl ändern  ▾", SHEET, "chip", target_cell="D23",
+                 tooltip="Feld markieren – über den Pfeil ▾ am Feldrand aus der Liste wählen", set_row=False)
+    chip.font = font(C.T_BODY, True, BLUE)
+    ws["G23"].border = Border(top=frame, bottom=frame, right=frame, left=side("thin", SEL_LINE))
+    ws["H23"].fill = C.NOFILL
+    ws["H23"].border = Border()
 
     wipe(ws, "C", 24, "H", 24)
     C.safe_merge(ws, "D", 24, "G", 24)
-    C.set_text(ws["D24"], "Wirkt auf: S09 Steuern  ·  S11 Exit  ·  Dashboard  ·  Bankgespräch")
+    C.set_text(ws["D24"], "▾  Klicken und aus der Liste wählen: Privatperson · vv-GmbH · gewerbliche GmbH/Holding"
+                          "   ·   wirkt auf S09 Steuern, S11 Exit, Dashboard und Bankgespräch")
     ws["D24"].font = font(C.T_MICRO, False, MUTED)
     ws["D24"].alignment = align("left", "center", 1)
     for c in HERO_COLS:
@@ -348,9 +413,18 @@ def selector(ws):
 
 
 # ============================================================================ Kacheln
+TILES = [  # (c1, c2, KPI, Wertformel) – Teilmenge der kanonischen Reihenfolge C.KPI_ORDER (P20)
+    ("C", "D", "CF", "=CF_nSt_Monat_J1"),
+    ("E", "E", "BMR", "=Bruttomietrendite"),
+    ("F", "F", "DSCR", "=DSCR_J1"),
+    ("G", "G", "IRR", "=EK_IRR"),
+]
+
+
 def tiles(ws):
-    """Vier Kacheln (C.tile dark), Reihenfolge wie Dashboard: Cashflow · Bruttomietrendite · DSCR · IRR.
-    Wert neutral navy (negativer Cashflow rot), Status als „●  Wort“ in der Kontextzeile (Z. 29)."""
+    """Vier Kacheln mit C.tile (dark) – EINE Anatomie wie Dashboard/Leitfaden (P10/P11/P20):
+    Kopfstreifen mit kanonischem Label · Wert in Statusfarbe · Fußzeile Kontext links, Status rechts
+    (2-spaltig als Chip, 1-spaltig inline), Rinnen 3 px horizontal = vertikal (gap='auto')."""
     unmerge_in(ws, "C", 26, "G", 26)
     C.section(ws, 26, "C", "G", "Aktuelle Kalkulation im Überblick", meta="Details im Dashboard  ›")
     m = ws["G26"]
@@ -362,21 +436,13 @@ def tiles(ws):
             ws[f"{c}{r}"].fill = C.NOFILL
     drop_cf(ws, cells_of("C", 27, "G", 32))
     unmerge_in(ws, "C", 27, "G", 32)
-    for c in "CDEFG":                                   # Kontextzeile (Z. 29) ist in der Vorlage leer
+    for c in "CDEFG":                                   # Kopf- und Fußzeile (Z. 27/29) sind in der Vorlage reine Texte
         ws[f"{c}29"].value = None
     ws["D27"].value = ws["D28"].value = None
-    cf = C.CF_YEAR2
-    C.tile(ws, "C", "D", 27, 28, 29, kpi="CF", label="Cashflow n. St. / Monat (Jahr 1)", value="=CF_nSt_Monat_J1",
-           value_ref="CF_nSt_Monat_J1", status="dot", sub=status_line("CF", "CF_nSt_Monat_J1", f'"Jahr 2: "&FIXED({cf},0)&" € / Monat"'))
-    C.tile(ws, "E", "E", 27, 28, 29, kpi="BMR", status="dot",
-           sub=status_line("BMR", "Bruttomietrendite", goal_pct("Ampel_BMR_gruen")))
-    C.tile(ws, "F", "F", 27, 28, 29, kpi="DSCR", label="DSCR (Jahr 1)", value="=DSCR_J1", value_ref="DSCR_J1", status="dot",
-           sub=status_line("DSCR", "DSCR_J1", '"Ziel ≥ "&FIXED(Ampel_DSCR_gruen,2)&"×"'))
-    C.tile(ws, "G", "G", 27, 28, 29, kpi="IRR", value="=EK_IRR", value_ref="EK_IRR", status="dot", gap_right=False,
-           sub=status_line("IRR", "EK_IRR", goal_pct("Ampel_IRR_gruen")))
-    g = ws["G27"]
-    g.value = '="IRR N. ST. · VERKAUF NACH "&Haltedauer&" J."'
-    g.data_type = "f"
+    for c1, c2, key, val in TILES:
+        vref = val[1:]
+        C.tile(ws, c1, c2, 27, 28, 29, kpi=key, value=val, value_ref=vref, sub=TILE_SUB[key],
+               label=C.kpi_label(key, caps=True, formula=True), gap_right=c2 != "G")
     # zweite Reihe der Vorlage (Namensziele ST_CF/ST_DSCR/ST_IRR) ausblenden – Formeln bleiben unverändert
     clear_rows(ws, 30, 32)
     for c, fmt in (("C", C.NUMFMT["eur"]), ("E", C.NUMFMT["dscr"]), ("F", C.NUMFMT["pct1"])):
@@ -388,12 +454,12 @@ def tiles(ws):
 # ============================================================================ So gehen Sie vor
 def flow(ws):
     wipe(ws, "C", 34, "H", 45)
-    C.section(ws, 34, "C", "G", "So gehen Sie vor", meta="in sechs Schritten")
+    C.section(ws, 34, "C", "G", "Ihr Weg durch das Tool", meta="6 Etappen · A–F")
     for i, (title, sheet, target, desc) in enumerate(FLOW):
         r = 35 + i
         C.safe_merge(ws, "C", r, "D", r)
         a = ws[f"C{r}"]
-        a.value = rich((CIRCLED[i], C.T_H3, True, ACCENT), ("   " + title + "  ›", C.T_BODY, True, BLUE))
+        a.value = rich((ETAPPE[i], C.T_H3, True, ACCENT), ("   " + title + "  ›", C.T_BODY, True, BLUE))
         a.hyperlink = Hyperlink(ref=a.coordinate, location=C.link_loc(sheet, target), display=title,
                                 tooltip="Zur Auswahl „Kauf als“" if sheet == SHEET else f"Zum Blatt „{sheet}“")
         a.font = font(C.T_BODY, True, BLUE)
@@ -417,6 +483,7 @@ def legend_and_sheets(ws):
     C.section(ws, 46, "F", "G", "Alle Blätter", meta="Schritte S01–S12: siehe Leitfaden")
     ws["E46"].border = Border(bottom=side("thin", ACCENT), right=side("thick", WHITE))
     C.set_height(ws, 47, 6)
+    gutter = side("thick", WHITE)                 # Rinne Legende | Alle Blätter (P26) – wie die Kachelrinnen
     top = 48
 
     legend = [
@@ -424,7 +491,7 @@ def legend_and_sheets(ws):
         ("Verknüpfung", "Blau – übernommen aus einer Eingabe an anderer Stelle"),
         ("Berechnung", "Schwarz – berechnet, bitte nicht ändern"),
         ("Ergebnis", "Hervorgehoben – Summe bzw. Blockergebnis"),
-        ("–1.234 €", "Rot – nur negative Beträge in Ergebniszeilen"),
+        (f"{C.MINUS}1.234 €", C.NEG_RULE_TEXT),
         ("Status", None),
         ("Prüfhinweis", None),
         ("Blattschutz", "ohne Passwort – bei Bedarf aufheben"),
@@ -463,6 +530,7 @@ def legend_and_sheets(ws):
     C.set_height(ws, r0 - 1, C.H_GAP)
     C.callout_box(ws, "C", r0, "E", r0 + 1, 62, title="Tipp & Support", pill=False, fit=None,
                   text="Beispielwerte in den gelben Feldern einfach überschreiben – alle Blätter rechnen sofort mit.\n"
+                       "Hilfe zu jedem Eingabefeld: Zelle markieren – der Eingabehinweis erscheint.\n"
                        "Jedes Blatt ist für den Druck auf A4 eingerichtet.\n"
                        "Blattwechsel per Tastatur: Strg + Bild ↓ / Bild ↑.\n"
                        "Version Pro  ·  Rechtsstand September 2026  ·  MM Holding GmbH, Weingarten")
@@ -482,6 +550,16 @@ def legend_and_sheets(ws):
         C.hairline(ws, r, "F", "G")
         C.set_height(ws, r, C.H_ROW)
         r += 1
+    # Rinne zwischen den beiden Spalten: weiße 3-px-Kante rechts an E (unterbricht Haarlinien und Flächen)
+    from copy import copy
+    for rr in range(46, 63):
+        cell = ws[f"E{rr}"]
+        b = copy(cell.border)
+        cell.border = Border(left=b.left, top=b.top, bottom=b.bottom, right=gutter)
+        f_ = ws[f"F{rr}"]
+        fb = copy(f_.border)
+        if rr != 46:                                      # F46 behält die Akzentkante des Abschnittskopfs
+            f_.border = Border(left=gutter, top=fb.top, bottom=fb.bottom, right=fb.right)
 
 
 def foot(ws):
