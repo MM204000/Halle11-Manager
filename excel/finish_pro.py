@@ -313,7 +313,7 @@ PIE_RANK = ["0B2A4A", "1D4F8A", "4A86C8", "9CBBE2", "C9D6E6"]
 PIE_RANK7 = ["0B2A4A", "1D4F8A", "2F6BAE", "4A86C8", "7FA7D6", "9CBBE2", "C9D6E6"]
 PIE_INSIDE = 0.35        # Innen-Etikett nur ab 35 % (höchstens zwei je Kreis), sonst außen
 PIE_MAX_INSIDE = 2
-PIE_ALL_OUT = 4          # mehr als 4 Segmente: alle Etiketten außen mit Führungslinie
+PIE_ALL_OUT = 5          # mehr als 5 Segmente (S06): alle Etiketten außen mit Führungslinie
 # Kurzlabels der Kategorien: Art → [(Muster, Kurzname)]
 CAT_SHORT = {
     "invest": [(r"^kaufpreis", "Kaufpreis"), (r"^kaufneben", "Nebenkosten"), (r"^finanzierungsneben", "Finanzierungskosten"),
@@ -1524,7 +1524,7 @@ def spread_pie_labels(root, cx, cy, d, w, h):
     """Außen-Etiketten kleiner Nachbarsegmente senkrecht entzerren (je Seite, Mindestabstand PIE_GAP) – als
     Versatz der Etiketten (manualLayout, Anteil der Diagrammhöhe); Führungslinien zeigen die Zuordnung."""
     outs = list(PIE_OUT)
-    if len(outs) < 2:
+    if not outs:
         return
     rx, ry = d / 2 + 6, 0.30 * d + 6
     lbls = {}
@@ -1540,7 +1540,7 @@ def spread_pie_labels(root, cx, cy, d, w, h):
                 continue
             y0 = cy + ry * cy_ + (0.1 * d if cy_ > 0 else 0)
             pts.append([y0, y0, idx])
-        if len(pts) < 2:
+        if not pts:
             continue
         pts.sort(key=lambda p_: p_[0])
         for k_ in range(1, len(pts)):
@@ -1555,7 +1555,7 @@ def spread_pie_labels(root, cx, cy, d, w, h):
         for y0, y1, idx in pts:
             dy = y1 - y0
             dl = lbls.get(idx)
-            if dl is None or abs(dy) < 1:
+            if dl is None:
                 continue
             drop(dl, "layout")
             dl.insert(1, lbl_offset(round(side * 6 / w, 4), round(dy / h, 4)))
