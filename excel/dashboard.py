@@ -1,332 +1,597 @@
-"""Dashboard-Blatt (Management-Übersicht auf einer Seite) für das Immobilien-Kalkulationstool Pro.
+"""Blatt „Dashboard“ – Gesamtbewertung der Investition auf einer Seite (reines Darstellungsblatt).
 
-Das Blatt liest ausschließlich vorhandene Namen und Ergebniszellen der Vorlage
-(Projektion, Cockpit-Hinweise, Ampel-Schwellen der Konfiguration) – es verändert
-keine bestehende Berechnung. Farben kommen aus dem aktiven Thema von design_pro.
+Das Blatt liest ausschließlich vorhandene Namen und Ergebniszellen der Vorlage (Projektion, Steuern,
+Cockpit-Prüfhinweise, Ampel-Schwellen der Konfiguration) und verändert keine bestehende Berechnung.
+Alle Tokens und Komponenten kommen aus core.py (einheitliche Sprache mit den übrigen Blättern).
+
+Raster: A = Rand · sechs Spaltenpaare (B:C, E:F, H:I, K:L, N:O, Q:R) mit fünf Abstandsspalten
+(D, G, J, M, P ≈ 12 px). Linkes Panel B:I, rechtes Panel K:R, volle Breite B:R.
+Hilfsdaten (Wasserfall, Sortierung der Prüfhinweise) liegen in ausgeblendeten Spalten T:AJ.
 """
 from openpyxl.chart import BarChart, LineChart, Reference
-from openpyxl.chart.label import DataLabelList
-from openpyxl.chart.marker import DataPoint
+from openpyxl.chart.data_source import StrRef
+from openpyxl.chart.label import DataLabel, DataLabelList
+from openpyxl.chart.layout import Layout, ManualLayout
+from openpyxl.chart.marker import DataPoint, Marker
 from openpyxl.chart.series import SeriesLabel
-from openpyxl.formatting.rule import FormulaRule
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
+from openpyxl.chart.shapes import GraphicalProperties
+from openpyxl.chart.axis import ChartLines
+from openpyxl.chart.text import RichText
+from openpyxl.drawing.line import LineProperties
+from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, TwoCellAnchor
+from openpyxl.drawing.text import CharacterProperties, Paragraph, ParagraphProperties, RichTextProperties
+from openpyxl.formatting.rule import DataBarRule, FormulaRule
+from openpyxl.styles import Border, Font
 from openpyxl.worksheet.hyperlink import Hyperlink
+from openpyxl.worksheet.pagebreak import Break
 
-EUR = '#,##0 "€";-#,##0 "€";"–"'
-NUM = '#,##0;-#,##0;"–"'
-PCT = '0.0 %'
-PCT2 = '0.00 %'
-DSCR = '0.00'
+import core as C
+
+SHEET = "Dashboard"
+
+# ------------------------------------------------------------------------------------------ Raster
+PAIR_W, GAP_W, EDGE_W = 12.86, 1.7, 4.5          # 90 px · 12 px · 31 px
+PAIRS = [("B", "C"), ("E", "F"), ("H", "I"), ("K", "L"), ("N", "O"), ("Q", "R")]
+GAPS = ["D", "G", "J", "M", "P"]
+YEAR_COLS = ["E", "F", "H", "I", "K", "L", "N", "O", "Q", "R"]
+YEARS = [1, 2, 3, 5, 10, 15, 20, 25, 30, 40]
+YEAR_INDENT = {c: (2 if i % 2 == 0 else 1) for i, c in enumerate(YEAR_COLS)}   # Rechtskanten im Abstand ≈ 96 px
+FIRST_HELP, LAST_HELP = "T", "AK"                  # ausgeblendete Hilfsspalten
+AXIS_COL, AXIS_ROW = "AK", 20                      # Jahresachse Vermögensentwicklung (jedes 5. Jahr beschriftet)
+CHROME_COLS = 60                                   # Kopfleiste breit genug für alle Reiter (≥ 1480 px)
+
+# ------------------------------------------------------------------------------------------ Zeilen
+R_EYEBROW, R_H1, R_SUB = 5, 6, 7
+R_LINKS = 9
+R_VERDICT = 11                                     # 11 Label · 12 Status
+R_TILE = 14                                        # 14 Label · 15 Wert · 16 Unterzeile
+R_BAND1 = 18                                       # Kennzahlen-Check | Cashflow Jahr 1
+R_CHECK_HEAD = 19
+R_CHECK = 20                                       # 20–25
+R_CHECK_NOTE = 26
+R_BAND2 = 28                                       # Vermögensentwicklung (volle Breite)
+R_CHART2 = (29, 40)
+R_BAND3 = 42                                       # Kennzahlen im Zeitverlauf
+
+# Wasserfall-Hilfstabelle (ausgeblendet): Zeilen 20–26
+W_ROW = 20
+W_COLS = dict(cat="T", val="U", start="V", end="W", base_p="X", base_n="Y", vis_p="Z", vis_n="AH", label="AI")
+W_CARRIERS = ["AA", "AB", "AC", "AD", "AE", "AF", "AG"]
+W_HEAD = "U29"                                     # Höhe der Beschriftungsträger (16 % der Spannweite)
+HINT_KEY_COL, HINT_KEY_ROW = "AJ", 20              # Sortierschlüssel der 25 Prüfhinweise (⚠ zuerst)
+N_HINTS = 10
+
+DEDUCT = "B8C2CF"                                  # Abzüge im Wasserfall
 
 
-def build(wb, T):
-    """T: Farb-Token (dict) des aktiven Themas."""
-    P, P2, ACC, L, XL = T["TEAL"], T["TEAL_MID"], T["ACC"], T["TEAL_L"], T["TEAL_XL"]
-    INK, INK2, MUTED, MUTED2, LINE, LINE2 = "1A1D21", "3A3F45", "5B6068", "8A9099", "E6E8EB", "D5D9DE"
-    RED, AMB, GRN = "B42318", "B54708", "1F7A4D"
-    RED_BG, AMB_BG, GRN_BG = "FDF1EF", "FEF4E8", "EDF7F1"
-    SANS, DISP = "Aptos", "Aptos Display"
-
-    ws = wb.create_sheet("Dashboard", index=1)
-    ws.sheet_properties.tabColor = P
+def build(wb, T=None):
+    """T (Farb-Tokens des Themas) wird nicht mehr benötigt – alle Farben kommen aus core.py."""
+    if SHEET in wb.sheetnames:
+        del wb[SHEET]
+    ws = wb.create_sheet(SHEET, index=1)
+    ws.sheet_properties.tabColor = C.NAVY
     ws.sheet_view.showGridLines = False
     ws.sheet_view.zoomScale = 100
 
-    def f(size=10, bold=False, color=INK, name=SANS):
-        return Font(name=name, sz=size, b=bold, color=color)
+    _grid(ws)
+    _chrome(ws)
+    _header(ws)
+    _link_row(ws)
+    rows = _check_table(ws)
+    _verdict(ws, rows)
+    _tiles(ws)
+    _waterfall(ws)
+    _wealth_chart(ws, wb)
+    last = _timeline(ws)
+    last = _hints(ws, last + 2)
+    _footer(ws, last + 2)
+    C.hide_cols(ws, FIRST_HELP, LAST_HELP)
+    _page(ws, last + 3)
+    return ws
 
-    def fill(c):
-        return PatternFill("solid", start_color=c, end_color=c)
 
-    def side(style, color):
-        return Side(style=style, color=color)
+# ========================================================================================== Raster / Kopf
+def _grid(ws):
+    ws.column_dimensions["A"].width = EDGE_W
+    for a, b in PAIRS:
+        ws.column_dimensions[a].width = PAIR_W
+        ws.column_dimensions[b].width = PAIR_W
+    for g in GAPS:
+        ws.column_dimensions[g].width = GAP_W
+    ws.column_dimensions["S"].width = EDGE_W
+    for r in range(4, 90):
+        ws.row_dimensions[r].height = 15
+    for r, h in ((4, 15), (8, 8), (10, 14), (13, 14), (17, 20), (27, 20), (41, 20)):
+        C.set_height(ws, r, h)
 
-    def put(ref, value=None, fmt=None, font=None, bg=None, al=None, border=None):
-        c = ws[ref]
-        if value is not None:
-            c.value = value
-        c.font = font or f()
-        if fmt:
-            c.number_format = fmt
-        if bg:
-            c.fill = fill(bg)
-        if al:
-            c.alignment = al
-        if border:
-            c.border = border
-        return c
 
-    def merge(rng, value=None, **kw):
-        ws.merge_cells(rng)
-        return put(rng.split(":")[0], value, **kw)
+def _chrome(ws):
+    """Kopfleiste wie auf allen Blättern (Reiter setzt navigation.py als Formen darüber)."""
+    for r, h in ((1, 6), (2, 33), (3, 3)):
+        C.set_height(ws, r, h)
+        for cc in range(1, CHROME_COLS + 1):
+            c = ws.cell(r, cc)
+            c.fill = C.fill(C.ACCENT if r == 3 else C.NAVY)
+            c.border = Border()
 
-    def section(row, c1, c2, title, right=None):
-        ws.row_dimensions[row].height = 24
-        for k, col in enumerate(range(c1, c2 + 1)):
-            c = ws.cell(row, col)
-            c.fill = fill(L)
-            c.border = Border(left=side("thick", ACC) if k == 0 else None, bottom=side("thin", ACC))
-        put(f"{get_column_letter(c1)}{row}", title, font=f(12.5, True, P, DISP),
-            al=Alignment(vertical="center", indent=1))
-        if right:
-            put(f"{get_column_letter(c2)}{row}", right, font=f(8.5, color=P2),
-                al=Alignment(horizontal="right", vertical="center"))
 
-    LEFT = Alignment(horizontal="left", vertical="center")
-    RIGHT = Alignment(horizontal="right", vertical="center")
+def _header(ws):
+    """Seitenkopf nach core.page_header: Brotkrume · H1 · Untertitel (Metadaten) · Objekt rechts."""
+    kaufdatum = ('IFERROR(TEXT(DAY(Kaufdatum),"00")&"."&TEXT(MONTH(Kaufdatum),"00")&"."&YEAR(Kaufdatum),"–")')
+    subtitle = ('="Kaufpreis "&FIXED(Kaufpreis,0)&" €  ·  Kauf am "&' + kaufdatum +
+                '&"  ·  Haltedauer "&Haltedauer&" Jahre  ·  "&Bundesland')
+    C.page_header(ws, "B", "R", "Auswertung", "Dashboard", subtitle,
+                  context=("=Obj_Name", "=Obj_Adresse"), context_col="N")
+    C.safe_merge(ws, "B", R_H1, "L", R_H1)
+    C.safe_merge(ws, "B", R_SUB, "L", R_SUB)
+    C.safe_merge(ws, "N", R_H1, "R", R_H1)
+    C.safe_merge(ws, "N", R_SUB, "R", R_SUB)
+    ws.cell(R_H1, 14).alignment = C.align("right", "bottom", 1)
 
-    # ------------------------------------------------------------------ Raster
-    ws.column_dimensions["A"].width = 2.4
-    for i in range(2, 14):
-        ws.column_dimensions[get_column_letter(i)].width = 12.9
-    ws.column_dimensions["N"].width = 2.4
-    for col in "OP":
-        ws.column_dimensions[col].width = 14
-    for r in range(4, 66):
-        ws.row_dimensions[r].height = 16.5
 
-    # ------------------------------------------------------------------ Kopfleiste
-    for r, h in ((1, 6), (2, 33), (3, 3)):  # Reiter setzt navigation.py als Formen darüber
-        ws.row_dimensions[r].height = h
-        for col in range(1, 21):
-            ws.cell(r, col).fill = fill(ACC if r == 3 else P)
+def _link_row(ws):
+    """Rücksprung und Vertiefung im Kachelraster; rechts die Rechtsform (Link zur Auswahl auf „Start“)."""
+    C.button(ws, "B", R_LINKS, "C", "‹  Schritt 12: Ergebnis", "S12 Ergebnis", kind="secondary",
+             tooltip="Zurück zum letzten Schritt des Leitfadens")
+    for (a, b), (text, target, tip) in zip(PAIRS[1:5], [
+            ("Cockpit  ›", "Cockpit", "Detailkennzahlen und Prüfhinweise"),
+            ("Diagramme  ›", "Diagramme", "Alle Auswertungen als Diagramm"),
+            ("Sensitivität  ›", "Sensitivität", "Was-wäre-wenn: Zins, Miete, Kaufpreis"),
+            ("Bankgespräch  ›", "Bankgespräch", "Unterlagen für das Finanzierungsgespräch")]):
+        C.button(ws, a, R_LINKS, b, text, target, kind="link", tooltip=tip)
+    a, b = PAIRS[5]
+    C.safe_merge(ws, a, R_LINKS, b, R_LINKS)
+    c = ws[f"{a}{R_LINKS}"]
+    c.value = f'="Rechtsform: "&{C.RECHTSFORM_SHORT}&"  ›"'
+    C.style_range(ws, a, R_LINKS, b, R_LINKS, fil=C.fill(C.TINT), brd=Border())
+    c.font = C.font(C.T_BODY, True, C.NAVY)
+    c.alignment = C.align("center", "center")
+    c.hyperlink = Hyperlink(ref=c.coordinate, location="'Start'!D23", display="Rechtsform",
+                            tooltip="Rechtsform auf der Startseite ändern")
 
-    # ------------------------------------------------------------------ Titel
-    ws.row_dimensions[5].height = 34
-    merge("B5:G5", "Dashboard", font=f(26, True, P, DISP), al=Alignment(vertical="center"))
-    merge("B6:G6", '=Obj_Name&"   ·   "&Obj_Adresse', font=f(10, color=MUTED), al=LEFT)
-    meta = [("Kaufpreis", "=Kaufpreis", EUR), ("Kaufdatum", "=Kaufdatum", "DD.MM.YYYY"),
-            ("Haltedauer", "=Haltedauer", '0 "Jahre"'), ("Rechtsform", '=IF(Rechtsform_Idx=1,"Privat","GmbH")', "@"),
-            ("Bundesland", "=Bundesland", "@"), ("Stand", "=TODAY()", "DD.MM.YYYY")]
-    for i, (lab, frm, fmt) in enumerate(meta):
-        col = get_column_letter(8 + i)
-        put(f"{col}5", lab, font=f(8, color=MUTED2), al=Alignment(horizontal="left", vertical="bottom"))
-        put(f"{col}6", frm, fmt=fmt, font=f(9, True), al=Alignment(horizontal="left", vertical="center", shrink_to_fit=True))
 
-    # ------------------------------------------------------------------ Kennzahlen-Check (Grundlage der Bewertung)
-    check_top = 17
-    section(check_top - 1, 2, 7, "Kennzahlen-Check", "Ist gegen Zielwert")
-    heads = [("B", "C", "KENNZAHL", "left"), ("D", None, "IST", "right"), ("E", None, "ZIEL", "right"),
-             ("F", None, "STATUS", "left"), ("G", None, "ERREICHUNG", "left")]
-    for a, b, text, al in heads:
-        rng = f"{a}{check_top}:{b}{check_top}" if b else f"{a}{check_top}"
-        if b:
-            ws.merge_cells(rng)
-        put(f"{a}{check_top}", text, font=f(8, True, MUTED), bg="F3F4F5",
-            al=Alignment(horizontal=al, vertical="center", indent=1 if al == "left" else 0),
-            border=Border(bottom=side("thin", LINE2)))
-    ws["C17"].fill = fill("F3F4F5")
+# ========================================================================================== Gesamtbewertung
+def _verdict(ws, rows):
+    r1, r2 = R_VERDICT, R_VERDICT + 1
+    C.set_height(ws, r1, 16)
+    C.set_height(ws, r2, 26)
+    for c in C.iter_cells(ws, "B", r1, "R", r2):
+        c.fill = C.fill(C.TINT_XL)
+        c.border = Border()
+    C.safe_merge(ws, "B", r1, "I", r1)
+    lab = ws[f"B{r1}"]
+    C.set_text(lab, "GESAMTBEWERTUNG")
+    lab.font = C.font(C.T_MICRO, True, C.MUTED)
+    lab.alignment = C.align("left", "bottom", 1)
+    C.safe_merge(ws, "B", r2, "I", r2)
+    st = ws[f"B{r2}"]
+    status_rng = f"$H${R_CHECK}:$H${R_CHECK + 5}"
+    st.value = (f'=IF(OR($H${rows["DSCR"]}="kritisch",$H${rows["CF"]}="kritisch"),"Liquidität kritisch",'
+                f'IF(COUNTIF({status_rng},"kritisch")>0,"Rendite kritisch",'
+                f'IF(COUNTIF({status_rng},"prüfen")>0,"Solide mit Prüfpunkten","Solide")))')
+    st.number_format = '"●  "@'
+    st.font = C.font(C.T_H2, True, C.INK, C.DISPLAY)
+    st.alignment = C.align("left", "center", 1)
+    C.safe_merge(ws, "K", r1, "R", r2)
+    ex = ws[f"K{r1}"]
+    ex.value = ('="DSCR (Jahr 1) "&FIXED(DSCR_J1,2)&IF(DSCR_J1<Ampel_DSCR_gruen," statt mindestens "," bei Ziel ")'
+                '&FIXED(Ampel_DSCR_gruen,2)&"  ·  IRR n. St. "&FIXED(EK_IRR*100,1)&" % über "&Haltedauer&" Jahre"'
+                '&CHAR(10)&"Cashflow n. St. "&FIXED(CF_nSt_Monat_J1,0)&" € / Monat im Jahr 1, ab Jahr 2 "'
+                f'&FIXED({C.CF_YEAR2},0)&" € / Monat"')
+    ex.font = C.font(C.T_SMALL, False, C.INK2)
+    ex.alignment = C.align("left", "center", 1, wrap=True)
+    b = f"$B${r2}"
+    rules = ((f'ISNUMBER(SEARCH("kritisch",{b}))', C.RED, C.RED_BG, "E7B4AD"),
+             (f'ISNUMBER(SEARCH("Prüfpunkten",{b}))', C.AMBER, C.AMBER_BG, "F1CFA5"),
+             (f'{b}="Solide"', C.GREEN, C.GREEN_BG, "B5DCC4"))
+    for cond, fg, bg, ln in rules:
+        ws.conditional_formatting.add(f"B{r1}:R{r2}", FormulaRule(formula=[cond], fill=C.fill(bg), stopIfTrue=True))
+    for cond, fg, bg, ln in rules:
+        ws.conditional_formatting.add(f"B{r2}:I{r2}", FormulaRule(formula=[cond], font=Font(color=fg, bold=True),
+                                                                  stopIfTrue=True))
+
+
+# ========================================================================================== Kacheln
+def _tiles(ws):
+    tiles = [
+        ("GI", "=Gesamtinvestition", '="Kaufpreis "&FIXED(Kaufpreis,0)&" € · NK "&FIXED(NK_Quote*100,1)&" %"'),
+        ("EK", "=EK_Bedarf_gesamt", '="Quote "&FIXED(EK_Quote*100,1)&" % · Beleihung "&FIXED(Beleihung*100,1)&" %"'),
+        ("CF", "=CF_nSt_Monat_J1", f'="ab Jahr 2: "&FIXED({C.CF_YEAR2},0)&" € / Monat"'),
+        ("BMR", "=Bruttomietrendite", '="Faktor "&FIXED(Kaufpreisfaktor,1)&"× · netto "&FIXED(Nettomietrendite*100,1)&" %"'),
+        ("DSCR", "=DSCR_J1", '="Bankmaßstab ≥ "&FIXED(Ampel_DSCR_gruen,2)'),
+        ("IRR", "=EK_IRR", '="Verkauf nach "&Haltedauer&" Jahren · Multiple "&FIXED(EK_Multiple,2)&"×"'),
+    ]
+    for (a, b), (key, value, sub) in zip(PAIRS, tiles):
+        C.kpi_tile(ws, a, b, R_TILE, R_TILE + 1, R_TILE + 2, value=value, sub=sub, kpi=key, gap_right=False)
+    a, _ = PAIRS[2]
+    ws.conditional_formatting.add(f"{a}{R_TILE + 2}:{PAIRS[2][1]}{R_TILE + 2}", FormulaRule(
+        formula=[f"{C.CF_YEAR2}<0"], font=Font(color=C.RED)))
+
+
+# ========================================================================================== Kennzahlen-Check
+def _check_table(ws):
+    C.band_l1(ws, R_BAND1, "B", "I", "Kennzahlen-Check", "Ist gegen Zielwert")
+    C.table_head(ws, R_CHECK_HEAD, "B", "I", labels={
+        "B": ("KENNZAHL", "left"), "E": ("IST", "right"), "F": ("ZIEL", "right"),
+        "H": ("STATUS", "left"), "I": ("ERREICHUNG", "left")})
+    ws[f"I{R_CHECK_HEAD}"].alignment = C.align("left", "center", 0)
+    cf_status = f'IF(E{{r}}<0,"kritisch",IF({C.CF_YEAR2}<0,"prüfen","erfüllt"))'
     checks = [
-        ("Bruttomietrendite", "=Bruttomietrendite", "=Ampel_BMR_gruen", "Ampel_BMR_gelb", PCT),
-        ("Nettomietrendite", "=Nettomietrendite", "=Ampel_NMR_gruen", "Ampel_NMR_gelb", PCT),
-        ("Kapitaldienstdeckung (DSCR)", "=DSCR_J1", "=Ampel_DSCR_gruen", "Ampel_DSCR_gelb", DSCR),
-        ("Cashflow n. St. / Monat", "=CF_nSt_Monat_J1", 0, "-100", '#,##0 "€";-#,##0 "€";0 "€"'),
-        ("EK-Rendite Jahr 1", "=EKR_Tile", "=Ampel_EKR_gruen", "Ampel_EKR_gelb", PCT),
-        ("IRR nach Steuern", "=EK_IRR", "=Ampel_IRR_gruen", "Ampel_IRR_gelb", PCT),
+        ("BMR", "Bruttomietrendite", "=Bruttomietrendite", "=Ampel_BMR_gruen", "Ampel_BMR_gelb", C.NUMFMT["pct1"]),
+        ("NMR", "Nettomietrendite", "=Nettomietrendite", "=Ampel_NMR_gruen", "Ampel_NMR_gelb", C.NUMFMT["pct1"]),
+        ("DSCR", "DSCR (Jahr 1)", "=DSCR_J1", "=Ampel_DSCR_gruen", "Ampel_DSCR_gelb", C.NUMFMT["dscr"]),
+        ("CF", "Cashflow n. St. / Monat", "=CF_nSt_Monat_J1", 0, None, C.NUMFMT["eur_zero"]),
+        ("EKR", "EK-Rendite Jahr 1", "=EKR_Tile", "=Ampel_EKR_gruen", "Ampel_EKR_gelb", C.NUMFMT["pct1"]),
+        ("IRR", "IRR n. St.", "=EK_IRR", "=Ampel_IRR_gruen", "Ampel_IRR_gelb", C.NUMFMT["pct1"]),
     ]
     rows = {}
-    for i, (lab, ist, ziel, gelb, fmt) in enumerate(checks):
-        r = check_top + 1 + i
-        rows[lab] = r
-        ws.row_dimensions[r].height = 19
-        merge(f"B{r}:C{r}", lab, font=f(10), al=Alignment(horizontal="left", vertical="center", indent=1))
-        put(f"D{r}", ist, fmt=fmt, font=f(10, True), al=RIGHT)
-        put(f"E{r}", ziel, fmt=fmt, font=f(10, color=MUTED2), al=RIGHT)
-        put(f"F{r}", f'=IF(D{r}>=E{r},"erfüllt",IF(D{r}>={gelb},"prüfen","kritisch"))', fmt='"● "@',
-            font=f(9, True), al=Alignment(horizontal="left", vertical="center", indent=1))
-        put(f"G{r}", f'=REPT("█",ROUND(8*MIN(IF(E{r}>0,MAX(0,D{r}/E{r}),IF(D{r}>=E{r},1.25,0)),1.25),0))',
-            font=f(7.5), al=LEFT)
-        for col in "BCDEFG":
-            ws[f"{col}{r}"].border = Border(bottom=side("thin", LINE))
-        for word, colr in (("erfüllt", GRN), ("prüfen", AMB), ("kritisch", RED)):
-            ws.conditional_formatting.add(f"F{r}:G{r}", FormulaRule(formula=[f'$F{r}="{word}"'], font=Font(color=colr, bold=True)))
-    last = check_top + len(checks)
-    merge(f"B{last + 1}:G{last + 1}", "Balken: 8 Blöcke = Zielwert erreicht · Schwellen grün/gelb: Blatt Konfiguration "
-          "(Cashflow: gelb ab −100 € / Monat)", font=f(8, color=MUTED2), al=LEFT)
-    rng_status = f"F{check_top + 1}:F{last}"
-    r_dscr, r_cf = rows["Kapitaldienstdeckung (DSCR)"], rows["Cashflow n. St. / Monat"]
+    for i, (key, label, ist, ziel, gelb, fmt) in enumerate(checks):
+        r = R_CHECK + i
+        rows[key] = r
+        C.set_height(ws, r, 22)
+        C.safe_merge(ws, "B", r, "C", r)
+        lab = ws[f"B{r}"]
+        C.set_text(lab, label)
+        lab.font = C.font(C.T_BODY, False, C.INK)
+        lab.alignment = C.align("left", "center", 1)
+        v = ws[f"E{r}"]
+        v.value, v.number_format = ist, fmt
+        v.font = C.font(C.T_BODY, True, C.INK)
+        v.alignment = C.align("right", "center", 1)
+        z = ws[f"F{r}"]
+        z.value, z.number_format = ziel, fmt
+        z.font = C.font(C.T_BODY, False, C.MUTED)
+        z.alignment = C.align("right", "center", 1)
+        s = ws[f"H{r}"]
+        s.value = ("=" + cf_status.format(r=r)) if key == "CF" else \
+            f'=IF(E{r}>=F{r},"erfüllt",IF(E{r}>={gelb},"prüfen","kritisch"))'
+        s.number_format = '"●  "@'
+        s.font = C.font(C.T_SMALL, True, C.INK)
+        s.alignment = C.align("left", "center", 1)
+        q = ws[f"I{r}"]
+        q.value = (f"=IF(E{r}>=0,1,0)" if key == "CF" else
+                   f"=IF(F{r}>0,MIN(MAX(0,E{r}/F{r}),1.25),IF(E{r}>=F{r},1,0))")
+        q.number_format = ";;;"
+        q.alignment = C.align("left", "center", 0)
+        C.hairline(ws, r, "B", "I")
+    last = R_CHECK + len(checks) - 1
+    for word, colr in (("erfüllt", C.GREEN), ("prüfen", C.AMBER), ("kritisch", C.RED)):
+        ws.conditional_formatting.add(f"H{R_CHECK}:H{last}", FormulaRule(
+            formula=[f'$H{R_CHECK}="{word}"'], font=Font(color=colr, bold=True)))
+    ws.conditional_formatting.add(f"I{R_CHECK}:I{last}", DataBarRule(
+        start_type="num", start_value=0, end_type="num", end_value=1.25, color=C.BLUE,
+        showValue=False, minLength=0, maxLength=100))
+    # Fußnote + Link zu den Schwellen
+    C.set_height(ws, R_CHECK_NOTE, 20)
+    n = ws[f"B{R_CHECK_NOTE}"]
+    C.set_text(n, "Balken = Erreichung des Zielwerts (voll = 125 %)")
+    n.font = C.font(C.T_MICRO, False, C.MUTED)
+    n.alignment = C.align("left", "center", 1)
+    C.safe_merge(ws, "H", R_CHECK_NOTE, "I", R_CHECK_NOTE)
+    lk = ws[f"H{R_CHECK_NOTE}"]
+    C.text_link(lk, "Schwellen: Konfiguration  ›", "Konfiguration", "B74", size=C.T_MICRO, bold=False,
+                tooltip="Ampel-Schwellwerte anpassen")
+    lk.alignment = C.align("right", "center", 1)
+    return rows
 
-    # ------------------------------------------------------------------ Gesamtbewertung
-    for r in (8, 9):
-        ws.row_dimensions[r].height = 18
-    merge("B8:C9", "GESAMTBEWERTUNG", font=f(8.5, True, MUTED), al=Alignment(horizontal="left", vertical="center", indent=1))
-    merge("D8:F9", f'=IF(OR(F{r_dscr}="kritisch",F{r_cf}="kritisch"),"Liquidität kritisch",'
-                   f'IF(COUNTIF({rng_status},"kritisch")>0,"Rendite kritisch",'
-                   f'IF(COUNTIF({rng_status},"prüfen")>0,"Solide mit Prüfpunkten","Solide")))',
-          fmt='"● "@', font=f(14, True, INK, DISP), al=LEFT)
-    merge("G8:M9", '="Kapitaldienstdeckung "&FIXED(DSCR_J1,2)&IF(DSCR_J1<Ampel_DSCR_gruen," statt mindestens "," bei Ziel ")'
-                   '&FIXED(Ampel_DSCR_gruen,2)&". Cashflow nach Steuern im Jahr 1: "&FIXED(CF_nSt_Monat_J1,0)'
-                   '&" € / Monat, ab Jahr 2: "&FIXED(INDEX(Projektion!$D$37:$AQ$37,2),0)&" € / Monat. IRR nach Steuern "'
-                   '&FIXED(EK_IRR*100,1)&" % über "&Haltedauer&" Jahre."',
-          font=f(9.5, color=INK2), al=Alignment(horizontal="left", vertical="center", wrap_text=True))
-    for word, fg, bg, ln in (("kritisch", RED, RED_BG, "E7B4AD"), ("Prüfpunkten", AMB, AMB_BG, "F1CFA5"), ('Solide"', GRN, GRN_BG, "B5DCC4")):
-        cond = f'ISNUMBER(SEARCH("{word}",$D$8))' if word != 'Solide"' else '$D$8="Solide"'
-        ws.conditional_formatting.add("B8:M9", FormulaRule(formula=[cond], fill=fill(bg), border=Border(top=side("thin", ln), bottom=side("thin", ln))))
-        ws.conditional_formatting.add("D8:F9", FormulaRule(formula=[cond], font=Font(color=fg, bold=True)))
 
-    # ------------------------------------------------------------------ KPI-Kacheln
-    tiles = [
-        ("GESAMTINVESTITION", "=Gesamtinvestition", EUR, '="Kaufpreis "&FIXED(Kaufpreis,0)&" € · NK "&FIXED(NK_Quote*100,1)&" %"'),
-        ("EIGENKAPITALBEDARF", "=EK_Bedarf_gesamt", EUR, '="Quote "&FIXED(EK_Quote*100,1)&" % · Beleihung "&FIXED(Beleihung*100,1)&" %"'),
-        ("CASHFLOW N. ST. / MONAT", "=CF_nSt_Monat_J1", EUR, '="Jahr 2: "&FIXED(INDEX(Projektion!$D$37:$AQ$37,2),0)&" €"'),
-        ("BRUTTOMIETRENDITE", "=Bruttomietrendite", PCT, '="Faktor "&FIXED(Kaufpreisfaktor,1)&"× · netto "&FIXED(Nettomietrendite*100,1)&" %"'),
-        ("KAPITALDIENSTDECKUNG", "=DSCR_J1", DSCR, '="Bankmaßstab ≥ "&FIXED(Ampel_DSCR_gruen,2)'),
-        ("IRR NACH STEUERN", "=EK_IRR", PCT, '=Haltedauer&" Jahre · Multiple "&FIXED(EK_Multiple,2)&"×"'),
-    ]
-    ws.row_dimensions[11].height = 18
-    ws.row_dimensions[12].height = 19
-    ws.row_dimensions[13].height = 19
-    ws.row_dimensions[14].height = 17
-    gap = side("thick", "FFFFFF")
-    for i, (lab, frm, fmt, sub) in enumerate(tiles):
-        a, b = get_column_letter(2 + 2 * i), get_column_letter(3 + 2 * i)
-        for r in range(11, 15):
-            for col in (a, b):
-                c = ws[f"{col}{r}"]
-                c.fill = fill(P if r == 11 else XL)
-                c.border = Border(right=gap if col == b and i < 5 else None)
-        merge(f"{a}11:{b}11", lab, font=f(8, True, "FFFFFF"), al=Alignment(horizontal="left", vertical="center", indent=1))
-        merge(f"{a}12:{b}13", frm, fmt=fmt, font=f(22, True, P, DISP), al=Alignment(horizontal="left", vertical="center", indent=1, shrink_to_fit=True))
-        merge(f"{a}14:{b}14", sub, font=f(8, color=MUTED), al=Alignment(horizontal="left", vertical="top", indent=1, shrink_to_fit=True))
-    ws.conditional_formatting.add("F12", FormulaRule(formula=["CF_nSt_Monat_J1<0"], font=Font(color=RED, bold=True)))
-    ws.conditional_formatting.add("F12", FormulaRule(formula=["CF_nSt_Monat_J1>=0"], font=Font(color=GRN, bold=True)))
-    ws.conditional_formatting.add("J12", FormulaRule(formula=["DSCR_J1<Ampel_DSCR_gelb"], font=Font(color=RED, bold=True)))
-    ws.conditional_formatting.add("J12", FormulaRule(formula=["DSCR_J1<Ampel_DSCR_gruen"], font=Font(color=AMB, bold=True)))
-    ws.conditional_formatting.add("L12", FormulaRule(formula=["EK_IRR<Ampel_IRR_gelb"], font=Font(color=RED, bold=True)))
+# ========================================================================================== Diagramme
+def _txpr(size=C.T_MICRO, color=C.MUTED, bold=False, rot=None):
+    cp = CharacterProperties(sz=int(size * 100), b=bold, solidFill=color)
+    cp.latin = None
+    body = RichTextProperties(rot=rot, vert="horz") if rot is not None else RichTextProperties()
+    return RichText(bodyPr=body, p=[Paragraph(pPr=ParagraphProperties(defRPr=cp), endParaRPr=cp)])
 
-    # ------------------------------------------------------------------ Diagrammdaten (sichtbar, dezent)
-    section(16, 15, 16, "Diagrammdaten")
-    data = [("Miete", "=Miete_Ist_J1/12"), ("Bewirt.", "=-BWK_J1/12"), ("Zinsen", "=-Zins_J1/12"),
-            ("Tilgung", "=-Tilgung_J1/12"), ("vor Steuern", "=CF_vSt_J1/12"), ("Steuer", "=-Steuer_J1/12"),
-            ("nach Steuern", "=CF_nSt_J1/12")]
-    for i, (lab, frm) in enumerate(data):
-        r = 17 + i
-        put(f"O{r}", lab, font=f(8, color=MUTED2), al=LEFT)
-        put(f"P{r}", frm, fmt=NUM, font=f(8, color=MUTED2), al=RIGHT)
 
-    # ------------------------------------------------------------------ Cashflow Jahr 1 (Säulen)
-    section(16, 9, 13, "Cashflow Jahr 1", "€ je Monat")
+def _no_fill(gp=None):
+    gp = gp or GraphicalProperties()
+    gp.noFill = True
+    gp.line = LineProperties()
+    gp.line.noFill = True
+    return gp
+
+
+def _anchor(chart, c1, r1, c2, r2):
+    """Diagramm füllt genau sein Panel: from = erste Panelzelle, to = Zelle nach dem Panel (Offsets 0)."""
+    chart.anchor = TwoCellAnchor(
+        _from=AnchorMarker(col=C.col(c1) - 1, row=r1 - 1, colOff=0, rowOff=0),
+        to=AnchorMarker(col=C.col(c2), row=r2, colOff=0, rowOff=0))
+
+
+def _waterfall(ws):
+    """Cashflow Jahr 1 als Wasserfall aus gestapelten Säulen (finish_pro macht daraus 3D).
+
+    Excel stapelt positive und negative Werte getrennt. Jede Säule [unten, oben] wird deshalb in einen
+    positiven Teil (unsichtbare Basis + sichtbares Stück) und einen negativen Teil (unsichtbare Basis +
+    sichtbares Stück) zerlegt; so bleibt sie auch beim Kreuzen der Nulllinie ein zusammenhängender Balken
+    auf der echten Werteachse. Direkt über jeder Säule liegt ein unsichtbarer Träger, dessen Beschriftung den
+    Betrag zeigt (Reihenname = Zellbezug, gebietsschema-sicher per FIXED).
+    """
+    C.band_l1(ws, R_BAND1, "K", "R", "Cashflow Jahr 1", "€ je Monat")
+    cats = [("Miete", "=Miete_Ist_J1/12", False, C.NAVY),
+            ("Bewirt-\nschaftung", "=-BWK_J1/12", True, DEDUCT),
+            ("Zinsen", "=-Zins_J1/12", True, DEDUCT),
+            ("Tilgung", "=-Tilgung_J1/12", True, DEDUCT),
+            ("= vor Steuern", "=CF_vSt_J1/12", False, C.BLUE),
+            ("Steuer", "=-Steuer_J1/12", True, C.ACCENT),
+            ("= nach Steuern", "=CF_nSt_J1/12", False, C.NAVY)]
+    K = W_COLS
+    n = len(cats)
+    r_first, r_last = W_ROW, W_ROW + n - 1
+    se = f"${K['start']}${r_first}:${K['end']}${r_last}"
+    h = _abs_ref(W_HEAD)
+    for i, (cat, frm, chain, _) in enumerate(cats):
+        r = W_ROW + i
+        C.set_text(ws[f"{K['cat']}{r}"], cat)
+        ws[f"{K['val']}{r}"] = frm
+        ws[f"{K['start']}{r}"] = f"={K['end']}{r - 1}" if chain else 0
+        ws[f"{K['end']}{r}"] = f"={K['start']}{r}+{K['val']}{r}"
+        lo = f"MIN({K['start']}{r},{K['end']}{r})"
+        hi = f"MAX({K['start']}{r},{K['end']}{r})"
+        ws[f"{K['base_p']}{r}"] = f"=IF({hi}>=0,MAX({lo},0),0)"
+        ws[f"{K['base_n']}{r}"] = f"=IF({hi}>=0,0,IF({hi}+{h}>=0,{hi},{hi}+{h}))"
+        ws[f"{K['vis_p']}{r}"] = f"=IF({hi}>=0,{hi}-MAX({lo},0),0)"
+        ws[f"{K['vis_n']}{r}"] = f"=IF({hi}>=0,MIN({lo},0),{lo}-{hi})"
+        for j, cc in enumerate(W_CARRIERS):
+            ws[f"{cc}{r}"] = f"=IF({hi}+{h}>=0,{h},-{h})" if i == j else 0
+        ws[f"{K['label']}{r}"] = (f'=IF({K["val"]}{r}>=0.5,"+",IF({K["val"]}{r}<=-0.5,"−",""))'
+                                  f'&FIXED(ABS({K["val"]}{r}),0)')
+    ws[W_HEAD] = f"=MAX(1,0.16*(MAX({se},0)-MIN({se},0)))"
+
     bar = BarChart()
     bar.type = "col"
-    bar.grouping = "clustered"
-    bar.legend = None
+    bar.grouping = "stacked"
+    bar.overlap = 100
     bar.gapWidth = 60
-    bar.add_data(Reference(ws, min_col=16, min_row=17, max_row=23), titles_from_data=False)
-    bar.set_categories(Reference(ws, min_col=15, min_row=17, max_row=23))
-    s = bar.series[0]
-    s.graphicalProperties.solidFill = P
-    s.graphicalProperties.line.noFill = True
-    for idx, colr in enumerate([P, "B8C2CF", "B8C2CF", "B8C2CF", RED, ACC, P]):
-        pt = DataPoint(idx=idx)
-        pt.graphicalProperties.solidFill = colr
-        pt.graphicalProperties.line.noFill = True
-        s.dPt.append(pt)
-    s.dLbls = DataLabelList()
-    s.dLbls.showVal = True
-    for attr in ("showSerName", "showCatName", "showLegendKey", "showPercent"):
-        setattr(s.dLbls, attr, False)
-    bar.y_axis.numFmt = "#,##0"
+    bar.legend = None
+    bar.visible_cells_only = False               # Daten liegen in ausgeblendeten Spalten
+    order = ["base_p", "base_n", "vis_p"] + ["car"] * n + ["vis_n"]
+    cols = [K["base_p"], K["base_n"], K["vis_p"]] + W_CARRIERS + [K["vis_n"]]
+    for cc in cols:
+        bar.add_data(Reference(ws, min_col=C.col(cc), min_row=r_first, max_row=r_last), titles_from_data=False)
+    bar.set_categories(Reference(ws, min_col=C.col(K["cat"]), min_row=r_first, max_row=r_last))
+    names = {"base_p": "Basis +", "base_n": "Basis −", "vis_p": "Betrag +", "vis_n": "Betrag −"}
+    car = 0
+    for s, role in zip(bar.series, order):
+        if role in ("base_p", "base_n"):
+            s.tx = SeriesLabel(v=names[role])
+            s.graphicalProperties = _no_fill()
+        elif role in ("vis_p", "vis_n"):
+            s.tx = SeriesLabel(v=names[role])
+            s.graphicalProperties = _solid(C.NAVY)
+            for idx, (_, _, _, colr) in enumerate(cats):
+                pt = DataPoint(idx=idx)
+                pt.graphicalProperties = _solid(colr)
+                s.dPt.append(pt)
+        else:
+            r = W_ROW + car
+            s.tx = SeriesLabel(strRef=StrRef(f=f"'{SHEET}'!${K['label']}${r}"))
+            s.graphicalProperties = _no_fill()
+            dl = DataLabel(idx=car, showLegendKey=False, showVal=False, showCatName=False, showSerName=True,
+                           showPercent=False, showBubbleSize=False)
+            dl.txPr = _txpr(C.T_MICRO, C.INK2, True)
+            s.dLbls = DataLabelList(dLbl=[dl], showLegendKey=False, showVal=False, showCatName=False,
+                                    showSerName=False, showPercent=False, showBubbleSize=False)
+            car += 1
     bar.y_axis.delete = False
+    bar.y_axis.numFmt = '#,##0" €"'
+    bar.y_axis.majorTickMark = "none"
+    bar.y_axis.majorGridlines = ChartLines(spPr=GraphicalProperties(ln=LineProperties(solidFill=C.LINE, w=6350)))
+    bar.y_axis.graphicalProperties = GraphicalProperties(ln=LineProperties(noFill=True))
+    bar.y_axis.txPr = _txpr(C.T_MICRO, C.MUTED)
     bar.x_axis.delete = False
     bar.x_axis.tickLblPos = "low"
-    bar.width, bar.height = 12.6, 5.3
-    ws.add_chart(bar, "I17")
+    bar.x_axis.majorTickMark = "none"
+    bar.x_axis.tickLblSkip = 1
+    bar.x_axis.txPr = _txpr(C.T_MICRO, C.MUTED, False, rot=0)
+    bar.x_axis.graphicalProperties = GraphicalProperties(ln=LineProperties(solidFill=C.MUTED2, w=9525))
+    _anchor(bar, "K", R_CHECK_HEAD, "R", R_CHECK_NOTE)
+    ws.add_chart(bar)
 
-    # ------------------------------------------------------------------ Vermögensentwicklung (Linien)
-    section(27, 2, 7, "Vermögensentwicklung", "€ · 40 Jahre")
+
+def _solid(colr):
+    gp = GraphicalProperties(solidFill=colr)
+    gp.line = LineProperties()
+    gp.line.noFill = True
+    return gp
+
+
+def _abs_ref(ref):
+    import re
+    return re.sub(r"^([A-Z]+)(\d+)$", r"$\1$\2", ref)
+
+
+def _wealth_chart(ws, wb):
+    C.band_l1(ws, R_BAND2, "B", "R", "Vermögensentwicklung", "€ · jeweils Jahresende · 40 Jahre")
+    for r in range(R_CHART2[0], R_CHART2[1] + 1):
+        C.set_height(ws, r, 20)
+    P = wb["Projektion"]
     line = LineChart()
-    P_ = wb["Projektion"]
-    for row, colr, width, title in ((41, P2, 28575, "Immobilienwert"), (42, "8A9099", 22225, "Restschuld"),
-                                   (43, P, 38100, "Nettovermögen")):
-        line.add_data(Reference(P_, min_col=4, max_col=43, min_row=row), from_rows=True, titles_from_data=False)
-        ser = line.series[-1]
-        ser.tx = SeriesLabel(v=title)
-        ser.graphicalProperties.line.solidFill = colr
-        ser.graphicalProperties.line.width = width
-        ser.smooth = True
-        if title == "Restschuld":
-            ser.graphicalProperties.line.dashStyle = "dash"
-    line.set_categories(Reference(P_, min_col=4, max_col=43, min_row=10))
-    line.y_axis.numFmt = '#,##0,"T€"'
+    spec = [(41, "Immobilienwert", C.ACCENT, 22225, None),
+            (42, "Restschuld", C.MUTED2, 19050, "dash"),
+            (43, "Nettovermögen", C.NAVY, 34925, None)]
+    for row, title, colr, w, dash in spec:
+        line.add_data(Reference(P, min_col=4, max_col=43, min_row=row), from_rows=True, titles_from_data=False)
+        s = line.series[-1]
+        s.tx = SeriesLabel(v=title)
+        s.smooth = False
+        s.marker = Marker(symbol="none")
+        s.graphicalProperties = GraphicalProperties()
+        s.graphicalProperties.line = LineProperties(solidFill=colr, w=w, prstDash=dash)
+    for k in range(40):
+        ref = f"Projektion!{C.L(4 + k)}$10"
+        ws[f"{AXIS_COL}{AXIS_ROW + k}"] = f'=IF(MOD({k},5)=0,{ref}&"","")'
+    line.set_categories(Reference(ws, min_col=C.col(AXIS_COL), min_row=AXIS_ROW, max_row=AXIS_ROW + 39))
     line.y_axis.delete = False
+    line.y_axis.numFmt = '#,##0," T€"'
+    line.y_axis.majorTickMark = "none"
+    line.y_axis.majorGridlines = ChartLines(spPr=GraphicalProperties(ln=LineProperties(solidFill=C.LINE, w=6350)))
+    line.y_axis.graphicalProperties = GraphicalProperties(ln=LineProperties(noFill=True))
+    line.y_axis.txPr = _txpr(C.T_MICRO, C.MUTED)
     line.x_axis.delete = False
     line.x_axis.tickLblSkip = 5
     line.x_axis.tickMarkSkip = 5
-    line.legend.position = "b"
-    line.width, line.height = 15.4, 7.3
-    ws.add_chart(line, "B28")
+    line.x_axis.majorTickMark = "out"
+    line.x_axis.txPr = _txpr(C.T_MICRO, C.MUTED, rot=0)
+    line.x_axis.graphicalProperties = GraphicalProperties(ln=LineProperties(solidFill=C.LINE2, w=6350))
+    line.legend.position = "t"
+    line.legend.txPr = _txpr(C.T_MICRO, C.MUTED)
+    line.legend.layout = Layout(manualLayout=ManualLayout(xMode="edge", yMode="edge", x=0.62, y=0.0, w=0.38, h=0.09))
+    line.plot_area.layout = Layout(manualLayout=ManualLayout(layoutTarget="inner", xMode="edge", yMode="edge",
+                                                             x=0.055, y=0.11, w=0.93, h=0.76))
+    _anchor(line, "B", R_CHART2[0], "R", R_CHART2[1])
+    ws.add_chart(line)
 
-    # ------------------------------------------------------------------ Prüfhinweise
-    section(27, 9, 13, "Prüfhinweise")
-    put("M27", '=COUNTIF(I28:I39,"⚠*")&" Warnung(en)"', font=f(8.5, color=MUTED2), al=Alignment(horizontal="right", vertical="bottom"))
-    for i in range(6):
-        r = 28 + 2 * i
-        merge(f"I{r}:M{r + 1}", f'=IF(Cockpit!B{50 + i}="","",Cockpit!B{50 + i})', font=f(9, color=INK2),
-              al=Alignment(horizontal="left", vertical="center", wrap_text=True, indent=1))
-        for col in "IJKLM":
-            ws[f"{col}{r + 1}"].border = Border(bottom=side("thin", LINE))
-        ws.conditional_formatting.add(f"I{r}", FormulaRule(formula=[f'LEFT(I{r},1)="⚠"'], font=Font(color=RED, bold=True)))
 
-    # ------------------------------------------------------------------ Kennzahlen im Zeitverlauf
-    top = 42
-    section(top, 2, 13, "Kennzahlen im Zeitverlauf", "€ p. a. · Jahr 1 = 12 Monate ab Kaufdatum")
-    hr = top + 1
-    ws.row_dimensions[hr].height = 19
-    merge(f"B{hr}:C{hr}", "JAHR", font=f(8.5, True, "FFFFFF"), bg=P, al=Alignment(horizontal="left", vertical="center", indent=1))
-    ws[f"C{hr}"].fill = fill(P)
-    years = [1, 2, 3, 5, 10, 15, 20, 25, 30, 40]
-    for j, y in enumerate(years):
-        col = get_column_letter(4 + j)
-        put(f"{col}{hr}", y, fmt="0", font=f(8.5, True, "FFFFFF"), bg=P, al=RIGHT)
-    series = [("row", "Nettokaltmiete Ist", 15, 1), ("row", "Bewirtschaftungskosten", 26, -1),
-              ("row", "Kapitaldienst", 32, -1), ("sum", "Cashflow vor Steuern", 33, 1),
-              ("row", "Steuereffekt (+ Erstattung)", 35, -1), ("res", "Cashflow nach Steuern", 36, 1),
-              ("row", "Kumulierter Cashflow n. St.", 38, 1), ("row", "Immobilienwert", 41, 1),
-              ("row", "Restschuld", 42, 1), ("sum", "Nettovermögen", 43, 1)]
-    for i, (kind, lab, prow, sign) in enumerate(series):
-        r = hr + 1 + i
-        ws.row_dimensions[r].height = 18
-        bold = kind != "row"
-        colr = P if kind == "res" else INK
-        bg = L if kind == "res" else (XL if kind == "sum" else None)
-        merge(f"B{r}:C{r}", lab, font=f(9.5, bold, colr), bg=bg, al=Alignment(horizontal="left", vertical="center", indent=1))
-        if bg:
-            ws[f"C{r}"].fill = fill(bg)
-        for j in range(len(years)):
-            col = get_column_letter(4 + j)
-            frm = f"={'-' if sign < 0 else ''}INDEX(Projektion!$D${prow}:$AQ${prow},{col}${hr})"
-            put(f"{col}{r}", frm, fmt=NUM, font=f(9.5, bold, colr), bg=bg, al=RIGHT)
-        for col in range(2, 14):
-            c = ws.cell(r, col)
-            c.border = Border(top=side("thin", P) if kind != "row" else None, bottom=side("thin", LINE))
-        if kind in ("sum", "res"):
-            ws.conditional_formatting.add(f"D{r}:M{r}", FormulaRule(formula=[f"D{r}<0"], font=Font(color=RED, bold=True)))
-    note_r = hr + len(series) + 1
-    merge(f"B{note_r}:M{note_r}", "Quelle: Blatt Projektion · Vorzeichen: Einnahmen positiv, Ausgaben negativ · "
-          "Alle Werte aktualisieren sich automatisch aus den Eingaben.", font=f(8, color=MUTED2), al=LEFT)
+# ========================================================================================== Zeitverlauf
+def _timeline(ws):
+    C.band_l1(ws, R_BAND3, "B", "R", "Kennzahlen im Zeitverlauf", "€ p. a.  ·  Jahr 1 = 12 Monate ab Kaufdatum")
+    C.set_height(ws, R_BAND3 + 1, 6)
+    hr = R_BAND3 + 2
+    C.table_head(ws, hr, "B", "R", labels={"B": ("JAHR", "left")})
+    for y, cc in zip(YEARS, YEAR_COLS):
+        c = ws[f"{cc}{hr}"]
+        c.value = y
+        c.number_format = "0"
+        c.alignment = C.align("right", "center", YEAR_INDENT[cc])
+    groups = [
+        ("CASHFLOW", [
+            ("row", "Nettokaltmiete Ist", "Projektion", 15, 1, None, False),
+            ("row", "Bewirtschaftungskosten", "Projektion", 26, -1, None, False),
+            ("row", "Kapitaldienst", "Projektion", 32, -1, None, False),
+            ("davon", "davon Zinsen", "Projektion", 30, -1, None, False),
+            ("davon", "davon Tilgung", "Projektion", 31, -1, None, False),
+            ("sum1", "= Cashflow vor Steuern", "Projektion", 33, 1, None, True),
+            ("row", "± Steuerwirkung", "Projektion", 35, -1, '+#,##0;-#,##0;"–"', False),
+            ("sum2", "= Cashflow nach Steuern", "Projektion", 36, 1, None, True),
+            ("row", "Kumulierter Cashflow n. St.", "Projektion", 38, 1, None, True)]),
+        ("STEUER", [
+            ("row", "Abschreibungen (AfA)", "Steuern", 56, 1, None, False),
+            ("row", "Steuerliches Ergebnis", "Steuern", 67, 1, None, True)]),
+        ("VERMÖGEN", [
+            ("row", "Immobilienwert (Jahresende)", "Projektion", 41, 1, None, False),
+            ("row", "Restschuld", "Projektion", 42, -1, None, False),
+            ("sum2", "= Nettovermögen", "Projektion", 43, 1, None, True),
+            ("pct", "EK-Rendite", "Projektion", 45, 1, C.NUMFMT["pct1"], True)]),
+    ]
+    r = hr
+    for title, items in groups:
+        r += 1
+        C.subhead_l2(ws, r, "B", "R", title, height=22)
+        ws.cell(r, 2).alignment = C.align("left", "bottom", 1)
+        for kind, label, sheet, prow, sign, fmt, neg_red in items:
+            r += 1
+            C.set_height(ws, r, 18 if kind != "davon" else 16)
+            C.safe_merge(ws, "B", r, "D", r)
+            lab = ws[f"B{r}"]
+            C.set_text(lab, label)
+            for cc in YEAR_COLS:
+                c = ws[f"{cc}{r}"]
+                c.value = (f"={'-' if sign < 0 else ''}INDEX({_q(sheet)}!$D${prow}:$AQ${prow},{cc}${hr})")
+                c.number_format = fmt or C.NUMFMT["num"]
+                c.alignment = C.align("right", "center", YEAR_INDENT[cc])
+            C.hairline(ws, r, "B", "R")
+            if kind == "davon":
+                C.style_range(ws, "B", r, "R", r, fnt=C.font(C.T_SMALL, False, C.MUTED))
+                lab.alignment = C.align("left", "center", 2)
+            else:
+                C.style_range(ws, "B", r, "R", r, fnt=C.font(C.T_BODY, False, C.INK))
+                lab.alignment = C.align("left", "center", 1)
+            if kind == "sum1":
+                C.total(ws, r, "B", "R", level=1)
+            elif kind == "sum2":
+                C.total(ws, r, "B", "R", level=2)
+            if neg_red:
+                ws.conditional_formatting.add(f"E{r}:R{r}", FormulaRule(
+                    formula=[f"AND(ISNUMBER(E{r}),E{r}<0)"], font=Font(color=C.RED)))
+    r += 1
+    C.set_height(ws, r, 20)
+    note = ws[f"B{r}"]
+    C.set_text(note, "Vorzeichen: Einnahmen und Vermögen +, Ausgaben und Schulden –  ·  Steuerwirkung: + Erstattung, "
+                     "– Zahlung  ·  EK-Rendite = Vermögenszuwachs / Eigenkapital")
+    note.font = C.font(C.T_MICRO, False, C.MUTED)
+    note.alignment = C.align("left", "center", 1)
+    C.safe_merge(ws, "N", r, "R", r)
+    lk = ws[f"N{r}"]
+    C.text_link(lk, "Alle 40 Jahre: Projektion  ›", "Projektion", size=C.T_MICRO, bold=False,
+                tooltip="Vollständige Jahresrechnung")
+    lk.alignment = C.align("right", "center", 1)
+    return r
 
-    # ------------------------------------------------------------------ Fußzeile
-    fr = note_r + 2
-    for col in range(2, 14):
-        ws.cell(fr, col).border = Border(top=side("thin", LINE2))
-    put(f"B{fr}", "Keine Gewähr. Ersetzt keine Rechts-, Steuer- oder Finanzberatung · Rechtsstand September 2026",
-        font=f(8, color=MUTED2), al=LEFT)
-    put(f"M{fr}", "MM Holding GmbH · Kornhausgasse 4 · 88250 Weingarten · HRB 750729", font=f(8, color=MUTED2), al=RIGHT)
 
-    # ------------------------------------------------------------------ Druck & Schutz
-    ws.print_area = f"A1:M{fr}"
+def _q(sheet):
+    return f"'{sheet}'" if " " in sheet or "-" in sheet else sheet
+
+
+# ========================================================================================== Prüfhinweise
+def _hints(ws, band_row):
+    """Bis zu 10 aktive Hinweise aus Cockpit!AB50:AB74, Warnungen (⚠) zuerst – über eine eigene Sortierspalte."""
+    key_rng = f"${HINT_KEY_COL}${HINT_KEY_ROW}:${HINT_KEY_COL}${HINT_KEY_ROW + 24}"
+    for i in range(25):
+        src = f"Cockpit!$AB${50 + i}"
+        ws[f"{HINT_KEY_COL}{HINT_KEY_ROW + i}"] = f'=IF({src}="","",IF(LEFT({src},1)="⚠",0,100)+{i + 1})'
+    warn = 'COUNTIF(Cockpit!$AB$50:$AB$74,"⚠*")'
+    total = f"COUNT({key_rng})"
+    C.band_l1(ws, band_row, "B", "R", "Prüfhinweise & steuerliche Einordnung", "")
+    head = ws[f"R{band_row}"]
+    head.value = (f'=IF({warn}=0,"Keine Warnungen",IF({warn}=1,"1 Warnung",{warn}&" Warnungen"))&"  ·  "&'
+                  f'IF({total}-{warn}=0,"keine Hinweise",IF({total}-{warn}=1,"1 Hinweis",({total}-{warn})&" Hinweise"))')
+    C.set_height(ws, band_row + 1, 6)
+    first = band_row + 2
+    for k in range(N_HINTS):
+        r = first + k
+        C.set_height(ws, r, 26)
+        C.safe_merge(ws, "B", r, "R", r)
+        c = ws[f"B{r}"]
+        pick = f'IFERROR(INDEX(Cockpit!$AB$50:$AB$74,MATCH(SMALL({key_rng},{k + 1}),{key_rng},0)),"")'
+        if k == 0:
+            c.value = f'=IF({total}=0,"✓  Keine Prüfhinweise – alle Plausibilitätsprüfungen ohne Befund.",{pick})'
+        else:
+            c.value = "=" + pick
+        c.font = C.font(C.T_SMALL, False, C.INK2)
+        c.alignment = C.align("left", "center", 1, wrap=True)
+    last = first + N_HINTS - 1
+    rng = f"B{first}:R{last}"
+    b = f"$B{first}"
+    edge = Border(bottom=C.side("hair", C.LINE2))
+    ws.conditional_formatting.add(rng, FormulaRule(
+        formula=[f'LEFT({b},1)="⚠"'], font=Font(color=C.RED), fill=C.fill(C.RED_BG), border=edge, stopIfTrue=True))
+    ws.conditional_formatting.add(rng, FormulaRule(
+        formula=[f'{b}<>""'], fill=C.fill(C.TINT_XL), border=edge, stopIfTrue=True))
+    return last
+
+
+# ========================================================================================== Fuß / Druck
+def _footer(ws, row):
+    C.set_height(ws, row - 1, 16)
+    C.footer(ws, row, "B", "R")
+    for r in (row, row + 1):
+        C.safe_merge(ws, "B", r, "L", r)
+    st = ws[f"R{row}"]
+    st.value = "=TODAY()"
+    st.number_format = '"Stand "DD.MM.YYYY'
+    st.font = C.font(C.T_MICRO, False, C.MUTED)
+    st.alignment = C.align("right", "center", 1)
+
+
+def _page(ws, last_row):
+    ws.print_area = f"A1:S{last_row}"
     ws.page_setup.orientation = "landscape"
     ws.page_setup.paperSize = ws.PAPERSIZE_A4
     ws.page_setup.fitToWidth = 1
-    ws.page_setup.fitToHeight = 1
+    ws.page_setup.fitToHeight = 0
     ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.row_breaks.append(Break(id=R_BAND3 - 1))
     ws.page_margins.left = ws.page_margins.right = 0.35
     ws.page_margins.top = ws.page_margins.bottom = 0.45
+    ws.oddHeader.left.text = None
     ws.oddFooter.left.text = "MM Holding GmbH · Immobilien-Kalkulation · &A"
     ws.oddFooter.right.text = "Seite &P von &N"
+    for part in (ws.oddFooter.left, ws.oddFooter.right):
+        part.size = 8
+        part.font = "Aptos,Regular"
+        part.color = C.MUTED
     ws.freeze_panes = "A4"
     ws.protection.sheet = True
     ws.protection.formatColumns = False
     ws.protection.formatRows = False
-    return ws
