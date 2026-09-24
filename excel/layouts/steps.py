@@ -67,6 +67,8 @@ SPEC = {
         results={11: ("n", None, None, None), 12: ("n", None, None, None), 13: ("n", None, None, None),
                  14: ("n", None, '=IF(Wohngebaeude=1,"Ja","Nein (Gewerbe)")', None)},
         callout=dict(head=16, src="H17", max_chars=235),
+        info=(21, "Gelb hinterlegte Felder sind Eingaben mit Beispielwerten – einfach überschreiben. "
+                  "Die Rechtsform (Privat oder GmbH) wählen Sie auf der Startseite."),
         nav=24, foot=26),
     2: dict(
         inputs=range(12, 18), indent2=(13, 15),
@@ -107,8 +109,13 @@ SPEC = {
     5: dict(
         inputs=range(12, 20), text=(16,),
         inactive={17: "OR(Rechtsform_Idx>=2,Wohngebaeude=0)"},
-        labels={19: "Einmalige Liquiditätsreserve"},
-        hints={19: "z. B. Mieterwechsel · nicht steuerrelevant, erhöht nur den Eigenkapitalbedarf"},
+        labels={12: "Renovierung Jahr 1 (brutto)", 13: "Renovierung Jahr 2 (brutto)",
+                14: "Renovierung Jahr 3 (brutto)", 15: f"Sonderumlagen der WEG (Jahr{NBSP}1)",
+                17: "Verteilung Erhaltungsaufwand",
+                19: "Einmalige Liquiditätsreserve"},
+        hints={15: "Instandsetzungs-Umlagen: Erhaltungsaufwand, zählen zur 15 %-Grenze",
+               17: f"§{NBSP}82b EStDV · 1 = Sofortabzug, 2–5 = Verteilung (nur Privat, Wohngebäude)",
+               19: "z. B. Mieterwechsel · nicht steuerrelevant, erhöht nur das Eigenkapital"},
         units={17: "Jahr(e)"},
         results={11: ("n", "Maßnahmen Jahre 1–3 (netto)", None, None),
                  12: ("n", None, None, None),
@@ -147,7 +154,7 @@ SPEC = {
                  17: ("n", None, None, None),
                  18: ("f", "= Rate an die Bank / Monat", "=Kapitaldienst_Monat_J1", C.NUMFMT["eur"])},
         callout=dict(head=20, src="H20", body=21, max_chars=265, status="DSCR"),
-        charts=[dict(side="L", title="Restschuld am Jahresende", unit="€", chart_col=7),
+        charts=[dict(side="L", title="Restschuld am Jahresende", unit="T€ · Darlehen I und II", chart_col=7),
                 dict(side="R", title="Finanzierungsstruktur", unit="Anteile in %", chart_col=2)],
         nav=44, foot=46),
     9: dict(
@@ -201,8 +208,9 @@ SPEC = {
     11: dict(
         inputs=range(12, 19), text=(18,), optional=(17,),
         inactive={18: "Rechtsform_Idx>=2"},
-        labels={17: "Verkaufspreis manuell"},
-        hints={17: "optional · leer = Wertentwicklung lt. Prognose"},
+        labels={16: "Verkaufskosten", 17: "Verkaufspreis manuell"},
+        units={16: None},
+        hints={16: "vom Verkaufspreis · Makler, Notar, Löschung der Grundschuld", 17: "optional · leer = Wertentwicklung lt. Prognose"},
         results={11: ("n", "Verkaufspreis bei Exit", None, None),
                  12: ("n", None, None, None),
                  13: ("n", "Verkauf steuerpflichtig?", '=IF(Exit_steuerpflichtig=1,"Ja","Nein")', None),
@@ -212,7 +220,7 @@ SPEC = {
                  17: ("f", "= Eigenkapitalrendite (IRR n. St.)", None, C.NUMFMT["pct1"])},
         ampel={"I17": "IRR"}, band_right="Verkauf",
         callout=dict(head=19, src="H20", max_chars=240, status="IRR"),
-        charts=[dict(side="L", title="Immobilienwert, Restschuld und Nettovermögen", unit="€ · Jahresende")],
+        charts=[dict(side="L", title="Immobilienwert, Restschuld und Nettovermögen", unit="T€ · Jahresende")],
         nav=45, foot=47),
 }
 
@@ -227,7 +235,7 @@ def nlines(text, width_px, size=C.T_BODY, bold=False, indent=1):
     for para in str(text).split("\n"):
         line, n = 0.0, 1
         for word in para.split(" "):
-            w = C.text_px(word, size, bold) * 1.05
+            w = C.text_px(word, size, bold) * 0.96  # text_px liegt gemessen 5–13 % über Calibri
             sp = C.text_px(" ", size, bold)
             if line and line + sp + w > usable:
                 n += 1
@@ -240,6 +248,14 @@ def nlines(text, width_px, size=C.T_BODY, bold=False, indent=1):
 
 def px(*cols):
     return sum(PX[c] for c in cols)
+
+
+def est_lines(chars, width_px=None, size=C.T_SMALL):
+    """Zeilenzahl eines Fließtexts mit höchstens `chars` Zeichen (Calibri-Mittelwert aus core.text_px,
+    dazu 4 % Reserve für den Wortumbruch)."""
+    width_px = width_px or px("H", "I")
+    avg = C.text_px("Die Maßnahmen bleiben unter der Grenze – Sofortabzug ist möglich.", size) / 66
+    return max(1, math.ceil(chars * avg * 1.04 / (width_px - 6 - 9)))
 
 
 def height_for(lines):
@@ -308,14 +324,14 @@ def status_cell(ws, cell, key):
     cell.value = formula
     cell.font = C.font(C.T_MICRO, True, C.MUTED)
     cell.alignment = C.align("right", "center", 1)
-    if kpi:
-        C.add_ampel(ws, cell.coordinate, kpi, value_ref=v)
+    if kpi:  # mit Tönung, sonst überdeckt die Schriftregel (stopIfTrue) die Kasten-Tönung
+        C.add_ampel(ws, cell.coordinate, kpi, value_ref=v, with_fill=True)
     else:
         ws.conditional_formatting.add(cell.coordinate, FormulaRule(formula=[f"{v}<0"], font=Font(color=C.RED, bold=True),
-                                                                   stopIfTrue=True))
+                                                                   fill=C.fill(C.RED_BG), stopIfTrue=True))
         ws.conditional_formatting.add(cell.coordinate, FormulaRule(formula=[f"ISNUMBER({v})"],
                                                                    font=Font(color=C.GREEN, bold=True),
-                                                                   stopIfTrue=True))
+                                                                   fill=C.fill(C.GREEN_BG), stopIfTrue=True))
 
 
 def callout_box(ws, c1, head_row, c2, r1, r2, title, status=None, head=True):
@@ -355,6 +371,16 @@ def l2_head(ws, row, c1, c2, title, unit=None, height=C.H_HEAD):
         u.alignment = C.align("right", "center", 1)
 
 
+def l2_head_inline(ws, row, c1, c2, title, unit, height=C.H_HEAD):
+    """L2-Kopf für schmale Panels: Einheit direkt hinter dem Titel (grau), damit nichts abgeschnitten wird."""
+    C.subhead_l2(ws, row, c1, c2, None, height=height)
+    cell = ws.cell(row, C.col(c1))
+    cell.value = CellRichText([TextBlock(InlineFont(rFont=C.SANS, sz=C.T_SMALL, b=True, color=C.BLUE), title),
+                               TextBlock(InlineFont(rFont=C.SANS, sz=C.T_MICRO, color=C.MUTED), f"  ·  {unit}")])
+    for c in C.iter_cells(ws, C.col(c1) + 1, row, c2, row):
+        c.value = None
+
+
 def set_anchor(chart, c1, r1, c2, r2):
     """Diagramm genau in C1:R1 … C2:R2 (Zellgrenzen, ohne Versatz)."""
     a = chart.anchor
@@ -389,7 +415,8 @@ def grid(ws):
 
 def header(ws, n):
     title = ws["C6"].value if isinstance(ws["C6"].value, str) else LONG[n - 1]
-    C.page_header(ws, "C", "I", f"Schritt {n:02d} / 12  ·  {LONG[n - 1]}", title, context=("=Obj_Name", "=Obj_Adresse"),
+    C.page_header(ws, "C", "I", f"Schritt {n:02d} / 12  ·  {LONG[n - 1]}", title,
+                  context=("=Obj_Name", '=Obj_Adresse&IFERROR(IF(Erstellt_fuer="","","  ·  Erstellt für "&Erstellt_fuer),"")'),
                   context_col="H")
     C.safe_merge(ws, "C", 7, "F", 7)
     C.safe_merge(ws, "H", 6, "I", 6)
@@ -600,6 +627,21 @@ def standard_page(ws, n, sp, names):
         heights[r] = ROW1
         left_end = r
 
+    # Hinweiszeile zu den Eingaben (S01: gelbe Felder = Beispielwerte)
+    if sp.get("info"):
+        r, text = sp["info"]
+        heights[r - 1] = GAP
+        for c in C.iter_cells(ws, "C", r, "F", r):
+            c.fill = C.fill(C.INPUT_BG)
+            c.border = Border(left=C.side("thick", C.INPUT_LINE) if c.column == 3 else None)
+        C.safe_merge(ws, "C", r, "F", r)
+        cell = ws.cell(r, 3)
+        C.set_text(cell, text)
+        cell.font = C.font(C.T_SMALL, False, C.INK2)
+        cell.alignment = C.align("left", "center", 1, wrap=True)
+        heights[r] = height_for(nlines(text, px("C", "D", "E", "F"), C.T_SMALL))
+        left_end = r
+
     # Einordnung
     co = sp["callout"]
     head = co["head"]
@@ -608,7 +650,7 @@ def standard_page(ws, n, sp, names):
         move_formula(ws, co["src"], f"H{body}")
     for rr in range(results_end + 1, head):
         heights.setdefault(rr, GAP)
-    lines = math.ceil(co["max_chars"] * 0.52 * 12 * 1.02 / (px("H", "I") - 24)) + 0
+    lines = est_lines(co["max_chars"])
     need_pt = lines * LINE_PT + 10
     heights[head] = max(heights.get(head, 0), C.H_HEAD)
     r, acc = body, 0.0
@@ -622,6 +664,14 @@ def standard_page(ws, n, sp, names):
             acc += heights[r]
         r += 1
     callout_end = r - 1
+    for rr in range(results_end + 1, callout_end + 1):  # alte Köpfe/Reste im Einordnungsbereich
+        for c in (ws.cell(rr, 8), ws.cell(rr, 9)):
+            if c.coordinate == f"H{body}" or c.value is None:
+                continue
+            if c.data_type == "f":
+                print(f"  steps: {ws.title}!{c.coordinate} Formel im Einordnungsbereich – bleibt stehen")
+                continue
+            blank(c)
     callout_box(ws, "H", head, "I", body, callout_end, "Einordnung", status=co.get("status"))
     ws.cell(body, 8).font = C.font(C.T_SMALL, False, C.INK2)
 
@@ -679,7 +729,7 @@ def page_s08(ws, names):
     # Herleitung, Diagramm und Kapitaldienstdeckung
     h[16].height = GAP
     l2_head(ws, 17, "C", "D", "Herleitung pro Monat")
-    l2_head(ws, 17, "E", "F", "Einnahmen vs. Ausgaben", "€ / Monat")
+    l2_head_inline(ws, 17, "E", "F", "Einnahmen vs. Ausgaben", "€ / Monat, vor Steuern")
     labels = {18: "Nettokaltmiete Ist", 19: "– Bewirtschaftung inkl. Rücklagen", 20: "– Zinsen", 21: "– Tilgung",
               22: "= Cashflow vor Steuern / Monat", 23: "Kapitaldienstdeckung (DSCR)"}
     for r, text in labels.items():
@@ -703,7 +753,7 @@ def page_s08(ws, names):
         set_anchor(chart, "E", 18, "F", 23)
 
     move_formula(ws, "H34", "H18")
-    dscr_lines = math.ceil(215 * 0.52 * 12 * 1.02 / (px("H", "I") - 24))
+    dscr_lines = est_lines(215)
     body_end = 18
     acc = ROW1
     while acc < dscr_lines * LINE_PT + 10 - 2:
@@ -780,7 +830,7 @@ def page_s12(ws, names):
 
     # Zeile 20: Herleitung · Diagramm · Weiter zur Auswertung
     l2_head(ws, 20, "C", "D", "Herleitung pro Monat", height=28)
-    l2_head(ws, 20, "E", "F", "Cashflow nach Steuern", "Jahre 1–30 · € p. a.", height=28)
+    l2_head_inline(ws, 20, "E", "F", "Cashflow nach Steuern", "Jahre 1–30, € p. a.", height=28)
     l2_head(ws, 20, "H", "I", "Weiter zur Auswertung", height=28)
     for c in C.iter_cells(ws, "C", 20, "I", 20):
         if c.value is not None:
@@ -815,6 +865,19 @@ def page_s12(ws, names):
 
 
 # ============================================================================ Ablauf
+def validation_messages(ws):
+    """Datenüberprüfungen mit Fehlermeldung (Stopp) – ungültige Eingaben werden abgewiesen, Logik unverändert."""
+    for dv in ws.data_validations.dataValidation:
+        dv.showErrorMessage = True
+        dv.errorStyle = "stop"
+        if dv.type == "list":
+            dv.errorTitle = "Bitte aus der Liste wählen"
+            dv.error = "Dieser Wert ist nicht vorgesehen. Bitte einen Eintrag aus der Auswahlliste wählen."
+        else:
+            dv.errorTitle = "Ungültige Eingabe"
+            dv.error = "Bitte eine Zahl im zulässigen Bereich eingeben (siehe Hinweis in derselben Zeile)."
+
+
 def apply(wb):
     names = {int(m.group(1)): ws.title for ws in wb.worksheets for m in [re.match(r"S(\d\d) ", ws.title)] if m}
     for n in sorted(names):
@@ -839,3 +902,4 @@ def apply(wb):
         hide = SPEC.get(n, {}).get("hide")
         clear_rows_after(ws, end, (hide[0] - 1) if hide else old_max)
         ws.sheet_view.showRowColHeaders = False
+        validation_messages(ws)

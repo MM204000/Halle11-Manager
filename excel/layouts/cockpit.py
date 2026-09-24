@@ -15,7 +15,9 @@ from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Border, Font
 from openpyxl.worksheet.hyperlink import Hyperlink
 
-from core import (ACCENT, AMBER, AMBER_BG, BLUE, GREEN, GREEN_BG, H_BAND, H_ROW, H_TILE_LABEL, INK, INK2, KPI,
+from openpyxl.utils import get_column_letter
+
+from core import (ACCENT, CF_YEAR2, AMBER, AMBER_BG, BLUE, GREEN, GREEN_BG, H_BAND, H_ROW, H_TILE_LABEL, INK, INK2, KPI,
                   LINE, LINE2, MUTED, NAVY, NOFILL, NUMFMT, RECHTSFORM_SHORT, RED, RED_BG, T_BODY, T_MICRO,
                   T_SMALL, TINT_XL, WHITE, add_ampel, align, band_l1, col, fill, font, footer, is_formula,
                   iter_cells, kpi_tile, link_target, memo, page_header, safe_merge, set_height, set_text, side,
@@ -128,10 +130,19 @@ LOWER = {
 }
 # Anzeigeformeln (nicht referenziert): Trennzeichen „ · “ statt „|“, Rechtsform kurz (P1-19, P2-06)
 DISPLAY_FORMULAS = {
-    "K15": '=FIXED(Darlehen_I,0)&" € · "&FIXED(Darlehen_II,0)&" €"',
+    "K15": '=FIXED(Darlehen_I,0)&" € · "&IF(Darlehen_II=0,"–",FIXED(Darlehen_II,0)&" €")',
     "G26": '=FIXED(Mietsteigerung*100,1)&" % · "&FIXED(Kostensteigerung*100,1)&" % · "&FIXED(Wertsteigerung*100,1)&" %"',
     "G27": '=FIXED(Mietausfall_Pct*100,1)&" % · "&Leerstand_Monate&" Monate"',
     "G35": "=" + RECHTSFORM_SHORT,
+}
+# Kontextzeile rechts im Kachelwert (reine Anzeigeformeln in leeren Zellen, gebietsschema-sicher per FIXED)
+TILE_SUB = {
+    "GI": '="Kaufpreis "&FIXED(Kaufpreis,0)&" € · NK "&FIXED(NK_Quote*100,1)&" %"',
+    "EK": '=IF(Reserve_Einmalig=0,"ohne Liquiditätsreserve","davon Reserve "&FIXED(Reserve_Einmalig,0)&" €")',
+    "CF": '="ab Jahr 2: "&FIXED(' + CF_YEAR2 + ',0)&" € / Monat"',
+    "BMR": '="Faktor "&FIXED(Kaufpreisfaktor,1)&"× · netto "&FIXED($G$24*100,1)&" %"',
+    "EKR": "Vermögenszuwachs / Eigenkapital",
+    "IRR": '=Haltedauer&" Jahre · Multiple "&FIXED(EK_Multiple,2)&"×"',
 }
 AMPEL = {"G23": "BMR", "G24": "NMR", "K24": "DSCR", "K47": "IRR"}
 NEGATIVE_RED = ("C41:D41", "C43:D43", "K43")   # Ergebniszeilen: negativ rot (relativ je Zelle)
@@ -199,10 +210,10 @@ def _reset(ws, r1, r2, c1=FIRST, c2="M"):
             c.number_format = "General"
 
 
-def _unmerge_rows(ws, r1, r2):
+def _unmerge_rows(ws, r1, r2, lo="B", hi="L"):
     """Verbünde lösen, die im Seitenbereich B:L beginnen (die ausgeblendeten Kacheln N:X bleiben unberührt)."""
     for mr in list(ws.merged_cells.ranges):
-        if mr.min_row >= r1 and mr.max_row <= r2 and col("B") <= mr.min_col <= col("L"):
+        if mr.min_row >= r1 and mr.max_row <= r2 and col(lo) <= mr.min_col <= col(hi):
             ws.unmerge_cells(str(mr))
 
 
@@ -304,8 +315,21 @@ def tiles(ws):
     ]
     for c1, c2, lr, vr, key, value in spec:
         ws.cell(lr, col(c1)).value = None
-        kpi_tile(ws, c1, c2, lr, vr, kpi=key, value=value, gap_right=False)
-    ws["J10"].value = '="IRR n. St. · Verkauf nach "&Haltedauer&" Jahren"'
+        k = KPI[key]
+        kpi_tile(ws, c1, c2, lr, vr, label=k["label"], value=value, fmt=k["fmt"], gap_right=False)
+        # Wert nur in der Beschriftungsspalte, rechts daneben die Kontextzeile (Fintech-Kachel: Zahl + Einordnung)
+        mid = get_column_letter(col(c1) + 1)
+        _unmerge_rows(ws, vr, vr, lo=c1, hi=c2)
+        safe_merge(ws, mid, vr, c2, vr)
+        for c in iter_cells(ws, c1, vr, c2, vr):     # Lösen/Verbinden setzt die Nicht-Anker-Zellen zurück
+            c.fill = fill(TINT_XL)
+            c.border = Border()
+        sub = ws.cell(vr, col(mid))
+        sub.value = TILE_SUB[key]
+        sub.font = font(T_SMALL, False, MUTED)
+        sub.alignment = align("right", "center", 1)
+        if k.get("rule"):
+            add_ampel(ws, f"{c1}{vr}", key)
     # Fuge zwischen den Kachelreihen: weiße Oberkante der zweiten Label-Zeile (keine Leerzeile verfügbar)
     for c1, c2 in (("B", "D"), ("F", "H"), ("J", "L")):
         for c in iter_cells(ws, c1, 10, c2, 10):
@@ -479,6 +503,7 @@ def apply(wb):
     _clear_cf(ws, _in_region)
     _reset(ws, 4, FOOTER_ROW + 1)
     _hide_cols(ws, "N", "X")
+    _hide_cols(ws, "Y", "AA")          # leere Randspalten (Hilfsspalten AB:AC sind bereits ausgeblendet)
     header(ws)
     tiles(ws)
     blocks(ws)

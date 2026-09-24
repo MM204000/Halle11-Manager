@@ -451,6 +451,13 @@ def nav_frame(geos):
     return min(max(left, 30), 60), min(max(right, 1300), 1354)
 
 
+def content_left(g, default):
+    """Linke Inhaltskante des Blatts (Spalte des Seitentitels Z. 5–7) – die Marke steht bündig darüber."""
+    xs = [g.x(c) for (r, c), t in g.text.items() if 5 <= r <= 7 and t and str(t).strip() and g.col_px(c)]
+    x = min(xs) if xs else default
+    return x if 20 <= x <= 80 else default
+
+
 def tab_bar(cv, name, frame, start_cell):
     """Reiterleiste: Marke + 12 Reiter (88 px, 4 px Abstand, 12 px zwischen den Gruppen), rechts bündig."""
     g = cv.geo
@@ -459,7 +466,7 @@ def tab_bar(cv, name, frame, start_cell):
     active = area_of(name)
     if g.x_split and g.split_px() < 1200:
         return compact_tab_bar(cv, name, ty, active, start_cell)
-    left, right = frame
+    left, right = content_left(g, frame[0]), frame[1]
     n_gaps = sum(len(grp) - 1 for grp in NAV_GROUPS)
     width = 12 * TAB_W + n_gaps * TAB_GAP + (len(NAV_GROUPS) - 1) * GROUP_GAP
     x = right - width
@@ -610,7 +617,50 @@ def sub_nav(cv, name, frame, styles):
     cv.end()
 
 
-def band_extension(cv, styles, frame):
+# Blätter, deren Inhalt breiter ist als die Reiterleiste (letzte Inhaltsspalte) – wie layouts/chrome.BAND_TO
+BAND_TO = {"Steuern": "AQ", "Projektion": "AQ", "Finanzierung": "AQ", "AfA-Vergleich": "Q",
+           "Cockpit": "K", "Diagramme": "P", "Sensitivität": "P", "Konfiguration": "G", "Hinweise": "E"}
+
+
+def band_end_px(name, geo, dxml, frame):
+    """Rechte Kante der Kopfleiste: Ende der Reiterleiste + 14 px oder – bei breiterem Inhalt – dessen Ende
+    (letzte Inhaltsspalte nach BAND_TO bzw. rechte Kante des breitesten Diagramms), in endgültigen Spaltenbreiten."""
+    end = frame[1] + 14
+    if name in BAND_TO:
+        end = max(end, geo.x(col_index(BAND_TO[name]) + 1))
+    for a in ANCHOR_RE.finditer(dxml):
+        if "<xdr:graphicFrame" not in a.group(0):
+            continue
+        tm = re.search(r"<xdr:to><xdr:col>(\d+)</xdr:col><xdr:colOff>(\d+)</xdr:colOff>", a.group(0))
+        if tm:
+            c, off = int(tm.group(1)), int(tm.group(2))
+            end = max(end, geo.x(c + 1) + (geo.col_px(c + 1) if off else 0))
+    return end
+
+
+def trim_band(sxml, geo, styles, end_px):
+    """Navy-/Akzentzellen der Kopfleiste (Z. 1–3) rechts von end_px auf das Standardformat zurücksetzen.
+
+    Die Zellfläche endet an der letzten Spaltengrenze ≤ end_px; den Rest ergänzt band_extension als Form.
+    Nur leere Zellen werden angefasst (Werte und Formeln bleiben unberührt)."""
+    def fix_row(m):
+        row = m.group(0)
+
+        def fix_cell(cm):
+            c = col_index(cm.group(2))
+            sm = re.search(r'\bs="(\d+)"', cm.group(3))
+            st = int(sm.group(1)) if sm else None
+            if cm.group(4) != "/>" or styles.fill(st) not in (NAVY, ACCENT) or geo.x(c + 1) <= end_px + 2:
+                return cm.group(0)
+            r = int(cm.group(1)[len(cm.group(2)):])
+            geo.cells[(r, c)] = (0, False)
+            attrs = re.sub(r'\s*\bs="\d+"', "", cm.group(3))
+            return f'<c r="{cm.group(1)}"{attrs} s="0"/>'
+        return re.sub(r'<c r="(([A-Z]+)\d+)"([^>]*?)(/>|>)', fix_cell, row)
+    return re.sub(r'<row r="[123]"[^>]*[^/]>.*?</row>', fix_row, sxml, flags=re.S)
+
+
+def band_extension(cv, styles, frame, end_px=None):
     """Sicherheitsnetz: reicht die Navy-Fläche der Kopfleiste (Zeile 2) nicht bis hinter die Reiterleiste,
     wird sie mit zwei Flächenformen (Navy Z. 1–2, Akzentlinie Z. 3) bis zur nächsten Spaltengrenze verlängert."""
     g = cv.geo
@@ -618,15 +668,15 @@ def band_extension(cv, styles, frame):
     if not navy_cols:
         return
     end = g.x(max(navy_cols) + 1)
-    need = frame[1] + 14
+    need = end_px or frame[1] + 14
     if end >= need or g.x_split:
         return
-    c, off = g.col_at(need)
-    stop = need if off == 0 else need - off + g.col_px(c + 1)
+    stop = need
+    start = max(0, end - 3)            # 3 px Überlappung: keine Haarfuge zwischen Zellfläche und Form
     h12 = g.row_px(1) + g.row_px(2)
     cv.begin("Kopfleiste Verlängerung")
-    cv.add("Kopfleiste Fläche", end, 0, stop - end, h12, NAVY, prst="rect")
-    cv.add("Kopfleiste Linie", end, h12, stop - end, g.row_px(3), ACCENT, prst="rect")
+    cv.add("Kopfleiste Fläche", start, 0, stop - start, h12, NAVY, prst="rect")
+    cv.add("Kopfleiste Linie", start, h12, stop - start, g.row_px(3), ACCENT, prst="rect")
     cv.end("absolute")
 
 
@@ -801,7 +851,10 @@ def inject(path):
         ids = [int(i) for i in re.findall(r'<xdr:cNvPr id="(\d+)"', dxml)] or [1]
         cv = Canvas(geos[name], max(ids) + 100)
 
-        band_extension(cv, styles, frame)
+        end_px = band_end_px(name, geos[name], dxml, frame)
+        if name != "Dashboard":        # Dashboard-Kopf gestaltet dashboard.py
+            files[spath] = trim_band(files[spath].decode(), geos[name], styles, end_px).encode()
+        band_extension(cv, styles, frame, end_px)
         tab_bar(cv, name, frame, start_cell)
         if name in STEP_OF_SHEET:
             step_bar(cv, STEP_OF_SHEET[name])

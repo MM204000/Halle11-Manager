@@ -7,7 +7,9 @@ import re
 
 from openpyxl.styles import Border
 
-from core import ACCENT, NAVY, col_px, fill
+from openpyxl.utils import column_index_from_string, get_column_letter
+
+from core import ACCENT, NAVY, NOFILL, col_px, fill
 
 # Die Reiterleiste endet am Inhaltsrand der Schritt-Seiten (Ende Spalte I ≈ 1 354 px, navigation.nav_frame).
 # Die Navy-Fläche reicht mindestens bis zur nächsten Spaltengrenze dahinter (Schritt-Seiten: Ende Spalte J).
@@ -15,29 +17,52 @@ NAV_MIN_PX = 1368
 JUMP_ROW_SHEETS = ("Eingaben", "Diagramme")  # Zeile 8 trägt die Sprungleiste (navigation.jump_bar)
 
 
+# Blätter, deren Inhalt breiter ist als die Reiterleiste: die Kopfleiste endet bündig mit dem Inhalt
+# (letzte Inhaltsspalte). Diagramme verlängern die Fläche automatisch bis zu ihrer rechten Kante.
+BAND_TO = {"Steuern": "AQ", "Projektion": "AQ", "Finanzierung": "AQ", "AfA-Vergleich": "Q",
+           "Cockpit": "K", "Diagramme": "P", "Sensitivität": "P", "Konfiguration": "G", "Hinweise": "E"}
+
+
+def band_end_col(ws):
+    """Letzte Spalte der Kopfleiste (Zellfläche).
+
+    - Mindestens alle Spalten, deren rechte Kante innerhalb von NAV_MIN_PX liegt; den Rest bis genau NAV_MIN_PX
+      ergänzt navigation.band_extension als Fläche (so endet die Kopfleiste auf jedem Blatt an derselben Kante,
+      auch wenn hinter dem Inhalt eine sehr breite Spalte folgt).
+    - Breiter Inhalt (BAND_TO, Diagramme): bis zur letzten Inhaltsspalte – spaltenbasiert, weil die Blatt-Module
+      die Spaltenbreiten erst nach diesem Modul setzen.
+    Früher reichte die Fläche bis zur Spalte der alten Marke (z. B. Start bis U = 1 914 px bei 731 px Inhalt)."""
+    last = column_index_from_string(BAND_TO[ws.title]) if ws.title in BAND_TO else 1
+    for ch in getattr(ws, "_charts", []):
+        to = getattr(ch.anchor, "to", None)
+        if to is not None:
+            last = max(last, to.col + (1 if to.colOff else 0))
+    px, c = 0, 1
+    while c < 400:
+        w = 0 if ws.column_dimensions[get_column_letter(c)].hidden else col_px(ws, c)
+        if px + w > NAV_MIN_PX + 6:
+            break
+        px += w
+        c += 1
+    return max(last, c - 1)
+
+
 def masthead(ws):
-    """Kopfleiste als Farbfläche: Z. 1 (6 pt) und 2 (33 pt) Navy, Z. 3 (3 pt) Akzentlinie."""
-    brand = [c for c in ws[2] if c.value == "MM HOLDING"]
-    last_col = brand[0].column if brand else ws.max_column
+    """Kopfleiste als Farbfläche: Z. 1 (6 pt) und 2 (33 pt) Navy, Z. 3 (3 pt) Akzentlinie – so breit wie
+    Reiterleiste bzw. Inhalt; dahinter bleibt die Kopfzone weiß."""
     for mr in list(ws.merged_cells.ranges):
         if mr.min_row <= 2 <= mr.max_row:
-            if brand and mr.min_col == brand[0].column:
-                last_col = mr.max_col
             ws.unmerge_cells(str(mr))
     for c in ws[2]:
         if not (isinstance(c.value, str) and c.value.startswith("=")):
             c.value = None
         c.hyperlink = None
-    px, col = 0, 1
-    while col <= last_col or px < NAV_MIN_PX:
-        px += col_px(ws, col)
-        col += 1
-    last_col = col - 1
+    last_col = band_end_col(ws)
     for r, h in ((1, 6), (2, 33), (3, 3)):
         ws.row_dimensions[r].height = h
-        for cc in range(1, last_col + 1):
+        for cc in range(1, max(last_col, ws.max_column) + 1):
             c = ws.cell(r, cc)
-            c.fill = fill(ACCENT if r == 3 else NAVY)
+            c.fill = fill(ACCENT if r == 3 else NAVY) if cc <= last_col else NOFILL
             c.border = Border()
 
 

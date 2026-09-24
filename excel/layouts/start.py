@@ -141,7 +141,7 @@ def purchase_selector(wb):
     ws, s09 = wb[SHEET], wb["S09 Steuern"]
     current = s09["D12"].value
     unmerge_in(ws, "D", 23, "H", 23)
-    ws.merge_cells("D23:G23")
+    ws.merge_cells("D23:F23")                          # G23 = Pfeilzelle, gleiche rechte Kante wie die Kacheln
     sel = ws["D23"]
     sel.value = current
     sel.protection = Protection(locked=False)
@@ -184,8 +184,10 @@ def hero(ws):
             cell = ws[f"{c}{r}"]
             if cell.coordinate not in keep and not isinstance(cell, MergedCell):
                 cell.value = None
-    for r in (6, 7, 9, 11, 17):
+    for r in (9, 11, 17):
         ui.safe_merge(ws, "D", r, "G", r)
+    for r in (6, 7):                                   # G6:G7 trägt das Feld „Erstellt für“
+        ui.safe_merge(ws, "D", r, "F", r)
 
     e = ws["D6"]                                                         # Eyebrow: Firma
     e.font = font(ui.T_MICRO, True, SKY)
@@ -194,6 +196,7 @@ def hero(ws):
     o.value = "=Obj_Name"
     o.font = font(12, False, MIST, DISPLAY)
     o.alignment = align("left", "center")
+    created_for(ws)
     t = ws["D9"]                                                         # Titel
     t.font = font(ui.T_HERO, True, WHITE, DISPLAY)
     t.alignment = align("left", "center")
@@ -241,6 +244,33 @@ def hero(ws):
                  14: 21.75, 15: 30, 16: 7.5, 17: 13.5, 18: 6, 19: 26, 20: 10, 21: 12})
 
 
+# ============================================================================ Erstellt für (Deckblatt-Feld)
+def created_for(ws):
+    """Eingabefeld „Erstellt für“ oben rechts im Hero (wie auf einem Deckblatt) + neuer Name Erstellt_fuer.
+    Dashboard und Bankgespräch zeigen es über =IF(Erstellt_fuer="","",Erstellt_fuer) an."""
+    wb = ws.parent
+    lab, inp = ws["G6"], ws["G7"]
+    ui.set_text(lab, "ERSTELLT FÜR")
+    lab.fill = fill(NAVY)
+    lab.border = Border()
+    lab.font = font(ui.T_MICRO, True, SKY)
+    lab.alignment = align("left", "center", 1)
+    if inp.value is None:
+        ui.set_text(inp, "Max Mustermann")
+    ui.input_style(inp, "required")
+    inp.font = font(ui.T_BODY, True, ui.INPUT_FG)
+    inp.alignment = align("left", "center", 1)
+    dv = DataValidation(type="textLength", operator="lessThanOrEqual", formula1="60", allow_blank=True,
+                        showErrorMessage=True, errorStyle="stop", showInputMessage=True)
+    dv.promptTitle = "Erstellt für"
+    dv.prompt = "Name oder Firma des Investors – erscheint auf Dashboard und Bankgespräch. Leer lassen, wenn nicht benötigt."
+    dv.errorTitle = "Zu lang"
+    dv.error = "Bitte höchstens 60 Zeichen eingeben."
+    ws.add_data_validation(dv)
+    dv.add("G7")
+    wb.defined_names["Erstellt_fuer"] = DefinedName("Erstellt_fuer", attr_text="Start!$G$7")
+
+
 # ============================================================================ Schritt ①: Rechtsform
 def selector(ws):
     for c in HERO_COLS:
@@ -251,18 +281,22 @@ def selector(ws):
     lab.font = font(10, True, NAVY)
     lab.alignment = align("right", "center", 1, wrap=True)
     ln = side("medium", ui.INPUT_LINE)
-    for c in "DEFGH":
+    for c in "DEFG":
         cell = ws[f"{c}23"]
         cell.fill = fill(ui.INPUT_BG)
-        cell.border = Border(top=ln, bottom=ln, left=ln if c == "D" else None, right=ln if c == "H" else None)
+        cell.border = Border(top=ln, bottom=ln, left=ln if c == "D" else None, right=ln if c == "G" else None)
+    ws["H23"].value = None
+    ws["H23"].hyperlink = None
+    ws["H23"].fill = ui.NOFILL
+    ws["H23"].border = Border()
     sel = ws["D23"]
     sel.font = font(11, True, ui.INPUT_FG)
     sel.alignment = align("left", "center", 1)
-    arrow = ws["H23"]
+    arrow = ws["G23"]
     ui.set_text(arrow, "▾")
-    arrow.font = font(11, True, ui.INPUT_FG)
-    arrow.alignment = align("center", "center")
-    arrow.hyperlink = Hyperlink(ref="H23", location="'Start'!D23", display="▾", tooltip="Rechtsform auswählen")
+    arrow.font = font(12, True, ui.INPUT_FG)
+    arrow.alignment = align("right", "center", 1)
+    arrow.hyperlink = Hyperlink(ref="G23", location="'Start'!D23", display="▾", tooltip="Rechtsform auswählen")
 
     # Zeile 24: Hilfetext statt Buttonzeile (Aktionen stehen im Hero)
     wipe(ws, "D", 24, "H", 24)
@@ -303,7 +337,7 @@ def flow(ws):
         num = ws.cell(r, 3)
         ui.set_text(num, f"{i + 1:02d}")
         num.font = font(14, True, ACCENT, DISPLAY)
-        num.alignment = align("right", "center", 1)
+        num.alignment = align("left", "center", 1)          # fluchtet mit dem Bandtitel und der Leitfaden-Liste
         ui.safe_merge(ws, "D", r, "E", r)
         link(ws[f"D{r}"], f"{title}  ›", sheet, target, size=10.5,
              tooltip="Zum Auswahlfeld „Rechtsform“" if sheet == SHEET else None)

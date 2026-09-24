@@ -36,9 +36,8 @@ GAPS = ["D", "G", "J", "M", "P"]
 YEAR_COLS = ["E", "F", "H", "I", "K", "L", "N", "O", "Q", "R"]
 YEARS = [1, 2, 3, 5, 10, 15, 20, 25, 30, 40]
 YEAR_INDENT = {c: (2 if i % 2 == 0 else 1) for i, c in enumerate(YEAR_COLS)}   # Rechtskanten im Abstand ≈ 96 px
-FIRST_HELP, LAST_HELP = "T", "AK"                  # ausgeblendete Hilfsspalten
-AXIS_COL, AXIS_ROW = "AK", 20                      # Jahresachse Vermögensentwicklung (jedes 5. Jahr beschriftet)
-CHROME_COLS = 60                                   # Kopfleiste breit genug für alle Reiter (≥ 1480 px)
+FIRST_HELP, LAST_HELP = "T", "AJ"                  # ausgeblendete Hilfsspalten
+CHROME_COLS = 80                                   # Kopfleiste breit genug für alle Reiter (≥ 1480 px)
 
 # ------------------------------------------------------------------------------------------ Zeilen
 R_EYEBROW, R_H1, R_SUB = 5, 6, 7
@@ -127,6 +126,12 @@ def _header(ws):
     C.safe_merge(ws, "N", R_H1, "R", R_H1)
     C.safe_merge(ws, "N", R_SUB, "R", R_SUB)
     ws.cell(R_H1, 14).alignment = C.align("right", "bottom", 1)
+    # „Erstellt für“ (Investor/Nutzer, Eingabe auf „Start“) über dem Objekt – abgesichert, solange der Name fehlt
+    C.safe_merge(ws, "N", R_EYEBROW, "R", R_EYEBROW)
+    ef = ws.cell(R_EYEBROW, 14)
+    ef.value = '=IFERROR(IF(Erstellt_fuer="","","ERSTELLT FÜR  "&UPPER(Erstellt_fuer)),"")'
+    ef.font = C.font(C.T_MICRO, True, C.BLUE)
+    ef.alignment = C.align("right", "bottom", 1)
 
 
 def _link_row(ws):
@@ -299,7 +304,7 @@ def _anchor(chart, c1, r1, c2, r2):
 
 
 def _waterfall(ws):
-    """Cashflow Jahr 1 als Wasserfall aus gestapelten Säulen (finish_pro macht daraus 3D).
+    """Cashflow Jahr 1 als flacher Wasserfall aus gestapelten Säulen (2D laut Nutzerentscheidung).
 
     Excel stapelt positive und negative Werte getrennt. Jede Säule [unten, oben] wird deshalb in einen
     positiven Teil (unsichtbare Basis + sichtbares Stück) und einen negativen Teil (unsichtbare Basis +
@@ -385,6 +390,17 @@ def _waterfall(ws):
     bar.x_axis.tickLblSkip = 1
     bar.x_axis.txPr = _txpr(C.T_MICRO, C.MUTED, False, rot=0)
     bar.x_axis.graphicalProperties = GraphicalProperties(ln=LineProperties(solidFill=C.MUTED2, w=9525))
+    # Unsichtbare Linienreihe: macht das Diagramm zum Kombidiagramm, damit es flach (2D) bleibt –
+    # Wasserfälle werden nach der Nutzerentscheidung nie dreidimensional dargestellt.
+    flat = LineChart()
+    flat.add_data(Reference(ws, min_col=C.col(K["end"]), min_row=r_first, max_row=r_last), titles_from_data=False)
+    fs = flat.series[0]
+    fs.tx = SeriesLabel(v="Stand")
+    fs.smooth = False
+    fs.marker = Marker(symbol="none")
+    fs.graphicalProperties = GraphicalProperties()
+    fs.graphicalProperties.line = LineProperties(noFill=True)
+    bar += flat
     _anchor(bar, "K", R_CHECK_HEAD, "R", R_CHECK_NOTE)
     ws.add_chart(bar)
 
@@ -405,11 +421,11 @@ def _wealth_chart(ws, wb):
     C.band_l1(ws, R_BAND2, "B", "R", "Vermögensentwicklung", "€ · jeweils Jahresende · 40 Jahre")
     for r in range(R_CHART2[0], R_CHART2[1] + 1):
         C.set_height(ws, r, 20)
-    P = wb["Projektion"]
     line = LineChart()
     spec = [(41, "Immobilienwert", C.ACCENT, 22225, None),
             (42, "Restschuld", C.MUTED2, 19050, "dash"),
             (43, "Nettovermögen", C.NAVY, 34925, None)]
+    P = wb["Projektion"]
     for row, title, colr, w, dash in spec:
         line.add_data(Reference(P, min_col=4, max_col=43, min_row=row), from_rows=True, titles_from_data=False)
         s = line.series[-1]
@@ -418,10 +434,9 @@ def _wealth_chart(ws, wb):
         s.marker = Marker(symbol="none")
         s.graphicalProperties = GraphicalProperties()
         s.graphicalProperties.line = LineProperties(solidFill=colr, w=w, prstDash=dash)
-    for k in range(40):
-        ref = f"Projektion!{C.L(4 + k)}$10"
-        ws[f"{AXIS_COL}{AXIS_ROW + k}"] = f'=IF(MOD({k},5)=0,{ref}&"","")'
-    line.set_categories(Reference(ws, min_col=C.col(AXIS_COL), min_row=AXIS_ROW, max_row=AXIS_ROW + 39))
+    # Kategorien direkt aus Projektion (Zeile 10, wie die Werte zeilenweise): Hilfsbereiche auf dem Dashboard
+    # verwirft LibreOffice beim Neuberechnen. Beschriftet wird jedes 5. Jahr (tickLblSkip, in Excel wirksam).
+    line.set_categories(Reference(P, min_col=4, max_col=43, min_row=10))
     line.y_axis.delete = False
     line.y_axis.numFmt = '#,##0," T€"'
     line.y_axis.majorTickMark = "none"
@@ -432,6 +447,7 @@ def _wealth_chart(ws, wb):
     line.x_axis.tickLblSkip = 5
     line.x_axis.tickMarkSkip = 5
     line.x_axis.majorTickMark = "out"
+    line.x_axis.numFmt = "0"
     line.x_axis.txPr = _txpr(C.T_MICRO, C.MUTED, rot=0)
     line.x_axis.graphicalProperties = GraphicalProperties(ln=LineProperties(solidFill=C.LINE2, w=6350))
     line.legend.position = "t"
@@ -540,7 +556,7 @@ def _hints(ws, band_row):
     first = band_row + 2
     for k in range(N_HINTS):
         r = first + k
-        C.set_height(ws, r, 26)
+        C.set_height(ws, r, 22)
         C.safe_merge(ws, "B", r, "R", r)
         c = ws[f"B{r}"]
         pick = f'IFERROR(INDEX(Cockpit!$AB$50:$AB$74,MATCH(SMALL({key_rng},{k + 1}),{key_rng},0)),"")'

@@ -51,7 +51,7 @@ def run_hook(label, fn, *args):
 # Rollen: TEAL = Primärfarbe (Banner, Titel), TEAL_MID = Sekundär, ACC = Akzent, TEAL_L/TEAL_XL = helle Flächen.
 THEMES = {
     "blau": dict(
-        TEAL="0B2A4A", TEAL_MID="1D4F8A", ACC="4A86C8", TEAL_L="E7EEF7", TEAL_XL="F3F7FC", SUM_BG="F5F8FC",
+        TEAL="0B2A4A", TEAL_MID="1D4F8A", ACC="4A86C8", TEAL_L="E7EEF7", TEAL_XL="F3F7FC", SUM_BG="F3F7FC",
         ON_DARK_2="C8D7EB", ON_DARK_ACC="9CBBE2",
         INPUT_BG="FFF5D6", INPUT_LINE="E6CB77", INPUT_FG="1D4F8A",
         GROUP={"ein": "C4C8CE", "inp": "E6B940", "aus": "0B2A4A", "ber": "4A86C8", "bank": "8FA9C9", "anh": "DADCDF"},
@@ -71,6 +71,7 @@ SANS, DISPLAY = "Calibri", "Calibri"
 TAB_GROUP = {"Cockpit": "aus", "Diagramme": "aus", "Eingaben": "inp", "Steuern": "ber", "Projektion": "ber",
              "Finanzierung": "ber", "AfA-Vergleich": "ber", "Sensitivität": "ber", "Bankgespräch": "bank",
              "Haushaltsrechnung": "bank", "Vermögensaufstellung": "bank", "Hinweise": "anh", "Konfiguration": "anh"}
+FORM_SHEETS = ("Eingaben", "Konfiguration")  # Navy-Formularbänder (P2-04)
 GROUP_LABEL = {"ein": "Leitfaden", "inp": "Eingaben", "aus": "Auswertung", "ber": "Berechnung", "bank": "Bank",
                "anh": "Anhang"}
 
@@ -106,7 +107,9 @@ def apply_theme(name):
         "grün / messing / rot (Konfiguration)": "grün / gelb / rot (Schwellen: Konfiguration)",
     }
     iw, lw = t["INPUT_WORD"], t["LINK_WORD"]
-    g["TEXT_REGEX"] = [(re.compile(r"Weiße Felder"), f"{iw} hinterlegte Felder"),
+    g["TEXT_REGEX"] = [(re.compile(r"(?<![A-Za-zÄÖÜäöüß])'([^'\n]{2,160}?)'(?![A-Za-zÄÖÜäöüß])"), "„\\1“"),  # P3-03
+                       (re.compile(r"^Rechtsform / Investor$"), "Rechtsform"),
+                       (re.compile(r"Weiße Felder"), f"{iw} hinterlegte Felder"),
                        (re.compile(r"weiße Felder"), f"{iw.lower()} hinterlegte Felder"),
                        (re.compile(r"\(weiß\)"), f"({iw.lower()})"),
                        (re.compile(r"Grün geschriebene"), f"{lw} geschriebene"),
@@ -249,8 +252,12 @@ def restyle_cell(ws, c, o, ctx):
             and o.value is not None and not is_formula(o.value):
         o.locked = False
 
+    if ctx["template"] and o.fill == O_WHITE and o.color == "4E7A62" and is_formula(o.value):
+        c.protection = Protection(locked=False)  # verknüpft, darf überschrieben werden
     # ---- Eingabefelder
     if not o.locked:
+        if ctx["template"]:
+            c.protection = Protection(locked=False)
         style_text(c, o, False)
         c.fill = fill(INPUT_BG)
         c.font = font_like(c.font, color=INPUT_FG, b=True)
@@ -271,20 +278,27 @@ def restyle_cell(ws, c, o, ctx):
             label_row = c.row in ctx["tile_label_rows"]
             c.fill = fill(TEAL if label_row else TEAL_XL)
             if is_tile_label(o):
-                c.font = Font(name=SANS, sz=8.5, b=True, color=ON_DARK)
-                if c.data_type == "s" and isinstance(o.value, str) and not is_formula(o.value):
-                    c.value = o.value.upper()
-                c.alignment = Alignment(horizontal="left", vertical="center", indent=1, wrap_text=False, shrink_to_fit=True)
+                c.font = Font(name=SANS, sz=8, b=True, color=ON_DARK)
+                c.alignment = Alignment(horizontal="left", vertical="center", indent=1, wrap_text=False, shrink_to_fit=False)
             elif is_tile_value(o):
-                c.font = Font(name=DISPLAY, sz=20 if o.size >= 16 else 13, b=True, color=TEAL)
-                c.alignment = Alignment(horizontal="left", vertical="center", indent=1, shrink_to_fit=True)
+                c.font = Font(name=DISPLAY, sz=20 if o.size >= 16 else 12.5, b=True, color=TEAL)
+                c.alignment = Alignment(horizontal="left", vertical="center", indent=1, shrink_to_fit=False)
             return
         if c.row in ctx["rule_rows"] and c.column in ctx["rule_rows"][c.row]:
-            c.fill = fill(TEAL)
+            run = ctx["rule_rows"][c.row]
+            if ws.title in FORM_SHEETS:  # Formular-Band: einzige Überschriftenebene, Navy-Vollfläche
+                c.fill = fill(TEAL)
+                c.border = Border()
+                if o.value is not None:
+                    c.font = Font(name=SANS, sz=10, b=True, color=ON_DARK)
+            else:  # L1b Tabellenabschnitt
+                c.fill = fill(TEAL_L)
+                c.border = Border(left=side("thick", ACC) if c.column == min(run) else None,
+                                  bottom=side("thin", TEAL_MID))
+                if o.value is not None:
+                    c.font = Font(name=SANS, sz=9, b=True, color=TEAL)
             if o.value is not None:
-                c.font = Font(name=SANS, sz=9, b=True, color=ON_DARK)
                 c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
-            c.border = Border()
             return
         c.fill = fill(TEAL)
         style_text(c, o, True)
@@ -314,7 +328,7 @@ def restyle_cell(ws, c, o, ctx):
             c.border = Border(left=ln, right=ln, top=ln, bottom=ln)
         elif o.fname == "Fraunces":  # Bild-Platzhalter
             c.fill = fill("F7F8F9")
-            c.font = Font(name=SANS, sz=9, color=MUTED2)
+            c.font = Font(name=SANS, sz=9, color=MUTED)
             c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             d = side("dashed", LINE2)
             c.border = Border(left=d, right=d, top=d, bottom=d)
@@ -343,9 +357,9 @@ def restyle_cell(ws, c, o, ctx):
         if o.fname == "IBM Plex Mono" and o.color == O_BRASS and o.size >= 9:  # Schrittnummern
             c.font = Font(name=DISPLAY, sz=14, b=True, color=ACC)
         if o.fname == "IBM Plex Mono" and o.color == "6B685E":  # Firmenzeile
-            c.font = Font(name=SANS, sz=8, color=MUTED2)
+            c.font = Font(name=SANS, sz=8, color=MUTED)
         if o.italic and o.size <= 8:  # Haftungshinweis
-            c.font = Font(name=SANS, sz=8, color=MUTED2)
+            c.font = Font(name=SANS, sz=8, color=MUTED)
         if o.color == "8C3B2E" and is_formula(o.value):  # Hinweislisten neutral, ⚠ per Bedingung
             c.font = font_like(c.font, color=INK)
             ctx["hints"].append(c.coordinate)
@@ -471,9 +485,15 @@ def design_workbook(src, tmp):
             if c.number_format in NUMFMT_MAP:
                 c.number_format = NUMFMT_MAP[c.number_format]
 
-        for r in rule_rows:
-            ws.row_dimensions[r].height = max(ws.row_dimensions[r].height or 15, 21)
-            for c in ws[r]:
+        # P1-05: Stil nur im Lauf der Überschrift (nie die ganze Zeile); Höhe nur, wenn der Rest der Zeile leer ist
+        for r, run in rule_rows.items():
+            rest_empty = all(c.value is None for c in ws[r] if c.column not in run)
+            if rest_empty:
+                ws.row_dimensions[r].height = 22 if ws.title in FORM_SHEETS else 20
+            else:
+                ws.row_dimensions[r].height = 18
+            for cc in run:
+                c = ws.cell(r, cc)
                 if c.value is not None:
                     c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
         for c in ws._cells.values():
@@ -491,6 +511,8 @@ def design_workbook(src, tmp):
         for cf in ws.conditional_formatting:
             for rule in cf.rules:
                 d = rule.dxf
+                if d is not None and d.font is not None:
+                    d.font.name = None
                 if d is not None and d.font is not None and d.font.color is not None:
                     old = rgb(d.font.color)
                     if old in CF_FONT_MAP:

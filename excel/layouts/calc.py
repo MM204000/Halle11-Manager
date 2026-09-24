@@ -80,6 +80,19 @@ def _cf(ws, ref, formula, fnt=None, fil=None):
     ws.conditional_formatting.add(ref, FormulaRule(formula=[formula], **kw))
 
 
+def _cf_close(ws):
+    """Jeder Bereich mit bedingter Formatierung endet mit einer Immer-wahr-Regel „nicht durchgestrichen“
+    (in Excel wirkungslos, da nirgends Durchstreichung verwendet wird). LibreOffice verliert sonst in Zellen,
+    in denen keine Regel zutrifft, den Einzug – die Zahlen kleben in der Vorschau an der Spaltenkante."""
+    refs = []
+    for cf in ws.conditional_formatting:
+        if not any(r.formula == ["TRUE"] and r.dxf is not None and r.dxf.font is not None and r.dxf.font.strike is False
+                   for r in cf.rules):
+            refs.append(str(cf.sqref))
+    for ref in refs:
+        ws.conditional_formatting.add(ref, FormulaRule(formula=["TRUE"], font=Font(strike=False)))
+
+
 def cf_rules(ws, ref, rules, base, year_cond=None):
     """Schrift-Regeln [(bedingung, Font)] für einen Bereich, danach eine Auffangregel mit der Grundfarbe.
 
@@ -240,8 +253,8 @@ def data_row(ws, row, kind="data", fmt=NUM, label=None, unit=True):
 
 
 def memo_gap(ws, row):
-    """Erste Memo-Zeile einer Gruppe: +4 pt Abstand nach oben (Text unten ausgerichtet)."""
-    ws.row_dimensions[row].height = H_DATA + 4
+    """Erste Memo-Zeile einer Gruppe: 19 pt, Text unten ausgerichtet (+3 pt Abstand nach oben)."""
+    ws.row_dimensions[row].height = H_DATA + 3
     for c in K.iter_cells(ws, 2, row, LAST, row):
         al = c.alignment
         c.alignment = align(al.horizontal or "left", "bottom", al.indent or 0)
@@ -335,7 +348,7 @@ def projektion(ws):
     c48.font = font(T_MICRO, True, BLUE)
     c48.alignment = align("right", "center", 1)
     ws["B49"].value = _rich([("Cashflow inkl. Nettoerlös im Verkaufsjahr", T_BODY, False, INK, False),
-                             ("   Jahr 0 = Eigenkapital", T_SMALL, False, MUTED, False)])
+                             ("   (Jahr 0 = Eigenkapitaleinsatz)", T_SMALL, False, MUTED, False)])
     c49 = ws["C49"]
     c49.number_format = NUM
     c49.font = font(T_BODY, False, INK)
@@ -666,21 +679,34 @@ def afa(ws):
             ws.row_dimensions[r].height = H_DATA
     gap(ws, 36, 14)
     gap(ws, 45, 14)
-    # ---- Hinweise (Satzbreite B:C, fettes Stichwort)
+    # ---- Hinweise: zwei Spalten à Satzbreite (B:C | E:…), je Absatz ein fettes Stichwort
     band(ws, 46, "HINWEISE ZUR INTERPRETATION", c2=AFA_LAST)
-    for r, (kw, text) in AFA_HINTS.items():
+    left_px = K.span_px(ws, "B", "C")
+    rc2 = 5
+    while K.span_px(ws, 5, rc2) < left_px - 20 and rc2 < AFA_LAST:
+        rc2 += 1
+    for r in AFA_HINTS:
         for mr in list(ws.merged_cells.ranges):
             if mr.min_row == r:
                 ws.unmerge_cells(str(mr))
         _clear_row(ws, r, 2, AFA_LAST)
-        K.safe_merge(ws, "B", r, "C", r)
-        c = ws.cell(r, 2)
+        for c in K.iter_cells(ws, 2, r, AFA_LAST, r):
+            c.value = None
+    layout = ((47, 2, 3, 47), (47, 5, rc2, 49), (48, 2, 3, 48), (48, 5, rc2, 50))
+    need = {}
+    for row, c1, c2, key in layout:
+        kw, text = AFA_HINTS[key]
+        K.safe_merge(ws, c1, row, c2, row)
+        c = ws.cell(row, c1)
         c.value = _rich([(kw, T_SMALL, True, NAVY, False), (text, T_SMALL, False, INK2, False)])
         c.font = font(T_SMALL, False, INK2)
         c.alignment = align("left", "center", 1, wrap=True)
-        n = K.lines_needed(kw + text, K.span_px(ws, "B", "C") - 12, 9 * 1.12)
-        ws.row_dimensions[r].height = n * 12 + 10
-    gap(ws, 51, 14)
+        n = K.lines_needed(kw + text, K.span_px(ws, c1, c2) - 12, T_SMALL)
+        need[row] = max(need.get(row, 1), n)
+    for row, n in need.items():
+        ws.row_dimensions[row].height = n * 12 + 12     # je 6 pt Luft über/unter den Absätzen
+    K.hide_rows(ws, 49, 50)
+    gap(ws, 51, 8)
     # ---- Diagramme
     K.band_l1(ws, 52, 2, AFA_LAST, "Diagramme")
     for r in range(53, 70):
@@ -731,3 +757,4 @@ def apply(wb):
                      ("AfA-Vergleich", afa)):
         if name in wb.sheetnames:
             fn(wb[name])
+            _cf_close(wb[name])

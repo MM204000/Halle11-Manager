@@ -544,13 +544,47 @@ def _walls(tag):
     return el
 
 
-def make_3d(root, n_cat):
-    """Säulen und Kreise in ruhige, schemakonforme 3D-Varianten überführen (Kombidiagramme bleiben 2D)."""
+MAX_3D_CATS = 8          # Nutzerentscheidung: 3D nur für Kreise und einfache Säulen (≤ 8 Kategorien)
+FLAT_KINDS = {"ertrag", "dash_wf"}   # Wasserfall/Brücken immer flach
+
+
+def make_flat(root, n_cat, keep_gap=False):
+    """3D-Säulen zurück in flache 2D-Säulen (Zeitreihen, Wasserfall, Balken): ruhige Standardgeometrie."""
+    chart = root.find(q("c:chart"))
+    plot = chart.find(q("c:plotArea"))
+    for bc in plot.findall(q("c:bar3DChart")):
+        bc.tag = q("c:barChart")
+        drop(bc, "gapDepth", "shape")
+    for tag in ("view3D", "floor", "sideWall", "backWall"):
+        drop(chart, tag)
+    for bc in ([] if keep_gap else plot.findall(q("c:barChart"))):
+        grp = bc.find(q("c:grouping"))
+        stacked = grp is not None and grp.get("val") in ("stacked", "percentStacked")
+        n_ser = len(bc.findall(q("c:ser")))
+        put_val(bc, "gapWidth", (60 if n_cat >= 20 else 80) if n_ser == 1 or stacked else (50 if n_cat >= 20 else 80), ORDER["barChart"])
+        put_val(bc, "overlap", 100 if stacked else (0 if n_ser > 1 else 0), ORDER["barChart"])
+    for sa in plot.findall(q("c:serAx")):
+        ax_id = sa.find(q("c:axId")).get("val")
+        plot.remove(sa)
+        for ct in plot:
+            for a in ct.findall(q("c:axId")):
+                if a.get("val") == ax_id:
+                    ct.remove(a)
+    return None
+
+
+def make_3d(root, n_cat, kind_name=None):
+    """Nutzerentscheidung „Mischung“: 3D nur für Kreise und einfache Säulen (senkrecht, ≤ 8 Kategorien, kein Wasserfall);
+    Zeitreihen, Wasserfall, waagerechte Balken und Liniendiagramme flach (2D). Kombidiagramme bleiben 2D."""
     chart = root.find(q("c:chart"))
     plot = chart.find(q("c:plotArea"))
     types = [local(e) for e in plot if local(e) in CHART_TAGS]
     if len(types) != 1:
         return None
+    bar_dir = plot.find(".//" + q("c:barDir"))
+    horizontal = bar_dir is not None and bar_dir.get("val") == "bar"
+    if types[0] in ("barChart", "bar3DChart") and (n_cat > MAX_3D_CATS or horizontal or kind_name in FLAT_KINDS):
+        return make_flat(root, n_cat, keep_gap=(kind_name == "dash_wf"))
     kind = None
     for bc in plot.findall(q("c:barChart")):
         bc.tag = q("c:bar3DChart")
@@ -838,11 +872,11 @@ def style_series(root, kind, n_cat):
                         continue
                     put(ser, dpt(i, color, pattern=(pat == "pattern"), bar=True, invert=0), so)
                 if kind == "ertrag":
-                    set_ser_dlbls(ser, dlbls_val(LBL_EUR, 9, K.NAVY, True, bg=K.WHITE), so)
+                    set_ser_dlbls(ser, dlbls_val(LBL_EUR, 9, K.NAVY, True, pos="outEnd"), so)
                 elif kind == "afa_summe":
-                    set_ser_dlbls(ser, dlbls_val('#,##0" €";;"–"', 8, K.INK2, bg=K.WHITE), so)
+                    set_ser_dlbls(ser, dlbls_val('#,##0" €";;"–"', 8, K.INK2, pos="outEnd"), so)
                 else:
-                    set_ser_dlbls(ser, dlbls_val(LBL_EUR_POS, 8, K.INK2, bg=K.WHITE), so)
+                    set_ser_dlbls(ser, dlbls_val(LBL_EUR_POS, 8, K.INK2, pos="outEnd"), so)
                 continue
             m = match_series(name)
             color, w, dash = m if m else (FALLBACK[k % len(FALLBACK)], None, None)
@@ -988,10 +1022,11 @@ def bestand_extras(root, mark):
     return hidden
 
 
-def pie_layout(root):
+def pie_layout(root, titled=True):
+    """Identische innere Plotfläche je Kreis (gleicher Durchmesser in einer Reihe); ohne Titel rückt der Kreis nach oben."""
     plot = root.find(".//" + q("c:plotArea"))
     drop(plot, "layout")
-    plot.insert(0, manual_layout("inner", 0.16, 0.24, 0.68, 0.62))
+    plot.insert(0, manual_layout("inner", 0.16, 0.2 if titled else 0.12, 0.68, 0.68 if titled else 0.74))
 
 
 # ============================================================================ Hauptfunktion je Diagramm
@@ -1008,7 +1043,7 @@ def style_chart(xml, sheet=None, mark=None, width_px=None):
     hidden = []
     if kind == "bestand":
         hidden = bestand_extras(root, mark)
-    kind3d = make_3d(root, n_cat)
+    kind3d = make_3d(root, n_cat, "dash_wf" if dashboard else kind)
     horizontal = plot.find(".//" + q("c:barDir")) is not None and plot.find(".//" + q("c:barDir")).get("val") == "bar"
 
     # Titel: Schrittseiten und Dashboard tragen den Panel-Kopf in der Zelle darüber
@@ -1035,7 +1070,7 @@ def style_chart(xml, sheet=None, mark=None, width_px=None):
 
     style_axes(root, kind, n_cat, values, horizontal, dashboard)
     if kind3d == "pie" or kind in PIE_KINDS:
-        pie_layout(root)
+        pie_layout(root, titled=not delete_title)
 
     put_val(chart, "plotVisOnly", 0, ORDER["chart"])
     put_val(chart, "dispBlanksAs", "gap", ORDER["chart"])
