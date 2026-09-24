@@ -13,9 +13,15 @@ Komponentensprache (Runde 2, dokumentiert in scratchpad/CORE_API.md):
   sum_row()      Summenstufen Abzug / Zwischensumme / Blockergebnis    – P1-14
   status_*()     Statuslogik (erfüllt/prüfen/kritisch) als Pill/Chip/Kante
   NUMFMT/numfmt  Zahlenformat-Katalog                                   – P2-12 / P3-08
-  TYPE_SCALE     Typo-Skala 8/9/10/12,5/16/20/22/30, snap_size()        – P3-11
+  TYPE_SCALE     Typo-Skala 8/8,5/9/10/12,5/16/20/22/30, snap_size()    – P3-11 / P40
   link_target()  linke obere Zelle des Scrollbereichs, link_row()       – P1-08
 Ältere Bausteine (kpi_tile, callout, button, total, band_l1b, band_form …) bleiben unverändert nutzbar.
+
+Runde 3 (Agent L, CORE_API.md „Runde 3 – Änderungen“): eine Kachel-Anatomie (Label 8,5 pt · Wert in Statusfarbe ·
+Fußzeile Kontext links / Status rechts, Rinnen automatisch), EINE Pill (zarter Status-Tint, ohne Rahmen), drei
+Summenstufen final/sub/memo, Button-Dreistufigkeit primary > secondary > tertiary, typografisches Minus „−“ in allen
+Formaten, T_LABEL 8,5 pt, KPI_LABELS/KPI_ORDER, Hinweis-Callout note(), status_banner(), fit_row(metric=True),
+page_header(right_legend=…).
 """
 import math
 import re
@@ -44,6 +50,8 @@ WHITE = "FFFFFF"
 GREEN, AMBER, RED = "1F7A4D", "B54708", "B42318"
 GREEN_BG, AMBER_BG, RED_BG = "EAF5EF", "FDF3E7", "FBECEB"
 GREEN_LINE, AMBER_LINE, RED_LINE = "B5DCC4", "F1CFA5", "E7B4AD"   # Status-Kanten/-Rahmen auf hellem Grund
+LINE_SUB = "D5DEEA"   # Oberlinie der Zwischensumme (sum_row 'sub', P12) – bläuliche Trennlinie
+NOTE_BG, NOTE_LINE = "FFF9EA", "E6CB77"   # Hinweis-Callout (note, P34): zarte Fläche, linke Kante wie Eingaberahmen
 NEUTRAL_DASH = "9AA4B1"   # „–“ für entfallende Werte (lesbar, aber zurückgenommen)
 INPUT_BG, INPUT_LINE, INPUT_FG = "FFF5D6", "E6CB77", BLUE
 INACTIVE_BG, INACTIVE_FG = "F3F4F6", MUTED2
@@ -51,8 +59,9 @@ INACTIVE_BG, INACTIVE_FG = "F3F4F6", MUTED2
 SANS, DISPLAY = "Calibri", "Calibri"
 
 # =============================================================================== Typo-Skala und Zeilenraster
-# Erlaubt sind nur 8 · 9 · 10 · 12,5 · 16 · 20 · 22 · 30 pt (P3-11). Keine Zellschrift unter 8 pt.
-#   8   T_MICRO  nur Versalien-Labels (Kachel-Label, Spaltenkopf, Eyebrow), Fußzeilen, Kontextzeilen
+# Erlaubt sind nur 8 · 8,5 · 9 · 10 · 12,5 · 16 · 20 · 22 · 30 pt (P3-11, Runde 3 P40). Keine Zellschrift unter 8 pt.
+#   8   T_MICRO  nur Seitenfuß/Rechtshinweise, Kachel-Kontextzeile und Status-Chip
+#   8,5 T_LABEL  Versalien-Labels: Kachel-Label, Spaltenkopf (Ebene 2), Eyebrow, Matrixachsen, Band-Meta (P40)
 #   9   T_SMALL  Sekundärtext, Einordnungstext, Ebene-2-Titel mit Fläche, Status-Pill
 #   10  T_BODY   Fließtext, Tabellen, Buttons, Callout-Titel
 #   12,5 T_H3    Abschnittskopf Ebene 1
@@ -61,22 +70,30 @@ SANS, DISPLAY = "Calibri", "Calibri"
 #   22  T_H1     Seitentitel
 #   30  T_HERO   Hero (Start)
 T_MICRO, T_SMALL, T_BODY, T_H3, T_H2, T_KPI, T_H1, T_HERO = 8, 9, 10, 12.5, 16, 20, 22, 30
-TYPE_SCALE = (T_MICRO, T_SMALL, T_BODY, T_H3, T_H2, T_KPI, T_H1, T_HERO)
+T_LABEL = 8.5
+TYPE_SCALE = (T_MICRO, T_LABEL, T_SMALL, T_BODY, T_H3, T_H2, T_KPI, T_H1, T_HERO)
 H_BAND, H_BAND_B, H_HEAD, H_ROW, H_ROW2, H_ROW3 = 24, 20, 20, 18, 30, 42
 H_STEP_ROW, H_STEP_ROW2 = 22, 32            # Datenzeilen der Schritt-Seiten (1- / 2-zeilig)
-H_TILE_LABEL, H_TILE_VALUE, H_TILE_SUB = 18, 30, 16
+H_TILE_LABEL, H_TILE_VALUE, H_TILE_SUB = 18, 30, 20   # Runde 3 (P10): Fußzeile 16 → 20 pt, Luft unter dem Kontext
 H_BUTTON = 25.5                             # Primär/Sekundär-Button (34 px) – P1-13
 H_BTN = H_BUTTON
 H_PILL = 22.5                               # Link-Pills / Statuschip in Link-Reihen (30 px)
 H_CALLOUT_HEAD = 20                         # Kopfzeile der Einordnungs-Box
 H_GAP = 12                                  # Leer-/Fugenzeile zwischen Komponenten
 GRID_HEIGHTS = (H_ROW, H_ROW2, H_ROW3)      # Zeilenraster 1/2/3 Zeilen; ab 4 Zeilen n × 13 + 8
+TEXT_PITCH, TEXT_PAD = 12.5, 8              # Fließtexttabellen (fit_row metric=True, P27): n × 12,5 + 8 pt
+
+
+def text_row_height(n):
+    """Zeilenhöhe einer Fließtextzeile mit n Textzeilen (P27): n × 12,5 + 8 pt, auf ganze Pixel → 21 · 33 · 45,75 · 58,5 …"""
+    return math.ceil(round((max(1, n) * TEXT_PITCH + TEXT_PAD) / 0.75, 3)) * 0.75
 
 
 # Zulässige Zeilenhöhen (pt) – identisch mit lint_pro.RASTER; Abstands-/Fugenzeilen ≤ 12 pt sind frei.
 ROW_RASTER = sorted({H_BAND, H_BAND_B, H_BAND_B + 2, H_HEAD, H_ROW, H_ROW2, H_ROW3, H_STEP_ROW, H_STEP_ROW2,
                      H_TILE_LABEL, H_TILE_VALUE, H_TILE_SUB, H_BUTTON, H_PILL, 14, 16, 22, 30}
-                    | {n * 13 + 8 for n in range(1, 12)} | {n * 13 + 10 for n in range(1, 12)})
+                    | {n * 13 + 8 for n in range(1, 12)} | {n * 13 + 10 for n in range(1, 12)}
+                    | {text_row_height(n) for n in range(1, 12)})
 
 
 def px_pt(pt):
@@ -85,7 +102,7 @@ def px_pt(pt):
 
 
 def snap_size(pt):
-    """Schriftgröße auf die Typo-Skala abbilden (9,5 → 10, 11 → 10, 12 → 12,5, 14 → 16; < 8 → 8).
+    """Schriftgröße auf die Typo-Skala abbilden (8,5 bleibt, 9,5 → 10, 11 → 10, 12 → 12,5, 14 → 16; < 8 → 8).
     Regel: nächste Stufe; 11 wird bewusst zu 10 (Textschrift), 12/14 zur nächsthöheren Titelstufe."""
     if pt is None:
         return None
@@ -94,6 +111,8 @@ def snap_size(pt):
     if pt < T_MICRO:
         return T_MICRO
     if pt <= 11:
+        if pt < 8.75:
+            return T_LABEL if pt >= 8.25 else T_MICRO
         return T_SMALL if pt < 9.25 else T_BODY
     for s in TYPE_SCALE:
         if s >= pt:
@@ -108,44 +127,81 @@ def snap_size(pt):
 #   - DSCR, Faktoren, Multiples mit „×“ (dscr = 0,00×; mult1 = 0,0×).
 #   - Jahre ganzzahlig mit Einheit: years_n → „1 Jahr“ / „12 Jahre“ (Label ohne „(Jahre)“).
 #   - Steuerwirkung in Kennzahlblöcken: tax_effect („Zahlung 709 €“ / „Erstattung 709 €“) oder eur_signed („+709 €“).
+MINUS = "\u2212"      # typografisches Minus „−“ (P23) – in allen Formaten statt Bindestrich
+_M = '"\u2212"'
 NUMFMT = {
-    "eur": '#,##0" €";-#,##0" €";"–"',
-    "eur_zero": '#,##0" €";-#,##0" €";0" €"',
-    "eur_in": '#,##0" €";-#,##0" €";0" €"',
-    "eur2": '#,##0.00" €";-#,##0.00" €";"–"',
-    "eur2_in": '#,##0.00" €";-#,##0.00" €";0.00" €"',
-    "eur_signed": '+#,##0" €";-#,##0" €";"–"',
-    "eur_signed_zero": '+#,##0" €";-#,##0" €";0" €"',
-    "teur": '#,##0,," T€"',
-    "num": '#,##0;-#,##0;"–"',
-    "num_in": "#,##0",
-    "num2": '#,##0.00;-#,##0.00;"–"',
-    "num2_in": "#,##0.00",
-    "int": "#,##0",
-    "int0": '0;-0;"–"',
-    "int_in": "0",
-    "pct0": '0 %;-0 %;"–"',
-    "pct1": '0.0 %;-0.0 %;"–"',
-    "pct1_in": "0.0 %",
-    "pct2": '0.00 %;-0.00 %;"–"',
-    "pct2_in": "0.00 %",
-    "dscr": '0.00"×";-0.00"×";"–"',
-    "dscr_plain": "0.00",
-    "mult1": '0.0"×"',
-    "mult2": '0.00"×"',
+    "eur": f'#,##0" €";{_M}#,##0" €";"–"',
+    "eur_zero": f'#,##0" €";{_M}#,##0" €";0" €"',
+    "eur_in": f'#,##0" €";{_M}#,##0" €";0" €"',
+    "eur2": f'#,##0.00" €";{_M}#,##0.00" €";"–"',
+    "eur2_in": f'#,##0.00" €";{_M}#,##0.00" €";0.00" €"',
+    "eur_signed": f'"+"#,##0" €";{_M}#,##0" €";"–"',
+    "eur_signed_zero": f'"+"#,##0" €";{_M}#,##0" €";0" €"',
+    "eur_plain": f'#,##0;{_M}#,##0;"–"',
+    "eur_plain_signed": f'"+"#,##0;{_M}#,##0;"–"',
+    "teur": f'#,##0," T€";{_M}#,##0," T€";"–"',
+    "num": f'#,##0;{_M}#,##0;"–"',
+    "num_in": f"#,##0;{_M}#,##0",
+    "num2": f'#,##0.00;{_M}#,##0.00;"–"',
+    "num2_in": f"#,##0.00;{_M}#,##0.00",
+    "int": f"#,##0;{_M}#,##0",
+    "int0": f'0;{_M}0;"–"',
+    "int_in": f"0;{_M}0",
+    "pct0": f'0 %;{_M}0 %;"–"',
+    "pct1": f'0.0 %;{_M}0.0 %;"–"',
+    "pct1_in": f"0.0 %;{_M}0.0 %",
+    "pct1_signed": f'"+"0.0 %;{_M}0.0 %;"±"0.0 %',
+    "pct2": f'0.00 %;{_M}0.00 %;"–"',
+    "pct2_in": f"0.00 %;{_M}0.00 %",
+    "dscr": f'0.00"×";{_M}0.00"×";"–"',
+    "dscr_plain": f"0.00;{_M}0.00",
+    "mult1": f'0.0"×";{_M}0.0"×"',
+    "mult2": f'0.00"×";{_M}0.00"×"',
     "year": "0",
     "years": '0" Jahre"',
     "years_n": '[=1]0" Jahr";0" Jahre"',
     "years_in": '[=1]0" Jahr";0" Jahre"',
     "date": "DD.MM.YYYY",
     "qm": '#,##0" m²"',
-    "eur_qm": '#,##0.00" €/m²"',
+    "eur_qm": f'#,##0.00" €/m²";{_M}#,##0.00" €/m²"',
     "tax_effect": '"Zahlung "#,##0" €";"Erstattung "#,##0" €";"–"',
     "yesno": '[=1]"ja";[=0]"nein";0',
     "status_dot": '"●  "@',
     "hidden": ";;;",
     "text": "@",
 }
+
+
+def typo_minus(fmt):
+    """Zahlenformat auf das typografische Minus umstellen (P23): In jeder Negativ-Sektion wird ein führendes
+    „-“ / „\\-“ / „"-"“ zu „"−"“. Einsektionige Zahlenformate (z. B. #,##0" €") erhalten eine Negativ-Sektion.
+    Text-, Datums-, Bedingungs- und Ausblendformate bleiben unverändert. Idempotent."""
+    if not isinstance(fmt, str) or not fmt or fmt in ("General", "@", ";;;") or "[" in fmt:
+        return fmt
+    low = fmt.lower()
+    if any(k in low for k in ("yy", "dd", "mm", "hh")) or "@" in fmt:
+        return fmt
+    secs, cur, q = [], "", False
+    for ch in fmt:
+        if ch == '"':
+            q = not q
+        if ch == ";" and not q:
+            secs.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    secs.append(cur)
+    if not any(c in secs[0] for c in "0#"):
+        return fmt
+    if len(secs) == 1:
+        return f"{secs[0]};{_M}{secs[0]}"
+    s2 = secs[1]
+    for old in ('"-"', "\\-", "-"):
+        if s2.startswith(old):
+            s2 = _M + s2[len(old):]
+            break
+    secs[1] = s2
+    return ";".join(secs)
 
 
 def numfmt(kind, entry=False):
@@ -169,7 +225,7 @@ KPI = {
     "CFV": dict(label="Cashflow v. St. / Monat (Jahr 1)", fmt=NUMFMT["eur"], rule="neg"),
     "BMR": dict(label="Bruttomietrendite", fmt=NUMFMT["pct1"], rule="ampel", green="Ampel_BMR_gruen", yellow="Ampel_BMR_gelb"),
     "NMR": dict(label="Nettomietrendite", fmt=NUMFMT["pct1"], rule="ampel", green="Ampel_NMR_gruen", yellow="Ampel_NMR_gelb"),
-    "DSCR": dict(label="DSCR (Jahr 1)", fmt=NUMFMT["dscr"], rule="ampel", green="Ampel_DSCR_gruen", yellow="Ampel_DSCR_gelb"),
+    "DSCR": dict(label="DSCR", fmt=NUMFMT["dscr"], rule="ampel", green="Ampel_DSCR_gruen", yellow="Ampel_DSCR_gelb"),
     "EKR": dict(label="EK-Rendite Jahr 1", fmt=NUMFMT["pct1"], rule="ampel", green="Ampel_EKR_gruen", yellow="Ampel_EKR_gelb"),
     "IRR": dict(label="IRR n. St.", fmt=NUMFMT["pct1"], rule="ampel", green="Ampel_IRR_gruen", yellow="Ampel_IRR_gelb"),
     "FAKTOR": dict(label="Kaufpreisfaktor", fmt=NUMFMT["mult1"]),
@@ -177,6 +233,32 @@ KPI = {
     "RF": dict(label="Rechtsform", fmt="@"),
 }
 CF_YEAR2 = "INDEX(Projektion!$D$37:$AQ$37,2)"
+
+# Kanonische KPI-Beschriftungen und -Reihenfolge (P20, Glossar) – wörtlich auf allen Blättern.
+# Start/Leitfaden zeigen eine Teilmenge in dieser Reihenfolge. IRR trägt die Haltedauer (kpi_label('IRR', formula=True)).
+KPI_ORDER = ("GI", "EK", "CF", "BMR", "DSCR", "IRR")
+KPI_LABELS = {
+    "GI": "Gesamtinvestition",
+    "EK": "Eigenkapitalbedarf inkl. Reserve",
+    "CF": "Cashflow n. St. / Monat (Jahr 1)",
+    "BMR": "Bruttomietrendite",
+    "DSCR": "DSCR",
+    "IRR": "IRR n. St.",
+    "RATE": "Rate an die Bank / Monat",
+    "NMR": "Nettomietrendite",
+    "EKR": "EK-Rendite Jahr 1",
+}
+KPI_LABEL_FORMULAS = {"IRR": '"IRR n. St. ("&Haltedauer&" J.)"'}
+
+
+def kpi_label(key, caps=False, formula=False):
+    """Kanonische Beschriftung (P20). formula=True liefert für IRR die Anzeigeformel mit Haltedauer
+    (='IRR n. St. (12 J.)'), caps=True Versalien (bei Formeln über UPPER)."""
+    if formula and key in KPI_LABEL_FORMULAS:
+        expr = KPI_LABEL_FORMULAS[key]
+        return f"=UPPER({expr})" if caps else f"={expr}"
+    t = KPI_LABELS.get(key) or KPI[key]["label"]
+    return t.upper() if caps else t
 RECHTSFORM_SHORT = 'CHOOSE(Rechtsform_Idx,"Privat","vv-GmbH","GmbH")'
 
 # Link-Ziele (P1-08): immer die linke obere Zelle des Scrollbereichs (unter bzw. rechts der Fixierung).
@@ -510,10 +592,64 @@ def display_text(cell, depth=0):
     lits = [x.replace('""', '"') for x in re.findall(r'"((?:[^"]|"")*)"', f)]
     if not lits:
         return None
+    try:
+        est = _branch_text(f, wb, depth)
+        if est is not None:
+            return est
+    except Exception:
+        pass
     if "&" in f:
         refs = len(re.findall(r"&", f)) + 1 - len(lits)
         return "".join(lits) + "0" * 8 * max(refs, 0)
     return max(lits, key=len)
+
+
+def _split_top(expr, sep):
+    """Ausdruck an sep auf oberster Ebene teilen (Klammern und Anführungszeichen beachtet)."""
+    parts, cur, lvl, q = [], "", 0, False
+    for ch in expr:
+        if ch == '"':
+            q = not q
+        elif not q and ch == "(":
+            lvl += 1
+        elif not q and ch == ")":
+            lvl -= 1
+        if ch == sep and lvl == 0 and not q:
+            parts.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    parts.append(cur)
+    return parts
+
+
+def _branch_text(expr, wb=None, depth=0):
+    """Längster möglicher Anzeigetext einer Formel, zweigweise (Wunsch B, Runde 2): IF/IFERROR/CHOOSE werden je Zweig
+    bewertet, &-Verkettungen stückweise (Literal = Text, Name = aktueller Wert, sonst 8 Ziffern)."""
+    e = expr.strip()
+    while e.startswith("(") and e.endswith(")") and len(_split_top(e[1:-1], ",")) == 1:
+        e = e[1:-1].strip()
+    m = re.match(r"(IF|IFERROR|CHOOSE)\((.*)\)$", e, re.S | re.I)
+    if m and len(_split_top(m.group(2), ",")) >= 2 and _split_top(e, "&") == [e]:
+        args = _split_top(m.group(2), ",")
+        fn = m.group(1).upper()
+        cands = args[1:] if fn in ("IF", "CHOOSE") else args
+        texts = [_branch_text(a, wb, depth) or "" for a in cands]
+        return max(texts, key=lambda t: text_width(t, T_SMALL)) if texts else ""
+    parts = _split_top(e, "&")
+    out = ""
+    for p in parts:
+        p = p.strip()
+        if re.fullmatch(r'"((?:[^"]|"")*)"', p):
+            out += p[1:-1].replace('""', '"')
+        elif re.fullmatch(r"(IF|IFERROR|CHOOSE)\(.*\)", p, re.S | re.I):
+            out += _branch_text(p, wb, depth) or ""
+        elif re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", p) and not re.fullmatch(r"[A-Z]{1,3}\d+", p):
+            v = _name_value(wb, p, depth + 1)
+            out += str(v) if isinstance(v, str) else "0" * 8
+        elif p:
+            out += "0" * 8
+    return out
 
 
 def fit_row_height(ws, row, c1, c2, base=H_ROW, line_pt=13, pad=8, max_lines=None, metric=False, formulas=False,
@@ -553,9 +689,12 @@ def fit_row_height(ws, row, c1, c2, base=H_ROW, line_pt=13, pad=8, max_lines=Non
     return need
 
 
-def fit_row(ws, row, c1, c2, base=H_ROW, pad=6, grid=True, max_lines=None, hints=None, min_height=None):
+def fit_row(ws, row, c1, c2, base=H_ROW, pad=6, grid=True, max_lines=None, hints=None, min_height=None,
+            metric=False, valign_top=True):
     """Empfohlene Zeilenhöhen-Passung (Runde 2): Calibri-Metrik, Formel-Auflösung, Einzug, Zeilenhöhe je
-    Schriftgröße (line_pt). grid=True rastet auf 18 · 30 · 42 · n×13+8 ein. Liefert die Zeilenzahl."""
+    Schriftgröße (line_pt). grid=True rastet auf 18 · 30 · 42 · n×13+8 ein. Liefert die Zeilenzahl.
+    metric=True (Runde 3, P27 – Fließtexttabellen wie Hinweise/Konfiguration): Höhe = Zeilen × 12,5 + 8 pt
+    (1 Z. 21 · 2 Z. 33 · 3 Z. 45,75 · 4 Z. 58,5 pt), umbrechende Zellen oben ausgerichtet (valign_top)."""
     merged = {}
     for mr in ws.merged_cells.ranges:
         if mr.min_row == row == mr.max_row:
@@ -580,7 +719,14 @@ def fit_row(ws, row, c1, c2, base=H_ROW, pad=6, grid=True, max_lines=None, hints
         lines = max(lines, n)
         if n > 1:
             need_pt = max(need_pt, n * line_pt(sz) + pad)
-    h = grid_height(need_pt, base) if grid else need_pt
+        if metric and valign_top and cell.alignment is not None and cell.alignment.wrap_text:
+            a = cell.alignment
+            cell.alignment = Alignment(horizontal=a.horizontal, vertical="top", indent=a.indent, wrap_text=True,
+                                       shrink_to_fit=False)
+    if metric:
+        h = text_row_height(lines)
+    else:
+        h = grid_height(need_pt, base) if grid else need_pt
     if min_height:
         h = max(h, min_height)
     ws.row_dimensions[row].height = h
@@ -601,7 +747,7 @@ def band_l1(ws, row, c1, c2, title=None, right=None, height=H_BAND):
     if right is not None:
         last = ws.cell(row, col(c2))
         set_text(last, right)
-        last.font = font(T_MICRO, False, BLUE)
+        last.font = font(T_LABEL, False, BLUE)
         last.alignment = align("right", "center", 1)
     set_height(ws, row, height)
 
@@ -663,12 +809,12 @@ def subhead_l2(ws, row, c1, c2, title=None, height=H_HEAD):
 
 
 def table_head(ws, row, c1, c2, labels=None, height=H_HEAD):
-    """Spaltenkopf über volle Tabellenbreite: EEF3FA, 8 pt fett Versalien Blau, Unterkante thin Akzent.
+    """Spaltenkopf über volle Tabellenbreite: EEF3FA, 8,5 pt fett Versalien Blau (P40), Unterkante thin Akzent.
     labels: {spalte: (text, 'left'|'right'|'center')} – Köpfe folgen der Ausrichtung ihrer Werte."""
     for c in iter_cells(ws, c1, row, c2, row):
         c.fill = fill(HEAD)
         c.border = Border(bottom=side("thin", ACCENT))
-        c.font = font(T_MICRO, True, BLUE)
+        c.font = font(T_LABEL, True, BLUE)
         if c.value is not None and c.alignment.horizontal not in ("right", "center"):
             c.alignment = align("left", "center", 1)
     for cc, spec in (labels or {}).items():
@@ -686,31 +832,18 @@ def hairline(ws, row, c1, c2):
 
 
 def total(ws, row, c1, c2, level=2):
-    """Summenstufen: 1 Zwischensumme (fett, hair oben), 2 Blockergebnis (F3F7FC, thin Navy oben),
-    3 Schlüsselergebnis (E7EEF7, thin oben, double unten, fett Navy)."""
-    for c in iter_cells(ws, c1, row, c2, row):
-        f = c.font
-        if level == 1:
-            c.fill = NOFILL
-            c.border = Border(top=side("hair", LINE2), bottom=side("hair", LINE))
-            c.font = font(f.sz or T_BODY, True, INK)
-        elif level == 2:
-            c.fill = fill(TINT_XL)
-            c.border = Border(top=side("thin", NAVY), bottom=side("hair", LINE))
-            c.font = font(f.sz or T_BODY, True, NAVY)
-        else:
-            c.fill = fill(TINT)
-            c.border = Border(top=side("thin", NAVY), bottom=side("double", NAVY))
-            c.font = font(f.sz or T_BODY, True, NAVY)
-    if level == 3:
-        set_height(ws, row, max(ws.row_dimensions[row].height or 0, H_ROW))
+    """Alt-Summenstufen, seit Runde 3 auf die EINE Summenhierarchie abgebildet (P12):
+    level 1/2 → sum_row('sub') (fett Navy, ohne Fläche, Oberlinie D5DEEA) · level 3 → sum_row('final')."""
+    sum_row(ws, row, c1, c2, "final" if level >= 3 else "sub", neg=False)
 
 
-def memo(ws, row, c1, c2):
-    """Nachrichtliche Zeile: kursiv 9 pt grau, Einzug 1."""
-    for c in iter_cells(ws, c1, row, c2, row):
+def memo(ws, row, c1, c2, indent=2):
+    """Nachrichtliche Zeile / Memo (P12): 9 pt kursiv 5B6068, ohne Fläche und Zusatzlinien, Beschriftung Einzug 2."""
+    for k, c in enumerate(iter_cells(ws, c1, row, c2, row)):
         c.font = font(T_SMALL, False, MUTED, italic=True)
         c.fill = NOFILL
+        if k == 0 and isinstance(c.value, str) and not (c.alignment and c.alignment.horizontal in ("right", "center")):
+            c.alignment = align("left", "center", indent, wrap=bool(c.alignment and c.alignment.wrap_text))
 
 
 # =============================================================================== Status (Ampel)
@@ -751,54 +884,82 @@ def status_conditions(kpi=None, value_ref=None, conditions=None):
     return []
 
 
-def status_formula(conditions, words=None, dot=True, empty=""):
+def status_formula(conditions, words=None, dot=True, empty="", suffix=None):
     """Anzeigeformel für das Statuswort: =IF(b1,"●  kritisch",IF(b2,"●  prüfen",…,"")).
-    words: {'red': …, 'amber': …, 'green': …} (Standard STATUS_WORDS)."""
+    words: {'red': …, 'amber': …, 'green': …} (Standard STATUS_WORDS – nur „erfüllt / prüfen / kritisch“, P21).
+    suffix: Excel-Ausdruck für den Wert hinter dem Wort („● prüfen · 4,0 %“), z. B. 'FIXED(Bruttomietrendite*100,1)&" %"'."""
     words = {**STATUS_WORDS, **(words or {})}
     expr = '"' + empty.replace('"', '""') + '"'
+    tail = f'&"  ·  "&{suffix}' if suffix else ""
     for cond, lvl in reversed(list(conditions)):
         w = (f"{STATUS_DOT}  " if dot else "") + words[lvl]
-        expr = f'IF({cond},"{w}",{expr})'
+        expr = f'IF({cond},"{w}"{tail},{expr})'
     return "=" + expr
 
 
+def cf_rule(ws, ref, formula, font_=None, fill_=None, border=None, numfmt=None, stop=True):
+    """Bedingte Formatierung mit optionalem Zahlenformat (dxf numFmt) – Wunsch D: „entfällt“ → „–“,
+    Status-Chip in 1-spaltigen Kacheln. formula ohne „=“; numfmt als Formatcode."""
+    from openpyxl.formatting.rule import Rule
+    from openpyxl.styles.differential import DifferentialStyle
+    from openpyxl.styles.numbers import NumberFormat
+    nf = None
+    if numfmt:
+        cache = ws.parent.__dict__.setdefault("_core_dxf_numfmt", {}) if ws.parent is not None else {}
+        if numfmt not in cache:
+            cache[numfmt] = 900 + len(cache)
+        nf = NumberFormat(numFmtId=cache[numfmt], formatCode=numfmt)
+    dxf = DifferentialStyle(font=font_, fill=fill_, border=border, numFmt=nf)
+    ws.conditional_formatting.add(ref, Rule(type="expression", formula=[formula], dxf=dxf, stopIfTrue=stop))
+
+
 def status_cf(ws, ref, conditions, font_color=True, bold=True, fill_bg=False, fill_white=False, border=None,
-              border_style="thin", border_color="strong"):
+              border_style="thin", border_color="strong", numfmt=None):
     """Bedingte Formate je Status auf ref.
-    font_color: Schrift in Statusfarbe · fill_bg: zarte Statusfläche (nur kleine Flächen!) · fill_white: weiß
-    border: None | 'box' | 'left' | 'bottom' | 'top' · border_color: 'strong' (Statusfarbe) | 'line' (helle Linie)."""
+    font_color: Schrift in Statusfarbe · fill_bg: zarter Status-Tint (nur Pill/kleine Flächen!) · fill_white: weiß
+    border: None | 'box' | 'left' | 'bottom' | 'top' · border_color: 'strong' (Statusfarbe) | 'line' (helle Linie)
+    numfmt: {lvl: Formatcode} – bedingtes Zahlenformat je Status (z. B. Status-Chip rechts in der Fußzeile)."""
     for cond, lvl in conditions:
         fg, bg, ln = STATUS_COLORS[lvl]
-        kw = {"stopIfTrue": True}
-        if font_color:
-            kw["font"] = Font(color=fg, bold=bold)
-        if fill_bg:
-            kw["fill"] = fill(bg)
-        elif fill_white:
-            kw["fill"] = fill(WHITE)
+        f_ = Font(color=fg, bold=bold) if font_color else None
+        fl = fill(bg) if fill_bg else (fill(WHITE) if fill_white else None)
+        bd = None
         if border:
             sd = side(border_style, fg if border_color == "strong" else ln)
-            kw["border"] = Border(**({"left": sd, "right": sd, "top": sd, "bottom": sd} if border == "box"
-                                     else {border: sd}))
+            bd = Border(**({"left": sd, "right": sd, "top": sd, "bottom": sd} if border == "box" else {border: sd}))
+        if numfmt and numfmt.get(lvl):
+            cf_rule(ws, ref, cond, font_=f_, fill_=fl, border=bd, numfmt=numfmt[lvl])
+            continue
+        kw = {"stopIfTrue": True}
+        if f_ is not None:
+            kw["font"] = f_
+        if fl is not None:
+            kw["fill"] = fl
+        if bd is not None:
+            kw["border"] = bd
         ws.conditional_formatting.add(ref, FormulaRule(formula=[cond], **kw))
 
 
 def status_pill(ws, cell, kpi=None, value_ref=None, conditions=None, formula=None, style="pill", words=None,
-                h="right", indent=1):
-    """Status als Wort mit Punkt in Statusfarbe (Anzeigeformel in einer LEEREN Zelle).
-    style 'pill': 9 pt fett, bei Status weiße Fläche + 1-px-Rahmen in Statusfarbe (Einordnungs-Box, Link-Reihen);
-    style 'chip': 8 pt fett, nur Schriftfarbe (Kachel-Kontextzeile, Tabellen-Statusspalte)."""
+                h=None, indent=1, suffix=None):
+    """Status als Wort mit Punkt in Statusfarbe (Anzeigeformel in einer LEEREN Zelle) – EINE Pill (P21).
+    style 'pill': 9 pt fett, zentriert, bei Status zarter Tint der Statusfarbe (EAF5EF / FDF3E7 / FBECEB), KEIN Rahmen –
+      liegt so innerhalb jeder Box-/Kachelfläche (Einordnungs-Box, Leitfaden-Kacheln, Link-Reihen, Banner).
+      Breitere Pill: Zelle vorher über mehrere Spalten verbinden (callout_box pill_col=…).
+    style 'chip': 8 pt fett, nur Schriftfarbe, rechtsbündig (Kachel-Fußzeile, Statusspalte in Tabellen).
+    suffix: Wert hinter dem Wort („● prüfen · 4,0 %“), siehe status_formula."""
     conds = status_conditions(kpi, value_ref, conditions) if (kpi or conditions) else []
     if formula is not None:
         cell.value = formula
     elif conds:
-        cell.value = status_formula(conds, words)
+        cell.value = status_formula(conds, words, suffix=suffix)
     cell.number_format = "General"
-    cell.font = font(T_SMALL if style == "pill" else T_MICRO, True, MUTED)
+    pill = style == "pill"
+    h = h or ("center" if pill else "right")
+    cell.font = font(T_SMALL if pill else T_MICRO, True, MUTED)
     cell.alignment = align(h, "center", indent if h in ("left", "right") else 0)
     if conds:
-        status_cf(ws, cell.coordinate, conds, font_color=True, fill_white=(style == "pill"),
-                  border="box" if style == "pill" else None)
+        status_cf(ws, cell.coordinate, conds, font_color=True, fill_bg=pill)
     return conds
 
 
@@ -811,14 +972,66 @@ def status_edge(ws, ref, kpi=None, value_ref=None, conditions=None, edge="left",
     return conds
 
 
-def status_legend(labels=("Ziel erreicht", "knapp", "kritisch"), size=T_MICRO):
-    """Rich-Text-Legende „● Ziel erreicht · ● knapp · ● kritisch“ (Punkte in Statusfarbe, Text 5B6068)."""
+def status_banner(ws, c1, r1, c2, r2, kpi=None, value_ref=None, conditions=None, pill_cell=None, words=None,
+                  suffix=None, pill_formula=None):
+    """Signalfarben nicht als Fläche (P41): Banner/Hinweiszeile auf F3F7FC mit statischer 3-px-Akzentkante links,
+    die per bedingter Formatierung in die Statusfarbe wechselt; optional EINE Pill (pill_cell, leer) mit Status-Tint.
+    Ersetzt rosa/grüne Vollflächen (Dashboard „Gesamtbewertung“, Cockpit-Prüfhinweise)."""
+    c1i, c2i = col(c1), col(c2)
+    for r in range(r1, r2 + 1):
+        for c in iter_cells(ws, c1i, r, c2i, r):
+            c.fill = fill(TINT_XL)
+            c.border = Border(left=side("thick", ACCENT) if c.column == c1i else None)
+    conds = status_conditions(kpi, value_ref, conditions) if (kpi or conditions) else []
+    if conds:
+        status_edge(ws, rng(c1i, r1, c1i, r2), conditions=conds)
+        if pill_cell is not None:
+            status_pill(ws, ws[pill_cell] if isinstance(pill_cell, str) else pill_cell, conditions=conds,
+                        words=words, suffix=suffix, formula=pill_formula)
+    return conds
+
+
+def status_legend(labels=("erfüllt", "prüfen", "kritisch"), size=T_MICRO):
+    """Rich-Text-Legende „● erfüllt · ● prüfen · ● kritisch“ (Punkte in Statusfarbe, Text 5B6068) – P21: nur diese drei Wörter."""
     parts = []
     for i, (lvl, lab) in enumerate(zip(("green", "amber", "red"), labels)):
         if i:
             parts.append(("   ·   ", size, False, MUTED))
         parts += [(STATUS_DOT + " ", size, True, STATUS_COLORS[lvl][0]), (lab, size, False, MUTED)]
     return rich(parts)
+
+
+# Eine Schwellenformulierung (P21): „Ziel ≥ 1,20×“ bzw. „< 1,00× kritisch · 1,00–1,20× prüfen · ≥ 1,20× erfüllt“.
+def _fmt_expr(kpi, name):
+    f = KPI[kpi].get("fmt", "")
+    if "%" in f:
+        return f'FIXED({name}*100,1)&" %"'
+    if "×" in f:
+        return f'FIXED({name},2)&"×"'
+    return f'FIXED({name},0)&" €"'
+
+
+def threshold_text(kpi, prefix="Ziel ≥ "):
+    """Excel-Ausdruck (ohne „=“) für die Zielschwelle: '"Ziel ≥ "&FIXED(Ampel_DSCR_gruen,2)&"×"'.
+    KPI mit Regel cf/neg: '"Ziel ≥ 0 €"'. Für eine Anzeigeformel: '=' + threshold_text('DSCR')."""
+    spec = KPI[kpi]
+    if spec.get("rule") == "ampel":
+        return f'"{prefix}"&{_fmt_expr(kpi, spec["green"])}'
+    return f'"{prefix}0 €"'
+
+
+def threshold_legend(kpi):
+    """Anzeigeformel der Schwellen-Legende: ="< 1,00× kritisch · 1,00–1,20× prüfen · ≥ 1,20× erfüllt"."""
+    spec = KPI[kpi]
+    if spec.get("rule") != "ampel":
+        return '="< 0 € kritisch  ·  ≥ 0 € erfüllt"'
+    y, g = _fmt_expr(kpi, spec["yellow"]), _fmt_expr(kpi, spec["green"])
+    return (f'="< "&{y}&" kritisch  ·  "&{y}&"–"&{g}&" prüfen  ·  ≥ "&{g}&" erfüllt"')
+
+
+# Negativ-Rot-Regel (P15, mappenweit): Negative €-Ergebnis- und Kumulwerte in Herleitungen, Summen und Kennzahlen
+# sind rot B42318 (neg_red); Eingaben und Bestandsgrößen bleiben neutral. sum_row('sub'/'final') setzt die Regel selbst.
+NEG_RULE_TEXT = "Rot – negative Ergebnis- und Kumulwerte"
 
 
 def neg_red(ws, ref, color=RED, bold=None):
@@ -876,7 +1089,7 @@ def kpi_tile(ws, c1, c2, label_row, value_row, sub_row=None, label=None, value=N
     if label is not None or spec.get("label"):
         if not is_formula(lab.value) or label is not None:
             set_text(lab, label if label is not None else spec["label"])
-    lab.font = font(T_MICRO, True, WHITE)
+    lab.font = font(T_LABEL, True, WHITE)
     lab.alignment = align("left", "center", 1)
     set_height(ws, label_row, H_TILE_LABEL)
     safe_merge(ws, c1, value_row, c2, last_value_row)
@@ -993,12 +1206,20 @@ def inactive_when(ws, ref, condition):
                                                                  top=side("thin", LINE2), bottom=side("thin", LINE2))))
 
 
-def page_header(ws, c1, c2, eyebrow, title, subtitle=None, context=None, context_col=None):
-    """Seitenkopf Z. 5–7: Eyebrow (8 pt fett Versalien Blau), H1 (22 pt Display fett Navy), Untertitel (10 pt grau).
-    context: (formel_name, formel_adresse) rechts oben in context_col."""
+def page_header(ws, c1, c2, eyebrow, title, subtitle=None, context=None, context_col=None, right_legend=None,
+                legend_col=None, context_rows=(6, 7)):
+    """Seitenkopf-Vorlage Z. 5–7 (P04) – für alle Blätter gleich:
+      Z. 5 links Eyebrow „BEREICH  ›  SEITE“ (8,5 pt fett Versalien 1D4F8A; eyebrow als Text oder Tupel
+           („Berechnung“, „Steuern“)); rechts bündig die Unterreiter (Formen, navigation.py – Zelle bleibt frei).
+      Z. 6 links Titel 22 pt fett 0B2A4A; rechts Kontextblock (context[0], 10 pt fett 0B2A4A, z. B. Objekt · „Erstellt für …“).
+      Z. 7 links Untertitel 10 pt 5B6068; rechts bündig context[1] (9 pt 5B6068) ODER right_legend (Legende, 8,5 pt 5B6068,
+           Text oder Rich-Text, z. B. status_legend() / „■ Eingabe · ■ Ergebnis“).
+    Alle rechten Elemente rechtsbündig OHNE Einzug in context_col/legend_col (Standard c2) – eine rechte Inhaltskante."""
+    if isinstance(eyebrow, (tuple, list)):
+        eyebrow = "  ›  ".join(str(x) for x in eyebrow if x)
     e, t, s = ws.cell(5, col(c1)), ws.cell(6, col(c1)), ws.cell(7, col(c1))
     set_text(e, eyebrow.upper())
-    e.font = font(T_MICRO, True, BLUE)
+    e.font = font(T_LABEL, True, BLUE)
     e.alignment = align("left", "bottom")
     if title is not None:
         if not is_formula(t.value) or not is_formula(title):
@@ -1013,14 +1234,24 @@ def page_header(ws, c1, c2, eyebrow, title, subtitle=None, context=None, context
         s.font = font(T_BODY, False, MUTED)
         s.alignment = align("left", "top")
         set_height(ws, 7, 22)
+    r6, r7 = context_rows
     if context:
         cc = col(context_col or c2)
-        n, a_ = ws.cell(6, cc), ws.cell(7, cc)
-        n.value, a_.value = context
+        n, a_ = ws.cell(r6, cc), ws.cell(r7, cc)
+        if context[0] is not None:
+            n.value = context[0]
+        if len(context) > 1 and context[1] is not None and right_legend is None:
+            a_.value = context[1]
         n.font = font(T_BODY, True, NAVY)
         a_.font = font(T_SMALL, False, MUTED)
-        n.alignment = align("right", "center", 1)
-        a_.alignment = align("right", "top", 1)
+        n.alignment = align("right", "center")
+        a_.alignment = align("right", "top")
+    if right_legend is not None:
+        lc = ws.cell(r7, col(legend_col or context_col or c2))
+        lc.value = right_legend
+        lc.font = font(T_LABEL, False, MUTED)
+        lc.alignment = align("right", "center")
+        set_height(ws, 7, max(ws.row_dimensions[7].height or 0, 22))
 
 
 FOOTER_1 = "Keine Gewähr für die Richtigkeit der Angaben · ersetzt keine Rechts-, Steuer- oder Finanzberatung · Rechtsstand September 2026"
@@ -1055,12 +1286,19 @@ def hide_cols(ws, c1, c2):
 # =============================================================================== Komponentensprache Runde 2
 # Jede Komponente existiert genau einmal. Blatt-Module setzen nur noch Parameter, keine eigenen Varianten.
 
+_NO_CAPS = re.compile(r"^\s*(Jahr|Jahre|J\.|Monat|Mon\.)\s*\d|^\s*\d{4}\s*$|^\s*[↑↓›‹]")
+
+
 def _caps(text, caps):
-    return text.upper() if (caps and isinstance(text, str) and not is_formula(text)) else text
+    """Versalien für statische Textlabels; Jahres-/Monatslabels („Jahr 1“, „2026“) und Links („↑ Übersicht“)
+    bleiben unverändert (Wunsch D)."""
+    if caps and isinstance(text, str) and not is_formula(text) and not _NO_CAPS.search(text):
+        return text.upper()
+    return text
 
 
 def section(ws, row, c1, c2, title=None, level=1, meta=None, extra=None, variant="fill", labels=None, height=None,
-            caps=True):
+            caps=True, keep_height=False):
     """Abschnittskopf – EIN Stil für alle Blätter (P1-12).
 
     Ebene 1 (Abschnitt): Fläche E7EEF7, linke Akzentkante 3 px 4A86C8, Unterkante thin 4A86C8,
@@ -1069,9 +1307,14 @@ def section(ws, row, c1, c2, title=None, level=1, meta=None, extra=None, variant
     Ebene 2 (Unterabschnitt / Tabellenkopf): 8 pt fett VERSALIEN 1D4F8A, Zeilenhöhe 20,
       variant 'fill' = Fläche EEF3FA + Unterlinie 4A86C8 (Tabellenkopf; labels wie table_head),
       variant 'line' = ohne Fläche, nur Unterlinie 4A86C8 (Unterabschnitt in ruhigen Blättern).
-    Navy-Vollflächen sind der Kopfleiste und den Kachel-Labels vorbehalten."""
+    Navy-Vollflächen sind der Kopfleiste und den Kachel-Labels vorbehalten.
+    Runde 3: Ebene-2-Titel und meta 8,5 pt (P40); keep_height=True lässt die Zeilenhöhe unverändert (Seitenleisten,
+    die sich die Zeile mit Datenzeilen teilen – Wunsch E); Jahreslabels bleiben in Normalschreibung (Wunsch D)."""
+    h0 = ws.row_dimensions[row].height
     if level == 1:
         band_l1(ws, row, c1, c2, title, right=meta, height=height or H_BAND)
+        if keep_height:
+            ws.row_dimensions[row].height = h0
         first = ws.cell(row, col(c1))
         if extra and isinstance(first.value, str) and not is_formula(first.value):
             first.value = rich([(first.value, T_H3, True, NAVY), (f"  {extra}", T_SMALL, False, MUTED)])
@@ -1083,7 +1326,7 @@ def section(ws, row, c1, c2, title=None, level=1, meta=None, extra=None, variant
         for c in iter_cells(ws, c1, row, c2, row):
             c.fill = NOFILL
             c.border = Border(bottom=side("thin", ACCENT))
-            c.font = font(T_MICRO, True, BLUE)
+            c.font = font(T_LABEL, True, BLUE)
         set_height(ws, row, h)
     first = ws.cell(row, col(c1))
     if title is not None:
@@ -1095,61 +1338,86 @@ def section(ws, row, c1, c2, title=None, level=1, meta=None, extra=None, variant
             c = ws.cell(row, col(cc))
             if isinstance(c.value, str):
                 c.value = _caps(c.value, True)
-    first.font = font(T_MICRO, True, BLUE)
+    first.font = font(T_LABEL, True, BLUE)
     if first.alignment.horizontal not in ("right", "center"):
         first.alignment = align("left", "center", 1)
     if meta is not None:
         last = ws.cell(row, col(c2))
         set_text(last, meta)
-        last.font = font(T_MICRO, False, BLUE)
+        last.font = font(T_LABEL, False, BLUE)
         last.alignment = align("right", "center", 1)
+    if keep_height:
+        ws.row_dimensions[row].height = h0
     return first
+
+
+_TILE_FILLS = {NAVY, BLUE, TINT_XL}
+
+
+def _fill_rgb(cell):
+    try:
+        fg = cell.fill.fgColor.rgb if (cell.fill is not None and cell.fill.fill_type == "solid") else None
+        return fg[-6:].upper() if isinstance(fg, str) else None
+    except Exception:
+        return None
 
 
 def tile(ws, c1, c2, label_row, value_row, sub_row=None, label=None, value=None, sub=None, kpi=None, fmt=None,
          variant="dark", value_rows=1, value_span=None, sub_right=None, sub_right_fmt=None, status="auto",
          status_col=None, value_ref=None, conditions=None, words=None, neg=None, gap_right=True, gap_top=False,
-         caps=True, value_size=T_KPI):
-    """KPI-Kachel – EINE Komponente für die ganze Mappe (P1-11, P1-10).
+         caps=True, value_size=T_KPI, gap="auto", value_status=True, label_size=None):
+    """KPI-Kachel – EINE Komponente und EINE Anatomie für die ganze Mappe (Runde 3: P10, P11, P40).
 
-    Aufbau (immer dreizeilig empfohlen): Label 18 pt · Wert 30 pt · Kontextzeile 16 pt.
-      variant 'dark' : Label weiß 8 pt fett VERSALIEN auf 0B2A4A, Wert-/Kontextfläche F3F7FC (Fintech: Start,
-                       Dashboard, Cockpit-Kopf, S08/S12)
-      variant 'light': alles F3F7FC, Label 1D4F8A, Oberkante medium 4A86C8 (Private Banking: Rechenblätter,
-                       AfA-Vergleich, Leitfaden-Nebenkacheln)
-    Wert: 20 pt fett 0B2A4A, IMMER neutral. neg=True (Standard bei €-Beträgen und KPI-Regel cf/neg): Beträge < 0 rot.
-    value_span: letzte Spalte des Wertfelds; die Spalten dahinter nehmen sub_right auf (8 pt 5B6068, rechtsbündig –
-      Kontext im Wertfeld, z. B. „ab Jahr 2: –274 €“).
-    status: 'auto' | 'chip' | 'dot' | 'edge' | None
-      chip  – Statuswort „● prüfen“ 8 pt fett in Statusfarbe rechts in der Kontextzeile (status_col, Standard c2;
-              Kontexttext dann über c1…status_col-1) – Standard bei Kacheln ≥ 2 Spalten
-      dot   – Kontextzeile selbst in Statusfarbe (für Kontexttexte wie „unter Ziel 6,0 %“)
-      edge  – linke Kante (3 px) von Wert + Kontext in Statusfarbe – Standard bei 1-spaltigen Kacheln
-    Der Status gilt nur für KPI mit Regel (ampel/cf/neg) oder eigene conditions. value=None lässt eine
-    vorhandene Formel stehen. gap_right: weiße 3-px-Rinne rechts; gap_top: weiße Kante oben (Reihenabstand)."""
+    Anatomie (immer dreizeilig): Kopfstreifen 18 pt · Wert 30 pt · Fußzeile 20 pt.
+      Kopfstreifen: Label weiß 8,5 pt fett VERSALIEN (passt es nicht, automatisch 8 pt) auf
+        variant 'dark'  = 0B2A4A (Fintech: Start, Dashboard, Cockpit-Kopf, S08/S12, Leitfaden)
+        variant 'light' = 1D4F8A (ruhige Variante: Rechenblätter, AfA-Vergleich, Haushalt/Vermögen – DECISIONS 3)
+      Wert: 20 pt fett auf F3F7FC, links, Einzug 1. Wertfarbe = Status (P11): mit Status übernimmt der Wert per
+        bedingter Formatierung die Statusfarbe (grün/amber/rot), ohne Status 0B2A4A. value_status=False hält ihn neutral.
+        neg (Standard bei €-Formaten und KPI-Regel cf/neg): Beträge < 0 rot (P15).
+      Fußzeile: links Kontext/Ziel (8 pt 5B6068), rechts Status „● Wort“ (8 pt fett, Statusfarbe).
+    status: 'auto' | 'chip' | 'inline' | 'dot' | 'edge' | None
+      auto   – chip bei Kacheln ≥ 2 Spalten, inline bei 1-spaltigen Kacheln mit Fußzeile, sonst edge
+      chip   – Status in eigener Zelle rechts (status_col, Standard c2; Kontext über c1…status_col-1)
+      inline – 1-spaltige Kachel: Kontext links und „● Wort“ rechtsbündig in DERSELBEN Zelle (bedingtes Zahlenformat
+               @* "● prüfen"); eine Zelle = eine Farbe: die Fußzeile steht dann in Statusfarbe (normal, nicht fett)
+      dot    – (alt) Fußzeile selbst in Statusfarbe · edge – linke 3-px-Kante in Statusfarbe
+    Rinnen (P10): gap='auto' setzt weiße 3-px-Kanten rechts (gap_right), links, wenn links eine Kachel angrenzt, und oben,
+      wenn darüber eine Kachel endet (oder gap_top) – horizontal = vertikal. Mehr als 3 px kann Excel mit Rahmen nicht
+      zeichnen; für ≥ 8 px eine schmale Rinnenspalte/-zeile (≈ 1,7 Zeichen / 6 pt) wie auf dem Dashboard verwenden.
+    value_span: letzte Spalte des Wertfelds; dahinter sub_right (8 pt 5B6068, rechtsbündig im Wertfeld).
+    value=None lässt eine vorhandene Formel stehen. Nicht-Anker-Zellen der Verbünde müssen leer sein."""
     spec = KPI.get(kpi, {}) if kpi else {}
     c1i, c2i = col(c1), col(c2)
     last_v = value_row + value_rows - 1
     dark = variant != "light"
+    head_bg = NAVY if dark else BLUE
     rows = [label_row] + list(range(value_row, last_v + 1)) + ([sub_row] if sub_row else [])
     white3 = side("thick", WHITE)
+    auto = gap == "auto" or gap is True
+    left_gap = auto and c1i > 1 and _fill_rgb(ws.cell(label_row, c1i - 1)) in _TILE_FILLS
+    top_gap = gap_top or (auto and label_row > 1 and _fill_rgb(ws.cell(label_row - 1, c1i)) in _TILE_FILLS)
     for r in rows:
         for c in iter_cells(ws, c1i, r, c2i, r):
-            c.fill = fill(NAVY if (dark and r == label_row) else TINT_XL)
-            top = None
-            if r == label_row:
-                top = white3 if (gap_top and dark) else (side("medium", ACCENT) if not dark else None)
-            c.border = Border(right=white3 if (gap_right and c.column == c2i) else None, top=top)
-    # Label
+            c.fill = fill(head_bg if r == label_row else TINT_XL)
+            c.border = Border(right=white3 if (gap_right and c.column == c2i) else None,
+                              left=white3 if (left_gap and c.column == c1i) else None,
+                              top=white3 if (top_gap and r == label_row) else None)
+    # Kopfstreifen
     safe_merge(ws, c1i, label_row, c2i, label_row)
     lab = ws.cell(label_row, c1i)
     if label is not None:
-        set_text(lab, _caps(label, caps))
+        set_text(lab, _caps(label, caps)) if not is_formula(label) else setattr(lab, "value", label)
     elif spec.get("label") and not is_formula(lab.value):
-        set_text(lab, _caps(spec["label"], caps))
+        set_text(lab, _caps(KPI_LABELS.get(kpi, spec["label"]), caps))
     elif caps and isinstance(lab.value, str) and not is_formula(lab.value):
         lab.value = lab.value.upper()
-    lab.font = font(T_MICRO, True, WHITE if dark else BLUE)
+    lsz = label_size or T_LABEL
+    if label_size is None:
+        t = display_text(lab)
+        if t and not fits(t, span_px(ws, c1i, c2i), T_LABEL, True, 1, 0.97):
+            lsz = T_MICRO
+    lab.font = font(lsz, True, WHITE)
     lab.alignment = align("left", "center", 1)
     set_height(ws, label_row, H_TILE_LABEL)
     # Wert
@@ -1179,29 +1447,40 @@ def tile(ws, c1, c2, label_row, value_row, sub_row=None, label=None, value=None,
     conds = status_conditions(kpi, vref, conditions) if (conditions or spec.get("rule")) else []
     mode = status if conds else None
     if mode == "auto":
-        mode = "chip" if (sub_row and (status_col or c2i > c1i)) else "edge"
-    if mode == "chip" and not sub_row:
+        mode = ("chip" if (status_col or c2i > c1i) else "inline") if sub_row else "edge"
+    if mode in ("chip", "inline") and not sub_row:
         mode = "edge"
-    # Kontextzeile
+    if mode == "chip" and not (status_col or c2i > c1i):
+        mode = "inline"
+    # Fußzeile
     if sub_row:
         chip_c = (col(status_col) if status_col else c2i) if mode == "chip" else None
         end = chip_c - 1 if (chip_c and chip_c > c1i) else c2i
         safe_merge(ws, c1i, sub_row, end, sub_row)
-        s = ws.cell(sub_row, c1i)
+        s_ = ws.cell(sub_row, c1i)
         if sub is not None:
-            s.value = sub
-        s.font = font(T_MICRO, False, MUTED)
-        s.alignment = align("left", "center", 1)
+            s_.value = sub
+        s_.font = font(T_MICRO, False, MUTED)
+        s_.alignment = align("left", "center", 1)
         set_height(ws, sub_row, H_TILE_SUB)
         if chip_c and chip_c > c1i:
             if chip_c < c2i:
                 safe_merge(ws, chip_c, sub_row, c2i, sub_row)
             status_pill(ws, ws.cell(sub_row, chip_c), conditions=conds, style="chip", words=words)
+        if mode == "inline":
+            if s_.value is None:
+                s_.value = '=""'
+            wd = {**STATUS_WORDS, **(words or {})}
+            nf = {lvl: f'@* "{STATUS_DOT}  {wd[lvl]}   "' for _, lvl in conds}   # 3 Leerzeichen ≈ Einzug 1 rechts
+            status_cf(ws, s_.coordinate, conds, font_color=True, bold=False, numfmt=nf)
         if mode == "dot":
-            status_cf(ws, s.coordinate, conds, font_color=True, bold=True)
+            status_cf(ws, s_.coordinate, conds, font_color=True, bold=True)
     if mode == "edge":
         status_edge(ws, rng(c1i, value_row, c1i, sub_row or last_v), conditions=conds)
-    # Negative Beträge
+    # Wertfarbe = Status (P11)
+    if conds and value_status and mode is not None:
+        status_cf(ws, rng(c1i, value_row, vs_end, last_v), conds, font_color=True, bold=True)
+    # Negative Beträge (P15)
     if neg is None:
         neg = spec.get("rule") in ("cf", "neg") or ("€" in (f or "") and "%" not in (f or ""))
     if neg:
@@ -1209,8 +1488,47 @@ def tile(ws, c1, c2, label_row, value_row, sub_row=None, label=None, value=None,
     return val
 
 
+def note(ws, row, c1, c2, text=None, label="Hinweis", link_text=None, target_sheet=None, target_cell=None,
+         link_col=None, row2=None, tooltip=None):
+    """Hinweis-Callout – EINE Bauform (P34) für Leitfaden Z. 8, S01 C21, Start …:
+    Fläche FFF9EA, linke Kante 3 px E6CB77 (Eingabe-Gelb = „betrifft Ihre Eingaben“), Label fett 0B2A4A + Text 3A3F45
+    (9 pt, Rich-Text bei statischem Text; der Text trägt KEINEN Link), Aktionslink „… ›“ in EIGENER Zelle rechts
+    (link_col … c2, 9 pt fett 1D4F8A, rechtsbündig). row2: letzte Zeile bei mehrzeiligem Hinweis (Text oben)."""
+    c1i, c2i = col(c1), col(c2)
+    r2 = row2 or row
+    lc = col(link_col) if (link_col and link_text) else None
+    t_end = lc - 1 if lc else c2i
+    for r in range(row, r2 + 1):
+        for c in iter_cells(ws, c1i, r, c2i, r):
+            c.fill = fill(NOTE_BG)
+            c.border = Border(left=side("thick", NOTE_LINE) if c.column == c1i else None)
+            if c.hyperlink is not None and (lc is None or c.column < lc):
+                c.hyperlink = None
+    safe_merge(ws, c1i, row, t_end, r2)
+    tc = ws.cell(row, c1i)
+    body = text if text is not None else tc.value
+    if isinstance(body, str) and not is_formula(body) and label:
+        tc.value = rich([(label + "   ", T_SMALL, True, NAVY), (body, T_SMALL, False, INK2)])
+    elif body is not None:
+        tc.value = body
+    tc.font = font(T_SMALL, False, INK2)
+    tc.alignment = align("left", "top" if r2 > row else "center", 1, wrap=r2 > row)
+    if lc:
+        if lc < c2i:
+            safe_merge(ws, lc, row, c2i, row)
+        lk = ws.cell(row, lc)
+        set_text(lk, link_text)
+        lk.font = font(T_SMALL, True, BLUE)
+        lk.alignment = align("right", "top" if r2 > row else "center", 1)
+        if target_sheet:
+            lk.hyperlink = Hyperlink(ref=lk.coordinate, location=link_loc(target_sheet, target_cell),
+                                     display=link_text, tooltip=tooltip)
+    return tc
+
+
 def callout_box(ws, c1, head_row, c2, body_r1, body_r2, title="Einordnung", text=None, kpi=None, value_ref=None,
-                conditions=None, pill=None, pill_col=None, words=None, head=True, fit="auto", height_text=None):
+                conditions=None, pill=None, pill_col=None, words=None, head=True, fit="auto", height_text=None,
+                variant="info", link_text=None, target_sheet=None, target_cell=None, link_col=None, suffix=None):
     """Einordnungs-Box – EINE Komponente für S01–S12, Sensitivität, Bank … (P1-04).
 
     Kopf (20 pt): Fläche F3F7FC über c1…c2, Titel 10 pt fett 0B2A4A links (Einzug 1), Unterlinie thin C8D7EB,
@@ -1222,7 +1540,14 @@ def callout_box(ws, c1, head_row, c2, body_r1, body_r2, title="Einordnung", text
     fit: Körperhöhe nach Textlänge (Calibri-Metrik; höchstens ≈ 12 px Luft unten).
       'auto' = einzeiliger Körper exakt, mehrzeiliger Körper: nur die letzte Zeile wachsen lassen · 'exact' ·
       None = Höhen nicht ändern. height_text: Text für die Bemessung (Standard: längster Formelzweig).
-    Liefert die Zeilenzahl des Körpertexts. Abstand zum Folgeblock: genau eine Leerzeile H_GAP (12 pt)."""
+    Liefert die Zeilenzahl des Körpertexts. Abstand zum Folgeblock: genau eine Leerzeile H_GAP (12 pt).
+    Runde 3: die Pill ist die EINE Pill (P21): zarter Status-Tint, ohne Rahmen, 9 pt fett, zentriert – sie liegt in der
+      Box-Fläche. suffix: Wert hinter dem Statuswort („● prüfen · 4,0 %“).
+    variant='note' (P34): Hinweis-Bauform – siehe note(); title = Label, text = Hinweis, Link in link_col … c2."""
+    if variant == "note":
+        note(ws, head_row if head else body_r1, c1, c2, text, title or "Hinweis", link_text, target_sheet, target_cell,
+             link_col, row2=body_r2)
+        return 1
     c1i, c2i = col(c1), col(c2)
     first = head_row if head else body_r1
     bar = side("thick", ACCENT)
@@ -1247,7 +1572,7 @@ def callout_box(ws, c1, head_row, c2, body_r1, body_r2, title="Einordnung", text
             if pc < c2i:
                 safe_merge(ws, pc, head_row, c2i, head_row)
             status_pill(ws, ws.cell(head_row, pc), conditions=conds or None,
-                        formula=pill if isinstance(pill, str) else None, style="pill", words=words)
+                        formula=pill if isinstance(pill, str) else None, style="pill", words=words, suffix=suffix)
     safe_merge(ws, c1i, body_r1, c2i, body_r2)
     b = ws.cell(body_r1, c1i)
     if text is not None:
@@ -1277,7 +1602,13 @@ BTN = {  # kind: (Fläche, Rahmen, Schrift, fett, Höhe)
     "soft": (TINT_XL, MIST, BLUE, False, H_PILL),        # Link-Pill in Link-Reihen (Dashboard Z. 9)
     "chip": (TINT, MIST, NAVY, True, H_PILL),            # Statuschip in Link-Reihen (Rechtsform: Privat ›)
     "ghost": (BLUE, ACCENT, WHITE, True, H_BTN),         # Sekundär auf Navy (Start-Hero)
+    "input": (INPUT_BG, INPUT_LINE, INPUT_FG, True, H_PILL),  # Sprung zu einer Eingabe („KAUF ALS · Privat ▾“)
 }
+BTN_TEXT = {  # Textstufen ohne Rahmen/Fläche: kind: (Schrift, fett, Höhe)
+    "tertiary": (BLUE, True, H_BTN),                     # Stufe 3 (P13): „Übersicht: Leitfaden“, zentriert
+    "back": (MUTED, False, H_PILL),                      # Zurück-Link in Link-Reihen (Dashboard B9), 5B6068
+}
+BTN_TIERS = ("primary", "secondary", "tertiary")        # Dreistufigkeit einer Buttonzeile (P13)
 
 
 def btn(ws, c1, row, c2, text, target_sheet=None, kind="primary", target_cell=None, tooltip=None, height=None,
@@ -1289,14 +1620,14 @@ def btn(ws, c1, row, c2, text, target_sheet=None, kind="primary", target_cell=No
     if kind == "link":
         button(ws, c1, row, c2, text, target_sheet, "link", target_cell, tooltip)
         return ws.cell(row, col(c1))
-    bg, ln_c, fg, bold, h = BTN[kind]
-    ln = side("thin", ln_c)
+    bg, ln_c, fg, bold, h = BTN[kind] if kind in BTN else (None, None) + BTN_TEXT[kind]
+    ln = side("thin", ln_c) if ln_c else None
     safe_merge(ws, c1, row, c2, row)
     c1i, c2i = col(c1), col(c2)
     for cc in iter_cells(ws, c1i, row, c2i, row):
-        cc.fill = fill(bg)
+        cc.fill = fill(bg) if bg else NOFILL
         cc.border = Border(top=ln, bottom=ln, left=ln if cc.column == c1i else None,
-                           right=ln if cc.column == c2i else None)
+                           right=ln if cc.column == c2i else None) if ln else Border()
     c = ws.cell(row, c1i)
     set_text(c, text)
     c.font = font(size, bold, fg)
@@ -1309,45 +1640,81 @@ def btn(ws, c1, row, c2, text, target_sheet=None, kind="primary", target_cell=No
     return c
 
 
-def btn_row(ws, row, items, height=None):
+def _is_back(text):
+    return isinstance(text, str) and text.lstrip().startswith("‹")
+
+
+def btn_row(ws, row, items, height=None, tiers=True):
     """Button-Reihe mit einheitlicher Höhe. items: [dict(c1=…, c2=…, text=…, target=…, kind=…, tooltip=…, cell=…)].
     Höhe = größte Höhe der verwendeten Arten (oder height). Liefert [(text, breite_px, passt)] zur Kontrolle –
-    gleiche Breiten entstehen über gleiche Spaltenraster (z. B. C | E:F | H:I auf den Schritt-Seiten)."""
+    gleiche Breiten entstehen über gleiche Spaltenraster (Zurück C:D ≈ Weiter H:I auf den Schritt-Seiten).
+    tiers=True (Runde 3, P13 – Dreistufigkeit primary > secondary > tertiary): Enthält die Reihe einen Primär-Button,
+    bleibt nur „‹ Zurück …“ sekundär (Outline); jeder weitere Sekundär-Button (z. B. „Übersicht: Leitfaden“) wird
+    automatisch tertiär – Textlink ohne Rahmen und Fläche, 10 pt fett 1D4F8A, zentriert. kind='tertiary' explizit möglich."""
     hs, out = [], []
+    has_primary = any(it.get("kind", "secondary") == "primary" for it in items)
     for it in items:
         kind = it.get("kind", "secondary")
+        if tiers and has_primary and kind == "secondary" and not _is_back(it.get("text")):
+            kind = "tertiary"
         btn(ws, it["c1"], row, it["c2"], it["text"], it.get("target"), kind, it.get("cell"), it.get("tooltip"),
             set_row=False)
-        hs.append(BTN.get(kind, (None, None, None, None, H_BTN))[4])
+        hs.append(BTN[kind][4] if kind in BTN else BTN_TEXT.get(kind, (None, None, H_BTN))[2])
         w = span_px(ws, it["c1"], it["c2"])
         out.append((it["text"], w, fits(it["text"], w, T_BODY, True, 0, 0.9)))
     set_height(ws, row, height or max(hs or [H_BTN]))
     return out
 
 
-def sum_row(ws, row, c1, c2, stage="sub", value_from=None, neg=False, keep_size=True):
-    """Summenstufen (P1-14) – Zeilenbeschriftung trägt das Rechenzeichen („– Zinsen“, „= Cashflow …“).
+def sum_row(ws, row, c1, c2, stage="sub", value_from=None, neg=None, keep_size=True, top=True):
+    """Summenhierarchie (Runde 3, P12) – pro Block/Ergebnis-Kasten GENAU EINE Endsumme.
+    Die Zeilenbeschriftung trägt das Rechenzeichen („– Zinsen“, „= Cashflow …“).
       'deduct' (0): Abzugs-/Teilzeile „–“: nur fett, keine Fläche, keine Zusatzlinie
-      'sub'    (1): Zwischensumme „=“: fett 0B2A4A, Fläche F3F7FC, Oberlinie thin 1D4F8A
-      'result' (2): das EINE Blockergebnis: fett 0B2A4A, Fläche E7EEF7, Oberlinie thin + Doppellinie unten 0B2A4A
-    neg=True: negative Beträge in value_from…c2 (Standard: ab zweiter Spalte) rot – nur echte negative Ergebnisse."""
-    stage = {0: "deduct", 1: "sub", 2: "result"}.get(stage, stage)
+      'sub'    (1): Zwischensumme: fett 0B2A4A, OHNE Fläche, dünne Oberlinie D5DEEA (top=False: ohne Linie, z. B. für
+                    eine zweite Zwischensumme direkt darunter – Wunsch D)
+      'final'  (2, Alias 'result'): die EINE Endsumme: fett 0B2A4A, Fläche E7EEF7, Oberlinie thin 0B2A4A, Doppellinie unten
+      'memo'   (3): nachrichtlich: 9 pt kursiv 5B6068, Beschriftung Einzug 2, ohne Fläche/Linien
+    neg (Standard: an bei 'sub'/'final' – Negativ-Rot-Regel P15): negative Beträge ab value_from (Standard: zweite
+    Spalte) rot B42318; neg=False schaltet ab (z. B. Steuerwirkung im Format tax_effect)."""
+    stage = {0: "deduct", 1: "sub", 2: "final", 3: "memo", "result": "final"}.get(stage, stage)
+    if stage == "memo":
+        memo(ws, row, c1, c2)
+        return
     for c in iter_cells(ws, c1, row, c2, row):
         sz = (c.font.sz if keep_size else None) or T_BODY
         if stage == "deduct":
             c.font = font(sz, True, c.font.color.rgb[-6:] if (c.font.color is not None and isinstance(c.font.color.rgb, str)) else INK)
             c.fill = NOFILL
         elif stage == "sub":
-            c.fill = fill(TINT_XL)
-            c.border = Border(top=side("thin", BLUE), bottom=side("hair", LINE))
+            c.fill = NOFILL
+            c.border = Border(top=side("thin", LINE_SUB) if top else None, bottom=side("hair", LINE))
             c.font = font(sz, True, NAVY)
         else:
             c.fill = fill(TINT)
             c.border = Border(top=side("thin", NAVY), bottom=side("double", NAVY))
             c.font = font(sz, True, NAVY)
-    if stage == "result":
+    if stage == "final":
         set_height(ws, row, max(ws.row_dimensions[row].height or 0, H_ROW))
+    auto = neg is None
+    if auto:
+        neg = stage in ("sub", "final")
     if neg:
         vf = col(value_from) if value_from else col(c1) + 1
-        if vf <= col(c2):
-            neg_red(ws, rng(vf, row, c2, row))
+        if not auto:
+            if vf <= col(c2):
+                neg_red(ws, rng(vf, row, c2, row))
+            return
+        # Automatik: Zellen mit Wortformat (tax_effect „Zahlung/Erstattung“, Text) bleiben neutral
+        run = None
+        for cc in range(vf, col(c2) + 2):
+            ok = cc <= col(c2) and not _neutral_fmt(ws.cell(row, cc).number_format)
+            if ok and run is None:
+                run = cc
+            elif not ok and run is not None:
+                neg_red(ws, rng(run, row, cc - 1, row))
+                run = None
+
+
+def _neutral_fmt(fmt):
+    """Formate, deren Vorzeichen in Worten steckt (tax_effect) oder Text – nie rot."""
+    return isinstance(fmt, str) and ("Erstattung" in fmt or "Zahlung" in fmt or fmt == "@")
