@@ -30,20 +30,22 @@ Sie wird von `excel/build_immobilien_kalkulation.py` erzeugt (`pip install openp
 
 ## Excel: Immobilien-Kalkulationstool Pro (Premium-Design)
 
-`excel/Immobilien-Kalkulationstool_Pro_6.xlsx` ist das Kalkulationstool Pro im Premium-Design (Blau-Weiß):
-Navigationsleiste mit allen Bereichen auf jedem Blatt, Schritt-Leiste mit Fortschritt und „Weiter“ auf den
-zwölf Leitfaden-Seiten, Direktauswahl Privat / Kapitalgesellschaft auf der Startseite („Kauf als“),
-Dashboard als Management-Übersicht, 3D-Säulen- und 3D-Kreisdiagramme.
+`excel/Immobilien-Kalkulationstool_Pro.xlsx` ist das Kalkulationstool Pro im Premium-Design (Blau-Weiß, Calibri):
+Reiterleiste mit allen Bereichen auf jedem Blatt (plus Zell-Links als Rückfall), Schritt-Leiste mit Fortschritt und
+„Weiter“ auf den zwölf Leitfaden-Seiten, Direktauswahl Privat / Kapitalgesellschaft auf der Startseite („Kauf als“),
+Feld „Erstellt für“, Dashboard als Management-Übersicht, einheitliche Komponenten (Kacheln, Einordnungs-Boxen,
+Abschnittsköpfe, Buttons, Summenstufen, Status-Pills), 3D nur für Kreise und einfache Säulen, sonst flache Diagramme,
+Druckeinrichtung für A4 auf allen Blättern.
 
 Erzeugung aus der Vorlage `excel/quelle/Immobilien-Kalkulationstool_Pro_1.xlsx` (LibreOffice für die Neuberechnung):
 
 ```
 pip install openpyxl lxml pillow
-python excel/design_pro.py excel/quelle/Immobilien-Kalkulationstool_Pro_1.xlsx excel/Immobilien-Kalkulationstool_Pro_6.xlsx
-soffice --headless --convert-to xlsx ...   # bzw. einmal in Excel öffnen und speichern (Neuberechnung)
-python excel/navigation.py excel/Immobilien-Kalkulationstool_Pro_6.xlsx   # Reiter- und Schritt-Leiste als Formen
+python excel/build_pro.py --strict --out excel/Immobilien-Kalkulationstool_Pro.xlsx [--preview <ordner>]
 ```
 
-`design_pro.py` gestaltet die Darstellung, `dashboard.py` erzeugt das Dashboard, `navigation.py` setzt die
-anklickbaren Leisten ein. Formeln und Namen bleiben unverändert; einzige Ausnahme: der Name `Rechtsform`
-zeigt auf die Auswahl der Startseite, Schritt 9 übernimmt sie von dort.
+Ablauf: `design_pro.py` (Grund-Restyle, `global_rules.py`, `layouts/*.py`, `dashboard.py`; Bausteine in `core.py`)
+→ Neuberechnung (LibreOffice) → `finish_pro.py` (Diagramme, Blatt-XML) → `navigation.py` (Leisten als Formen)
+→ Schema-Prüfung → `lint_pro.py` (Design-Regeln) → `verify_logic.py` (Formeln, Werte und Namen gegen die Vorlage).
+Formeln und Namen bleiben unverändert; einzige Ausnahme: der Name `Rechtsform` zeigt auf die Auswahl der
+Startseite, Schritt 9 übernimmt sie von dort. Neu ist nur der Name `Erstellt_fuer`.
