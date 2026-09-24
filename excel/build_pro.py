@@ -84,6 +84,8 @@ def main():
             raise SystemExit(1)
     run([PY, os.path.join(HERE, "finish_pro.py"), stage])
     run([PY, os.path.join(HERE, "navigation.py"), stage])
+    # LibreOffice verwirft bei der Neuberechnung alle ScreenTips der Zell-Links → danach wieder setzen
+    run([PY, "-c", f"import sys; sys.path.insert(0, {HERE!r}); import core; core.patch_tooltips({stage!r})"])
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     shutil.copy(stage, a.out)
     rc_schema, _ = run([PY, os.path.join(HERE, "tools", "validate_xml.py"), a.out], check=False)
