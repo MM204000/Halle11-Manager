@@ -133,7 +133,7 @@ LOWER = {
 }
 # Anzeigeformeln (nicht referenziert): Trennzeichen „ · “ statt „|“, Rechtsform kurz (P1-19, P2-06)
 DISPLAY_FORMULAS = {
-    "K15": '=FIXED(Darlehen_I,0)&" € · "&IF(Darlehen_II=0,"–",FIXED(Darlehen_II,0)&" €")',
+    "K15": '=FIXED(Darlehen_I,0)&" € · "&IF(Darlehen_II=0,"kein Darlehen II",FIXED(Darlehen_II,0)&" €")',
     "G26": '=FIXED(Mietsteigerung*100,1)&" % · "&FIXED(Kostensteigerung*100,1)&" % · "&FIXED(Wertsteigerung*100,1)&" %"',
     "G27": '=FIXED(Mietausfall_Pct*100,1)&" % · "&Leerstand_Monate&" Monate"',
     "G35": "=" + RECHTSFORM_SHORT,
@@ -498,7 +498,7 @@ def hints(ws):
     _link(ws["B56"], '=IF(COUNT($AC$50:$AC$74)>6,"+ "&(COUNT($AC$50:$AC$74)-6)&" weitere Hinweise – alle auf dem '
           'Dashboard ›","")', "Dashboard", tooltip="Alle aktiven Prüfhinweise auf dem Dashboard", size=T_SMALL,
           h="left", formula=True)
-    set_height(ws, 56, GAP_SECTION)
+    set_height(ws, 56, C.H_GAP)      # die leeren Hinweisplätze liefern den übrigen Weißraum
 
 
 # --------------------------------------------------------------------------------------------- Diagramme
