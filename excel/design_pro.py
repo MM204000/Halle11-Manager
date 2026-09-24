@@ -26,7 +26,26 @@ from openpyxl.workbook.defined_name import DefinedName
 from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import importlib  # noqa: E402
+import traceback  # noqa: E402
+
 import dashboard  # noqa: E402
+
+# Blatt-Layout-Module (excel/layouts/<name>.py, je Modul eine Funktion apply(wb)) in dieser Reihenfolge
+LAYOUTS = ["chrome", "start", "leitfaden", "steps", "cockpit", "calc", "forms", "bank", "sensitivity", "diagramme"]
+STRICT = os.environ.get("DESIGN_STRICT") == "1"
+MODULE_ERRORS = []
+
+
+def run_hook(label, fn, *args):
+    try:
+        return fn(*args)
+    except Exception:  # Module werden parallel entwickelt – ein defektes Modul bricht den Build nur im STRICT-Modus
+        MODULE_ERRORS.append(label)
+        print(f"FEHLER in {label}:", file=sys.stderr)
+        traceback.print_exc()
+        if STRICT:
+            raise
 
 # ============================================================================ Design-Tokens / Farbthemen
 # Rollen: TEAL = Primärfarbe (Banner, Titel), TEAL_MID = Sekundär, ACC = Akzent, TEAL_L/TEAL_XL = helle Flächen.
@@ -387,94 +406,6 @@ def tile_gaps(ws, tile_rows, tile_label_rows):
                               right=gap if (right_edge and nxt_tile) else None)
 
 
-# ============================================================================ Kopfleiste
-NAV_MIN_PX = 1480  # Mindestbreite der Kopfleiste (Platz für alle Reiter)
-
-
-def col_px(ws, col):
-    d = ws.column_dimensions.get(get_column_letter(col))
-    w = d.width if d is not None and d.customWidth and d.width else 8.43
-    return int(w * 7 + 5)
-
-
-def masthead(ws, title_text):
-    """Kopfleiste als Farbfläche; Reiter und Logo-Schriftzug setzt navigation.py als Formen darüber."""
-    brand = [c for c in ws[2] if c.value == "MM HOLDING"]
-    last_col = brand[0].column if brand else ws.max_column
-    for mr in list(ws.merged_cells.ranges):
-        if mr.min_row <= 2 <= mr.max_row:
-            if brand and mr.min_col == brand[0].column:
-                last_col = mr.max_col
-            ws.unmerge_cells(str(mr))
-    for c in ws[2]:
-        c.value = None
-        c.hyperlink = None
-    px, col = 0, 1
-    while col <= last_col or px < NAV_MIN_PX:
-        px += col_px(ws, col)
-        col += 1
-    last_col = col - 1
-    for r, h in ((1, 6), (2, 33), (3, 3)):
-        ws.row_dimensions[r].height = h
-        for cc in range(1, last_col + 1):
-            c = ws.cell(r, cc)
-            c.fill = fill(ACC if r == 3 else TEAL)
-            c.border = Border()
-
-
-def stepper_row(ws):
-    """Leitfaden-Seiten: Punktreihe (●○○) durch freie Zeile für die Schritt-Leiste ersetzen."""
-    if not re.match(r"S\d\d ", ws.title):
-        return
-    for c in ws[8]:
-        if isinstance(c.value, str) and set(c.value) <= set("●○"):
-            c.value = None
-    ws.row_dimensions[8].height = 30
-    ws.row_dimensions[9].height = 10
-
-
-def purchase_selector(wb):
-    """Direktauswahl Privat / Kapitalgesellschaft auf der Startseite (steuert den Namen „Rechtsform“)."""
-    ws, s09 = wb["Start"], wb["S09 Steuern"]
-    current = s09["D12"].value
-    ws.row_dimensions[23].height = 34
-    ws.row_dimensions[22].height = 3.75
-    lab = ws["C23"]
-    lab.value = "KAUF ALS"
-    lab.font = Font(name=SANS, sz=9, b=True, color=TEAL)
-    lab.alignment = Alignment(horizontal="right", vertical="center", indent=1)
-    ws.merge_cells("D23:G23")
-    sel = ws["D23"]
-    sel.value = current
-    sel.font = Font(name=SANS, sz=11, b=True, color=INPUT_FG)
-    sel.fill = fill(INPUT_BG)
-    sel.alignment = Alignment(horizontal="left", vertical="center", indent=1, shrink_to_fit=True)
-    sel.protection = Protection(locked=False)
-    ln = side("medium", INPUT_LINE)
-    for col in "DEFG":
-        ws[f"{col}23"].fill = fill(INPUT_BG)
-        ws[f"{col}23"].border = Border(top=ln, bottom=ln, left=ln if col == "D" else None, right=ln if col == "G" else None)
-    dv = DataValidation(type="list", formula1="=L_Rechtsform", allow_blank=False, showDropDown=False)
-    dv.promptTitle = "Kaufstruktur"
-    dv.prompt = "Privatperson oder Kapitalgesellschaft (vermögensverwaltende bzw. gewerbliche GmbH) wählen."
-    dv.showInputMessage = True
-    ws.add_data_validation(dv)
-    dv.add("D23")
-    wb.defined_names["Rechtsform"] = DefinedName("Rechtsform", attr_text="Start!$D$23")
-    # Schritt 9 zeigt die Auswahl nur noch an
-    for dvs in list(s09.data_validations.dataValidation):
-        if "D12" in str(dvs.sqref):
-            s09.data_validations.dataValidation.remove(dvs)
-    s09["D12"].value = "=Rechtsform"
-    s09["D12"].protection = Protection(locked=True)
-    s09["D12"].fill = fill(TEAL_L)
-    s09["D12"].font = Font(name=SANS, sz=10, b=True, color=TEAL)
-    s09["D12"].border = Border()
-    s09["D12"].hyperlink = Hyperlink(ref="D12", location="'Start'!D23", display="Auswahl auf der Startseite")
-    s09["F12"].value = "Auswahl direkt auf der Startseite („Kauf als“) – Klick auf das Feld öffnet sie. " + str(s09["F12"].value or "")
-    s09["F12"].data_type = "s"
-
-
 def sheet_title(ws):
     m = re.match(r"S(\d\d) (.+)", ws.title)
     if m:
@@ -554,8 +485,6 @@ def design_workbook(src, tmp):
         normalise_merged(ws)
         tile_gaps(ws, tile_rows, tile_label_rows)
         section_rules(ws)
-        masthead(ws, sheet_title(ws))
-        stepper_row(ws)
 
         for ref in ctx["hints"]:
             ws.conditional_formatting.add(ref, FormulaRule(formula=[f'LEFT({ref},1)="⚠"'], font=Font(color=RED, bold=True)))
@@ -586,8 +515,23 @@ def design_workbook(src, tmp):
             part.font = "Aptos,Regular"
             part.color = MUTED2
 
-    purchase_selector(wb)
-    dashboard.build(wb, {k: globals()[k] for k in ("TEAL", "TEAL_MID", "ACC", "TEAL_L", "TEAL_XL", "ON_DARK_2", "ON_DARK_ACC")})
+    # ---- globale Regeln (früh) → Blatt-Layouts → globale Regeln (final) → Dashboard → Druck
+    import global_rules
+    run_hook("global_rules.early", global_rules.early, wb)
+    for name in LAYOUTS:
+        try:
+            mod = importlib.import_module(f"layouts.{name}")
+        except Exception:
+            MODULE_ERRORS.append(f"layouts.{name} (Import)")
+            traceback.print_exc()
+            if STRICT:
+                raise
+            continue
+        run_hook(f"layouts.{name}", mod.apply, wb)
+    run_hook("global_rules.final", global_rules.final, wb)
+    run_hook("dashboard.build", dashboard.build, wb,
+             {k: globals()[k] for k in ("TEAL", "TEAL_MID", "ACC", "TEAL_L", "TEAL_XL", "ON_DARK_2", "ON_DARK_ACC")})
+    run_hook("global_rules.page_setup", global_rules.page_setup, wb)
     # Beim Öffnen: jedes Blatt oben links, Cursor in der ersten Eingabe-/Inhaltszeile
     for w in wb.worksheets:
         w.sheet_view.topLeftCell = "A1"
@@ -595,7 +539,8 @@ def design_workbook(src, tmp):
         for sel in w.sheet_view.selection:
             sel.activeCell = anchor
             sel.sqref = anchor
-    wb._named_styles["Normal"].font = Font(name=SANS, sz=10)
+    # Standardschrift Calibri 11 → Excel-Ziffernbreite 7 px; alle Zellen tragen ihre eigene Aptos-Schrift
+    wb._named_styles["Normal"].font = Font(name="Calibri", sz=11)
     wb.properties.title = "Immobilien-Kalkulation"
     wb.properties.creator = "MM Holding GmbH"
     wb.properties.subject = "Kauf, Finanzierung, Cashflow, Steuern und Exit vermieteter Immobilien"
@@ -603,179 +548,6 @@ def design_workbook(src, tmp):
     for w in wb.worksheets:
         w.sheet_view.tabSelected = w.title == "Start"
     wb.save(tmp)
-
-
-# ============================================================================ Diagramme & Logo
-NS = {"c": "http://schemas.openxmlformats.org/drawingml/2006/chart",
-      "a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
-
-def a(tag):
-    ns, t = tag.split(":")
-    return f"{{{NS[ns]}}}{t}"
-
-
-def set_run_props(rpr, size, color, bold=None):
-    rpr.set("sz", str(size))
-    if bold is not None:
-        rpr.set("b", "1" if bold else "0")
-    for sf in rpr.findall(a("a:solidFill")):
-        rpr.remove(sf)
-    sf = etree.Element(a("a:solidFill"))
-    etree.SubElement(sf, a("a:srgbClr")).set("val", color)
-    rpr.insert(0, sf)
-    lat = rpr.find(a("a:latin"))
-    if lat is None:
-        lat = etree.SubElement(rpr, a("a:latin"))
-    lat.set("typeface", SANS)
-
-
-def _walls(tag):
-    el = etree.Element(a(tag))
-    etree.SubElement(el, a("c:thickness")).set("val", "0")
-    sp = etree.SubElement(el, a("c:spPr"))
-    etree.SubElement(sp, a("a:noFill"))
-    ln = etree.SubElement(sp, a("a:ln"))
-    etree.SubElement(ln, a("a:noFill"))
-    return el
-
-
-def _view3d(rot_x, rot_y, right_angle, perspective=None):
-    v = etree.Element(a("c:view3D"))
-    etree.SubElement(v, a("c:rotX")).set("val", str(rot_x))
-    etree.SubElement(v, a("c:rotY")).set("val", str(rot_y))
-    etree.SubElement(v, a("c:depthPercent")).set("val", "100")
-    etree.SubElement(v, a("c:rAngAx")).set("val", "1" if right_angle else "0")
-    if perspective is not None and not right_angle:
-        etree.SubElement(v, a("c:perspective")).set("val", str(perspective))
-    return v
-
-
-def make_3d(root):
-    """Säulen- und Kreisdiagramme in schemakonforme 3D-Varianten überführen."""
-    chart = root.find(a("c:chart"))
-    plot = chart.find(a("c:plotArea"))
-    kind = None
-    for bc in plot.findall(a("c:barChart")):
-        bc.tag = a("c:bar3DChart")
-        for tag in ("c:overlap", "c:serLines"):
-            for el in bc.findall(a(tag)):
-                bc.remove(el)
-        for pos in list(bc.iter(a("c:dLblPos"))):
-            pos.getparent().remove(pos)
-        gw = bc.find(a("c:gapWidth"))
-        gd = etree.Element(a("c:gapDepth"))
-        gd.set("val", "80")
-        shape = etree.Element(a("c:shape"))
-        shape.set("val", "box")
-        if gw is not None:
-            gw.set("val", str(min(int(gw.get("val", "150")), 90)))
-            gw.addnext(gd)
-        else:
-            bc.find(a("c:axId")).addprevious(gd)
-        gd.addnext(shape)
-        kind = "bar"
-    for pc in plot.findall(a("c:pieChart")):
-        pc.tag = a("c:pie3DChart")
-        for el in pc.findall(a("c:firstSliceAng")):
-            pc.remove(el)
-        kind = "pie"
-    if kind is None:
-        return
-    view = _view3d(35, 0, False, 20) if kind == "pie" else _view3d(12, 18, True)
-    plot.addprevious(view)
-    if kind == "bar":
-        for tag in ("c:floor", "c:sideWall", "c:backWall"):
-            plot.addprevious(_walls(tag))
-
-
-def style_chart(xml):
-    root = etree.fromstring(xml)
-    make_3d(root)
-    # Serienfarben (Text wird separat gesetzt)
-    for clr in root.iter(a("a:srgbClr")):
-        v = clr.get("val", "").lower()
-        if v in SERIES_MAP:
-            clr.set("val", SERIES_MAP[v])
-    for lat in root.iter(a("a:latin")):
-        lat.set("typeface", SANS)
-    # Titel
-    for t in root.iter(a("c:title")):
-        for rpr in list(t.iter(a("a:defRPr"))) + list(t.iter(a("a:rPr"))):
-            set_run_props(rpr, 1050, INK, True)
-    # Achsen, Legende, Datenbeschriftungen
-    for tag in ("c:catAx", "c:valAx", "c:dateAx", "c:serAx"):
-        for ax in root.iter(a(tag)):
-            for rpr in ax.iter(a("a:defRPr")):
-                set_run_props(rpr, 800, MUTED)
-            sp = ax.find(a("c:spPr"))
-            if sp is not None:
-                for ln in sp.iter(a("a:ln")):
-                    for clr in ln.iter(a("a:srgbClr")):
-                        clr.set("val", LINE2)
-            mg = ax.find(a("c:majorGridlines"))
-            if mg is not None:
-                for ln in mg.iter(a("a:ln")):
-                    ln.set("w", "6350")
-                    for clr in ln.iter(a("a:srgbClr")):
-                        clr.set("val", "ECEEF0")
-    for lg in root.iter(a("c:legend")):
-        for rpr in lg.iter(a("a:defRPr")):
-            set_run_props(rpr, 800, MUTED)
-    for dl in root.iter(a("c:dLbls")):
-        for rpr in dl.iter(a("a:defRPr")):
-            set_run_props(rpr, 800, INK2)
-    # Kreisdiagramme: hellere Hauptfarbe (3D-Schattierung bleibt lesbar)
-    for tag in ("c:pieChart", "c:pie3DChart"):
-        for pc in root.iter(a(tag)):
-            for clr in pc.iter(a("a:srgbClr")):
-                if clr.get("val", "").upper() == SERIES[0]:
-                    clr.set("val", PIE_MAIN)
-    # Kreisdiagramme: Beschriftung außen, gut lesbar
-    for tag in ("c:pieChart", "c:pie3DChart", "c:doughnutChart"):
-        for pc in root.iter(a(tag)):
-            for pos in pc.iter(a("c:dLblPos")):
-                if tag != "c:doughnutChart":
-                    pos.set("val", "outEnd")
-            for rpr in pc.iter(a("a:defRPr")):
-                set_run_props(rpr, 800, INK2, True)
-            for dl in pc.iter(a("c:dLbls")):
-                if dl.find(a("c:dLblPos")) is None and tag != "c:doughnutChart":
-                    pos = etree.Element(a("c:dLblPos"))
-                    pos.set("val", "outEnd")
-                    anchor = dl.find(a("c:txPr")) if dl.find(a("c:txPr")) is not None else dl.find(a("c:spPr"))
-                    if anchor is not None:
-                        anchor.addnext(pos)
-                    else:
-                        dl.insert(0, pos)
-    # Liniendiagramme: kräftigere, runde Linien
-    for lc in root.iter(a("c:lineChart")):
-        for ser in lc.findall(a("c:ser")):
-            sp = ser.find(a("c:spPr"))
-            if sp is not None:
-                for ln in sp.findall(a("a:ln")):
-                    ln.set("w", str(max(int(ln.get("w", "0") or 0), 31750)))
-                    ln.set("cap", "rnd")
-    # Diagrammfläche ohne Rahmen
-    cs_sp = root.find(a("c:spPr"))
-    if cs_sp is None:  # Diagrammfläche ohne Rahmen, Standardschrift klein und grau
-        cs_sp = etree.Element(a("c:spPr"))
-        etree.SubElement(cs_sp, a("a:noFill"))
-        etree.SubElement(cs_sp, a("a:ln"))
-        root.find(a("c:chart")).addnext(cs_sp)
-    if root.find(a("c:txPr")) is None:
-        tx = etree.Element(a("c:txPr"))
-        etree.SubElement(tx, a("a:bodyPr"))
-        etree.SubElement(tx, a("a:lstStyle"))
-        ppr = etree.SubElement(etree.SubElement(tx, a("a:p")), a("a:pPr"))
-        set_run_props(etree.SubElement(ppr, a("a:defRPr")), 800, MUTED)
-        etree.SubElement(tx.find(a("a:p")), a("a:endParaRPr")).set("lang", "de-DE")
-        cs_sp.addnext(tx)
-    if cs_sp is not None:
-        for ln in cs_sp.findall(a("a:ln")):
-            for child in list(ln):
-                ln.remove(child)
-            etree.SubElement(ln, a("a:noFill"))
-    return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
 
 
 def recolor_png(data):
@@ -801,9 +573,7 @@ def postprocess(tmp, dst):
     with zipfile.ZipFile(tmp) as zin, zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:
         for item in zin.infolist():
             data = zin.read(item.filename)
-            if item.filename.startswith("xl/charts/chart") and item.filename.endswith(".xml"):
-                data = style_chart(data)
-            elif item.filename == "xl/theme/theme1.xml":
+            if item.filename == "xl/theme/theme1.xml":
                 s = data.decode("utf-8")
                 s = re.sub(r'(<a:majorFont><a:latin typeface=")[^"]*"', rf'\1{DISPLAY}"', s)
                 s = re.sub(r'(<a:minorFont><a:latin typeface=")[^"]*"', rf'\1{SANS}"', s)
@@ -820,4 +590,6 @@ if __name__ == "__main__":
     design_workbook(src, tmp)
     postprocess(tmp, dst)
     os.remove(tmp)
+    if MODULE_ERRORS:
+        print("Module mit Fehlern:", ", ".join(MODULE_ERRORS), file=sys.stderr)
     print(f"gespeichert: {dst}")
