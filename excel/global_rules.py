@@ -99,12 +99,18 @@ INT_CELLS = {"Konfiguration": ["C33", "C35"]}
 
 # =============================================================================== Typo-Skala (P2-07)
 SCALE = (8, 9, 10, 12.5, 14, 16, 20, 22, 30)
-KEEP_SIZE = {("Start", "D23")}           # Auswahlfeld „Kauf als“ bleibt 11 pt
+KEEP_SIZE = {("Start", "D23"), ("Start", "G23")}   # Auswahlfeld „Kauf als“ (11 pt) und sein ▾
+SYMBOLS = set("✓○●▾›‹→↓↑⚠•✗×")
+
+
+def _symbol(v):
+    return isinstance(v, str) and 0 < len(v.strip()) <= 2 and all(ch in SYMBOLS or ch == " " for ch in v)
 
 VERSAL_FIX = [(re.compile(r"§ 32A\b"), "§ 32a"), (re.compile(r"\bESTG\b"), "EStG"), (re.compile(r"\bGRESTG\b"), "GrEStG"),
               (re.compile(r"\bKSTG\b"), "KStG"), (re.compile(r"\bGEWSTG\b"), "GewStG"), (re.compile(r"\bESTDV\b"), "EStDV"),
               (re.compile(r"\bSOLZG\b"), "SolZG"), (re.compile(r"\bUSTG\b"), "UStG"), (re.compile(r"\bAFA\b"), "AfA"),
-              (re.compile(r"\(AFA\)"), "(AfA)")]
+              (re.compile(r"\(AFA\)"), "(AfA)"), (re.compile(r"\bABS\. "), "Abs. "), (re.compile(r"\bNR\. "), "Nr. "),
+              (re.compile(r"\bI\. D\. F\."), "i. d. F.")]
 
 OLD_FONTS = {None, "Aptos", "Aptos Display", "Aptos Narrow", "Inter", "Fraunces", "IBM Plex Mono", "Arial"}
 LINE_COLORS = {C.LINE, C.LINE2, "D6D0C2", "B9B4A6", "E2DCCE", "EBE6DB"}
@@ -313,22 +319,104 @@ def table_rules(ws, c1, c2, first=8, last=None):
                 b = c.border
                 c.border = Border(top=b.top if (b.top is not None and b.top.style) else None,
                                   bottom=C.side("hair", C.LINE))
+        if kind in ("row", "sum"):
+            edges(ws, r, c1, c2, anchors)
     return kinds
 
 
-def row_grid(ws, kinds, c1, c2, line_pt=12, pad=6, base=C.H_ROW):
-    """Zeilenraster: einzeilig 18 pt, zweizeilig 30 pt, dreizeilig 42 pt; einzeilig mittig, mehrzeilig oben."""
+def _is_num(c):
+    return isinstance(c.value, (int, float)) and not isinstance(c.value, bool) or \
+        (C.is_formula(c.value) and _numeric_fmt(c.number_format))
+
+
+def edges(ws, r, c1, c2, anchors):
+    """P1-06: Text links mit Einzug 1, Zahlen rechts mit Einzug 1 (zentrierte Zellen bleiben zentriert).
+    Beschriftungen der ersten Spalte brechen um statt abgeschnitten zu werden."""
+    for cc in range(C.col(c1), C.col(c2) + 1):
+        c = ws.cell(r, cc)
+        if c.value is None or ((r, cc) in anchors and anchors[(r, cc)][1] != cc):
+            continue
+        if c.alignment.horizontal == "center":
+            continue
+        if _is_num(c):
+            _set_align(c, horizontal="right", indent=1)
+        else:
+            _set_align(c, horizontal="left", indent=1)
+        if cc == C.col(c1) and _static(c):
+            _set_align(c, wrap_text=True)
+
+
+NAME_VALUES = {}
+
+
+def resolve_names(wb):
+    """Namen → aktueller Zellwert (für die Zeilenhöhe von Anzeigeformeln wie =Rechtsform)."""
+    NAME_VALUES.clear()
+    for n, d in wb.defined_names.items():
+        try:
+            for title, coord in d.destinations:
+                if title in wb.sheetnames and ":" not in coord:
+                    v = wb[title][coord.replace("$", "")].value
+                    if v is not None and not C.is_formula(v):
+                        NAME_VALUES[n.lower()] = v
+        except Exception:
+            continue
+
+
+def _display_text(c):
+    v = c.value
+    if C.is_formula(v):
+        m = re.fullmatch(r"=([A-Za-z_][A-Za-z0-9_.]*)", v.strip())
+        return NAME_VALUES.get(m.group(1).lower()) if m else None
+    return v
+
+
+def _lines(text, width_px, size, bold):
+    """Zeilenzahl mit der Calibri-Laufweite aus core.text_px (in der Vorschau gemessen ≈ 3 % zu breit)."""
+    import math
+    n = 0
+    for para in str(text).split("\n"):
+        n += max(1, math.ceil(0.97 * C.text_px(para, size, bold) / max(width_px, 20)))
+    return n
+
+
+def fit_row(ws, row, c1, c2, base=C.H_ROW, line_pt=12, pad=6, max_lines=3):
+    """Wie core.fit_row_height, zählt aber auch Anzeigeformeln (=Name) mit ihrem aktuellen Text."""
+    merged = {}
+    for mr in ws.merged_cells.ranges:
+        if mr.min_row == row == mr.max_row:
+            merged[mr.min_col] = mr.max_col
+    need = 1
+    for cc in range(C.col(c1), C.col(c2) + 1):
+        cell = ws.cell(row, cc)
+        text = _display_text(cell)
+        if text is None or not (cell.alignment and cell.alignment.wrap_text):
+            continue
+        w = C.span_px(ws, cc, merged.get(cc, cc)) - 7 * (cell.alignment.indent or 0) - 6
+        need = max(need, _lines(text, w, cell.font.sz or C.T_BODY, bool(cell.font.b)))
+    need = min(need, max_lines)
+    ws.row_dimensions[row].height = base if need == 1 else need * line_pt + pad
+    return need
+
+
+def row_grid(ws, kinds, c1, c2, line_pt=12, pad=6, base=C.H_ROW, keep=None):
+    """Zeilenraster: einzeilig 18 pt, zweizeilig 30 pt, dreizeilig 42 pt; einzeilig mittig, mehrzeilig oben.
+    keep: Höhen einer bereits gerasterten Nachbartabelle derselben Zeilen (es gilt das Maximum)."""
     for r, kind in kinds.items():
         if kind == "head":
-            ws.row_dimensions[r].height = C.H_HEAD
-            continue
-        if kind == "band":
-            ws.row_dimensions[r].height = C.H_BAND_B + 2 if ws.title in FORM_SHEETS else C.H_BAND_B
-            continue
-        n = C.fit_row_height(ws, r, c1, c2, base=base, line_pt=line_pt, pad=pad)
-        for c in C.iter_cells(ws, c1, r, c2, r):
-            if c.value is not None:
-                _set_align(c, vertical="center" if n == 1 else "top")
+            h = C.H_HEAD
+        elif kind == "band":
+            h = C.H_BAND_B + 2 if ws.title in FORM_SHEETS else C.H_BAND_B
+        else:
+            fit_row(ws, r, c1, c2, base=base, line_pt=line_pt, pad=pad)
+            h = ws.row_dimensions[r].height
+        if keep and r in keep:
+            h = max(h, keep[r])
+        ws.row_dimensions[r].height = h
+        if kind in ("row", "sum"):
+            for c in C.iter_cells(ws, c1, r, c2, r):
+                if c.value is not None:
+                    _set_align(c, vertical="center" if h <= base else "top")
 
 
 def page_footer(ws, c1, c2, row=None):
@@ -351,6 +439,45 @@ def page_footer(ws, c1, c2, row=None):
         ws.row_dimensions[row - 1].height = 14
 
 
+UNIT_TEXT = {"€": None, "%": None, "€/Monat": "pro Monat", "€ p. a.": "pro Jahr", "€/m²": "je m²",
+             "€/m² p. a.": "je m² p. a.", "% Darlehen": "vom Darlehen", "% der Miete": "der Miete",
+             "% Verkaufspreis": "vom Verkaufspreis", "fach": None}
+
+
+def forms_pre(ws):
+    """Vor dem Tabellenstil: Einheiten, Kopftexte, Jahresspalte (Eingaben / Konfiguration)."""
+    if ws.title == "Eingaben":
+        for r in range(11, 146):
+            e = ws.cell(r, 5)
+            if _static(e) and e.value in UNIT_TEXT:
+                if e.value == "fach":
+                    ws.cell(r, 3).number_format = C.NUMFMT["mult1"]
+                new = UNIT_TEXT[e.value]
+                e.value = None if new is None else new
+                if new is not None:
+                    e.data_type = "s"
+        for r in range(9, 146):
+            c, d = ws.cell(r, 3), ws.cell(r, 4)
+            if _fill_rgb(c) == C.HEAD and d.value is None and isinstance(c.value, str):
+                C.safe_merge(ws, "C", r, "D", r)
+                C.set_text(c, "WERT")
+                c.alignment = C.align("right", "center", 1)
+        for c in C.iter_cells(ws, "B", 71, "L", 71):  # „Summe Maßnahmen“ ist eine Summenzeile
+            if c.value is not None:
+                _set_font(c, b=True)
+            if not _is_input(c):
+                c.fill = C.fill(C.TINT)
+    if ws.title == "Konfiguration":
+        for r in range(45, 54):
+            c = ws.cell(r, 2)
+            c.number_format = C.NUMFMT["year"]
+            _set_align(c, horizontal="left", indent=1)
+        for r in range(10, 81):
+            e = ws.cell(r, 5)
+            if _static(e):
+                _set_align(e, wrap_text=True)
+
+
 def forms_defaults(ws):
     """Eingaben / Konfiguration: Kopf über Zahlen rechts, Datumsspalten zentriert, Jahre links (P1-06)."""
     if ws.title == "Eingaben":
@@ -365,10 +492,6 @@ def forms_defaults(ws):
     if ws.title == "Konfiguration":
         for r in range(10, 26):
             _set_align(ws.cell(r, 4), horizontal="center", indent=0)
-        for r in range(45, 54):
-            c = ws.cell(r, 2)
-            c.number_format = C.NUMFMT["year"]
-            _set_align(c, horizontal="left", indent=1)
         for coord in ("G27",):
             _set_align(ws[coord], horizontal="left", indent=0)
         g43 = ws["G43"]  # Listenkopf wie G9 / G15
@@ -381,6 +504,9 @@ def forms_defaults(ws):
         for coord, text, h in (("C27", "WERT", "right"), ("E27", "FORMEL / ERLÄUTERUNG", "left"),
                                ("C56", "WERT", "right"), ("E56", "ERLÄUTERUNG", "left")):
             c = ws[coord]
+            title = ws.cell(c.row, 2)
+            if C.text_px(title.value, C.T_BODY, True) + 14 > C.span_px(ws, 2, c.column - 1):
+                continue  # Bandtitel braucht den Platz
             if c.value is None:
                 C.set_text(c, text)
                 c.font = C.font(C.T_MICRO, True, C.SKY)
@@ -431,6 +557,9 @@ def bank_defaults(ws):
                                                    font=Font(color=C.RED, bold=True), fill=C.fill(C.RED_BG)))
     ws.conditional_formatting.add(ref, FormulaRule(formula=[f"ISNUMBER({cell})"], stopIfTrue=True,
                                                    font=Font(color=C.GREEN, bold=True)))
+    for r in range(9, res + 2):  # Kommentar-/Nachweisspalte neben Eingaben bleibt beschreibbar
+        if ws.cell(r, 3).protection.locked is False:
+            ws.cell(r, 5).protection = Protection(locked=False)
     ws.protection.sheet = True
     ws.protection.objects = True
     ws.protection.scenarios = True
@@ -461,25 +590,32 @@ def early(wb):
     for name, spec in HEADERS.items():
         if name in wb.sheetnames:
             header(wb[name], spec)
+    resolve_names(wb)
+    for name in FORM_SHEETS:
+        if name in wb.sheetnames:
+            forms_pre(wb[name])
+    for name in NOTE_COLS:
+        if name in wb.sheetnames:
+            note_cols(wb[name])
     for name, spans in TABLES.items():
         if name not in wb.sheetnames:
             continue
         ws = wb[name]
+        done = {}
         for c1, c2 in spans:
             kinds = table_rules(ws, c1, c2, first=8)
             if name == "Hinweise":
                 row_grid(ws, kinds, c1, c2, line_pt=13, pad=10)
             else:
-                row_grid(ws, kinds, c1, c2)
+                row_grid(ws, kinds, c1, c2, keep=done)
+            for r in kinds:
+                done[r] = ws.row_dimensions[r].height or C.H_ROW
     for name, (c1, c2) in CONTENT.items():
         if name in wb.sheetnames and name != "Konfiguration":
             page_footer(wb[name], c1, c2)
     for name in FORM_SHEETS:
         if name in wb.sheetnames:
             forms_defaults(wb[name])
-    for name in NOTE_COLS:
-        if name in wb.sheetnames:
-            note_cols(wb[name])
     for name in ("Haushaltsrechnung", "Vermögensaufstellung"):
         if name in wb.sheetnames:
             bank_defaults(wb[name])
@@ -500,8 +636,28 @@ def final(wb):
                     rule.dxf.font.name = None
 
 
+def _rich_runs(c):
+    """Rich-Text: Sekundärtext ≤ 9 pt nie in 8A9099, nur Calibri, Mindestgröße 8 pt."""
+    from openpyxl.cell.rich_text import CellRichText, TextBlock
+    v = c.value
+    if not isinstance(v, CellRichText):
+        return
+    for part in v:
+        if not isinstance(part, TextBlock) or part.font is None:
+            continue
+        f = part.font
+        col = _rgb(f.color) if f.color is not None else None
+        if (f.sz or 11) <= 9 and col == C.MUTED2:
+            f.color = C.MUTED
+        if f.sz is not None and f.sz < 8:
+            f.sz = 8
+        if f.rFont in OLD_FONTS - {None}:
+            f.rFont = C.SANS
+
+
 def normalise(ws):
     for c in ws._cells.values():
+        _rich_runs(c)
         al = c.alignment
         f = c.font
         # 1) kein „An Zellgröße anpassen“; Einzug nur mit links/rechts
@@ -512,6 +668,8 @@ def normalise(ws):
                 h = "right" if num else "left"
             _set_align(c, horizontal=h, shrink_to_fit=False)
         if c.value is None:
+            if f.name in OLD_FONTS:  # leere Zellen: beim Tippen erscheint sonst die Altschrift
+                _set_font(c, name=C.SANS)
             continue
         # 2) Mindestschrift 8 pt; 3) Sekundärtext ≤ 9 pt nie in 8A9099 (außer inaktive Felder)
         kw = {}
@@ -519,6 +677,11 @@ def normalise(ws):
             kw["sz"] = 8
         if (f.sz or 11) <= 9 and _rgb(f.color) == C.MUTED2 and _fill_rgb(c) != C.INACTIVE_BG:
             kw["color"] = C.MUTED
+        # 3b) Typo-Skala (P2-07): Zwischenstufen abbilden – Ausnahmen: Auswahlfeld, Symbole, Textergebnisse S-Seiten
+        sz0 = f.sz or 11
+        if sz0 not in SCALE and (ws.title, c.coordinate) not in KEEP_SIZE and not _symbol(c.value) \
+                and not (sz0 == 9.5 and STEP_RE.match(ws.title)):
+            kw["sz"] = _map_size(c)
         # 4) nur Calibri
         if f.name in OLD_FONTS:
             kw["name"] = C.SANS
@@ -574,6 +737,15 @@ def _print(ws, area, orient="landscape", w=1, h=0, scale=None, rows=None, cols=N
         ws.page_setup.pageOrder = "overThenDown"
 
 
+def _chart_right_col(ws):
+    cols = []
+    for ch in getattr(ws, "_charts", []):
+        to = getattr(ch.anchor, "to", None)
+        if to is not None:
+            cols.append(to.col + (1 if to.colOff else 0))
+    return max(cols) if cols else 0
+
+
 def print_setup(ws):
     t = ws.title
     fr = _footer_row(ws)
@@ -605,10 +777,14 @@ def print_setup(ws):
         _print(ws, "$B$5:$M$63", breaks=(43,))
     elif t == "Bankgespräch":
         _print(ws, f"$B$5:$I${max(_footer_row(ws, 2, 9) or 0, 67)}", "portrait", 1, 1)
-    elif t == "Haushaltsrechnung":
-        _print(ws, f"$B$5:$E${_footer_row(ws, 2, 5) or 50}", "portrait", 1, 1)
-    elif t == "Vermögensaufstellung":
-        _print(ws, f"$B$5:$E${_footer_row(ws, 2, 5) or 37}", "portrait", 1, 1)
+    elif t in ("Haushaltsrechnung", "Vermögensaufstellung"):
+        last = _footer_row(ws, 2, 5) or (50 if t == "Haushaltsrechnung" else 37)
+        right = _chart_right_col(ws)
+        if right > 5:  # Diagramm rechts neben der Tabelle: quer, sonst hoch (B:E)
+            from openpyxl.utils import get_column_letter
+            _print(ws, f"$B$5:${get_column_letter(right)}${last}", "landscape", 1, 1)
+        else:
+            _print(ws, f"$B$5:$E${last}", "portrait", 1, 1)
     elif t == "Hinweise":
         _print(ws, f"A1:E{_footer_row(ws, 1, 5) or 39}", rows="8:9")
     elif t == "Konfiguration":
@@ -616,6 +792,13 @@ def print_setup(ws):
 
 
 def page_setup(wb):
+    if "Dashboard" in wb.sheetnames:  # entsteht erst nach final(): dieselben Sicherheitsregeln
+        ws = wb["Dashboard"]
+        normalise(ws)
+        for cf in ws.conditional_formatting:
+            for rule in cf.rules:
+                if rule.dxf is not None and rule.dxf.font is not None:
+                    rule.dxf.font.name = None
     for ws in wb.worksheets:
         ps = ws.page_setup
         ps.paperSize = 9
