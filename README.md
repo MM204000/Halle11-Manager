@@ -27,3 +27,17 @@ Sie wird von `excel/build_immobilien_kalkulation.py` erzeugt (`pip install openp
 - **Cockpit**: Gesamtbewertung, KPI-Kacheln, Kennzahlen-Check mit Ampel, Diagramme, Prüfhinweise, Zeitverlauf.
 - **Projektion / Finanzierung / Steuern / AfA-Vergleich / Sensitivität**: vollständige Formelrechnung über 30 Jahre.
 - **Bankgespräch**: druckfertige Übersicht inkl. Haushaltsrechnung.
+
+## Excel: Immobilien-Kalkulationstool Pro (Premium-Design)
+
+`excel/Immobilien-Kalkulationstool_Pro_3.xlsx` ist das Kalkulationstool Pro im überarbeiteten Premium-Design.
+Es wird aus der Vorlage `excel/quelle/Immobilien-Kalkulationstool_Pro_1.xlsx` erzeugt:
+
+```
+pip install openpyxl lxml pillow
+python excel/design_pro.py excel/quelle/Immobilien-Kalkulationstool_Pro_1.xlsx excel/Immobilien-Kalkulationstool_Pro_3.xlsx
+```
+
+Das Skript verändert ausschließlich die Darstellung (Kopfleiste, Typografie, Farben, Tabellen, Kacheln,
+Schaltflächen, Hinweise, Zahlenformate, Diagramme, Logo). Formeln, Namen, Blattschutz und Datenüberprüfungen
+bleiben unverändert. Nach dem Erzeugen die Mappe einmal in Excel öffnen oder mit LibreOffice neu berechnen.
