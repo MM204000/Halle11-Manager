@@ -18,6 +18,31 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
 
 
+# Bewusste #NV-Werte in ausgeblendeten Diagramm-Hilfsspalten (Verkaufsmarke: kein Punkt/keine Beschriftung
+# in Nicht-Verkaufsjahren) sind kein Rechenfehler.
+NA_HELPERS = {"Dashboard": ("AK", "AL"), "Diagramme": ("X", "Y", "Z")}
+
+
+def recalc_ok(out):
+    import json
+    import re
+    try:
+        rep = json.loads(out[out.index("{"):out.rindex("}") + 1])
+    except ValueError:
+        return False
+    if rep.get("status") == "success":
+        return True
+    for kind, info in (rep.get("error_summary") or {}).items():
+        if kind != "#N/A":
+            return False
+        for ref in info.get("locations", []):
+            sheet, cell = ref.rsplit("!", 1)
+            col = re.match(r"\$?([A-Z]+)", cell).group(1)
+            if col not in NA_HELPERS.get(sheet.strip("'"), ()):
+                return False
+    return True
+
+
 def find_recalc():
     if os.environ.get("RECALC_PY"):
         return os.environ["RECALC_PY"]
@@ -53,7 +78,7 @@ def main():
     if not recalc:
         raise SystemExit("recalc.py nicht gefunden (RECALC_PY setzen)")
     code, out = run([PY, recalc, stage, "240"])
-    if '"status": "success"' not in out.replace("\n", " ").replace("  ", " ") and '"status":"success"' not in out.replace(" ", ""):
+    if not recalc_ok(out):
         print("WARNUNG: Neuberechnung meldet Fehler")
         if a.strict:
             raise SystemExit(1)
