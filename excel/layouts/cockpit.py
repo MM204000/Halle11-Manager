@@ -246,8 +246,8 @@ def _unmerge_rows(ws, r1, r2, lo="B", hi="L"):
             ws.unmerge_cells(str(mr))
 
 
-def _link(cell, text, target_sheet, target_cell=None, tooltip=None, size=T_MICRO, h="right", formula=False):
-    """Zell-Link im Stil der Abschnitts-Meta (8 pt 1D4F8A, rechtsbündig) – Ziel über core.link_loc."""
+def _link(cell, text, target_sheet, target_cell=None, tooltip=None, size=C.T_LABEL, h="right", formula=False):
+    """Zell-Link im Stil der Abschnitts-Meta (8,5 pt 1D4F8A, rechtsbündig) – Ziel über core.link_loc."""
     if formula:
         cell.value = text
     else:
@@ -284,37 +284,38 @@ def header(ws):
     date = 'TEXT(DAY(Kaufdatum),"00")&"."&TEXT(MONTH(Kaufdatum),"00")&"."&YEAR(Kaufdatum)'
     subtitle = (f'=Obj_Name&"  ·  "&Obj_Adresse&"  ·  Kauf am "&{date}&"  ·  Haltedauer "&Haltedauer&" Jahre  ·  "'
                 f'&{RECHTSFORM_SHORT}')
-    C.page_header(ws, FIRST, LAST, "Cockpit", "Cockpit", subtitle=subtitle)
+    C.page_header(ws, FIRST, LAST, "Ergebnis  ·  Übersicht auf einer Seite", "Cockpit", subtitle=subtitle)
     ws["B6"].alignment = align("left", "bottom")
     safe_merge(ws, "B", 7, "J", 7)
-    # rechts: Gesamtbewertung (Label Z. 5, Pille Z. 6, Meta Z. 7) – Breite K:L = eine Wertspalte der Karten
+    # rechts: Gesamtbewertung wie auf dem Dashboard (P41, C.status_banner) – Label Z. 5, Banner Z. 6 (F3F7FC,
+    # linke 3-px-Kante in Statusfarbe, Urteil fett in Statusfarbe), „Erstellt für …“ Z. 7 bündig an der Inhaltskante
     safe_merge(ws, "K", 5, "L", 5)
     cap = ws["K5"]
     set_text(cap, "GESAMTBEWERTUNG")
-    cap.font = font(T_MICRO, True, BLUE)
+    cap.font = font(C.T_LABEL, True, BLUE)
     cap.alignment = align("left", "bottom")
     safe_merge(ws, "K", 6, "L", 6)
     pill = ws["K6"]
     pill.value = f"={_verdict_ref()}"
-    pill.number_format = NUMFMT["status_dot"]
+    pill.number_format = "General"
     pill.font = font(T_BODY, True, NAVY)
     pill.alignment = align("left", "center", 1)
     pill.hyperlink = Hyperlink(ref="K6", location=C.link_loc(SHEET, C.link_row(SHEET, 49)),
                                tooltip="Zu den Prüfhinweisen und der steuerlichen Einordnung")
-    ln = side("thin", MIST)
-    for c in iter_cells(ws, "K", 6, "L", 6):
-        c.fill = fill(TINT_XL)
-        c.border = Border(top=ln, bottom=ln, left=side("thick", ACCENT) if c.column == col("K") else None,
-                          right=ln if c.column == col("L") else None)
-    conds = [('ISNUMBER(SEARCH("kritisch",$K$6))', "red"), ('ISNUMBER(SEARCH("Prüfpunkten",$K$6))', "amber"),
-             ('ISNUMBER(SEARCH("Solide",$K$6))', "green")]
-    C.status_cf(ws, "K6:L6", conds, font_color=True, bold=True, fill_bg=True)
-    C.status_edge(ws, "K6", conditions=conds)
+    v = "$K$6"
+    conds = [(f'ISNUMBER(SEARCH("kritisch",{v}))', "red"), (f'ISNUMBER(SEARCH("Prüfpunkten",{v}))', "amber"),
+             (f'ISNUMBER(SEARCH("Solide",{v}))', "green")]
+    for cond, lvl in conds:                      # Urteil in Statusfarbe (Regel vor der Kante, ohne stopIfTrue)
+        C.cf_rule(ws, "K6:L6", cond, font_=Font(color=C.STATUS_COLORS[lvl][0], bold=True), stop=False)
+    C.status_banner(ws, "K", 6, "L", 6, conditions=conds)
+    for c in iter_cells(ws, "K", 6, "L", 6):     # feine Kontur wie eine Kachel-Fläche
+        c.border = Border(left=c.border.left, top=side("thin", MIST), bottom=side("thin", MIST),
+                          right=side("thin", MIST) if c.column == col("L") else None)
     safe_merge(ws, "K", 7, "L", 7)
     meta = ws["K7"]
     meta.value = '=IFERROR(IF(Erstellt_fuer="","","Erstellt für "&Erstellt_fuer),"")'
     meta.font = font(T_SMALL, False, MUTED)
-    meta.alignment = align("right", "top", 1)
+    meta.alignment = align("right", "top")
 
 
 # --------------------------------------------------------------------------------------------- Kacheln
@@ -378,7 +379,6 @@ def _block(ws, rows, lab, val, edge, merge_values=True):
                 c.alignment = align("right", "center", 1)
         elif kind == "memo":
             C.memo(ws, r, lab, edge)
-            cell.alignment = align("left", "center", 1)
             for c in iter_cells(ws, val, r, edge, r):
                 c.alignment = align("right", "center", 1)
         else:
@@ -470,51 +470,77 @@ def semantics(ws):
 
 
 # --------------------------------------------------------------------------------------------- Prüfhinweise
-# Anzeigeformeln B50:B55 (nicht referenziert): farbige Emoji der Hinweistexte → monochrome Zeichen (P2-14).
-# ▲ = Warnung, ⓘ = Information; die Semantik tragen Fläche, Kante und Schriftfarbe (bedingte Formatierung).
-HINT_FORMULA = ('=IFERROR(SUBSTITUTE(SUBSTITUTE(INDEX($AB$50:$AB$74,SMALL($AC$50:$AC$74,{k})),'
-                '"⚠","▲",1),"ℹ","ⓘ",1),"")')
+# Anzeigeformeln B50:B55 (nicht referenziert): farbige Emoji der Hinweistexte → monochrome Zeichen (P2-14);
+# die DSCR-Schwelle wird wie überall als „Ziel ≥ 1,20×“ zitiert (P21). ▲ = Warnung, ⓘ = Information.
+_HINT_PICK = 'INDEX($AB$50:$AB$74,SMALL($AC$50:$AC$74,{k}))'
+_HINT_TEXT = ('SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE({pick},"(-","(−"),"⚠","▲",1),"ℹ","ⓘ",1),'
+              '" – Banken erwarten meist ≥ 1,1 bis 1,2","× – "&' + C.threshold_text("DSCR") + ')')
+HINT_FORMULA = '=IFERROR(' + _HINT_TEXT + ',"")'
+_N_HINT = "COUNT($AC$50:$AC$74)"
+# letzter Platz: bei mehr als sechs aktiven Hinweisen Sammelzeile statt Abschneiden
+HINT_LAST = ('=IF(' + _N_HINT + '>{n},"+  "&(' + _N_HINT + '-{m})&" weitere Hinweise – Eingaben im Leitfaden '
+             '(S01–S12) prüfen",IFERROR(' + _HINT_TEXT + ',""))')
 
 
 def hints(ws):
-    """Prüfhinweise B49:L56 (P2-14, P3-03)."""
+    """Prüfhinweise B49:L56 (P2-14, P32, P41): Zähler rechts im Kopf („1 Warnung“ rot fett · „3 Hinweise“ grau,
+    direkt vor „↑ Übersicht“), Hinweiszeilen ohne Signalfläche: F3F7FC mit linker 3-px-Kante (Warnung rot,
+    Information Akzent), Warnungstext rot, Information 3A3F45; feine Abschlusslinie unter dem letzten Hinweis."""
     _unmerge_rows(ws, 49, 57)
     for c in iter_cells(ws, "C", 49, "L", 49):
         c.value = None
     C.section(ws, 49, "B", "L", "Prüfhinweise & steuerliche Einordnung", level=1)
     cnt_w = 'COUNTIF($AB$50:$AB$74,"⚠*")'
     cnt_i = 'COUNTIF($AB$50:$AB$74,"ℹ*")'
-    j49 = ws["J49"]
-    j49.value = (f'=IF(COUNT($AC$50:$AC$74)=0,"keine Hinweise",{cnt_w}&IF({cnt_w}=1," Warnung"," Warnungen")'
-                 f'&"  ·  "&{cnt_i}&IF({cnt_i}=1," Hinweis"," Hinweise"))')
-    j49.font = font(T_MICRO, False, MUTED)
-    j49.alignment = align("right", "center", 1)
+    j49, k49 = ws["J49"], ws["K49"]
+    j49.value = f'=IF({cnt_w}=0,"",{cnt_w}&IF({cnt_w}=1," Warnung"," Warnungen"))'
+    j49.font = font(C.T_LABEL, True, RED)
+    j49.alignment = align("right", "center")
+    k49.value = (f'=IF({_N_HINT}=0,"keine Hinweise",IF({cnt_i}=0,"",IF({cnt_w}>0,"  ·  ","")'
+                 f'&{cnt_i}&IF({cnt_i}=1," Hinweis"," Hinweise")))')
+    k49.font = font(C.T_LABEL, False, MUTED)
+    k49.alignment = align("left", "center")
     _up_link(ws["L49"])
-    white = side("thin", WHITE)
     for k, r in enumerate(HINT_ROWS, start=1):
-        ws[f"B{r}"].value = HINT_FORMULA.format(k=k)
+        last = r == HINT_ROWS.stop - 1
+        pick = _HINT_PICK.format(k=k)
+        ws[f"B{r}"].value = (HINT_LAST.replace("{pick}", pick).format(n=len(HINT_ROWS), m=len(HINT_ROWS) - 1)
+                             if last else HINT_FORMULA.replace("{pick}", pick))
         safe_merge(ws, "B", r, "L", r)
         c = ws[f"B{r}"]
         c.font = font(T_BODY, False, INK2)
         c.alignment = align("left", "center", 1)
         for cc in iter_cells(ws, "B", r, "L", r):
-            cc.border = Border(bottom=white)
+            cc.border = Border()
+            cc.fill = NOFILL
         set_height(ws, r, C.H_ROW)
     top, bot = HINT_ROWS.start, HINT_ROWS.stop - 1
-    anchors = f"B{top}:B{bot}"
+    white, close = side("thin", WHITE), side("thin", C.LINE_SUB)
     warn, info = f'LEFT($B{top},1)="▲"', f'$B{top}<>""'
-    # Fläche/Schrift auf der Ankerzelle (gilt für den ganzen Verbund), Kante links in Statusfarbe
-    ws.conditional_formatting.add(anchors, FormulaRule(
-        formula=[warn], stopIfTrue=True, font=Font(color=RED), fill=fill(RED_BG),
-        border=Border(left=side("thick", RED), bottom=white)))
-    ws.conditional_formatting.add(anchors, FormulaRule(
-        formula=[info], stopIfTrue=True, font=Font(color=BLUE), fill=fill(TINT_XL),
-        border=Border(left=side("thick", ACCENT), bottom=white)))
-    # weitere Hinweise (Anzeige nur bei mehr als sechs aktiven Hinweisen)
-    _link(ws["B56"], '=IF(COUNT($AC$50:$AC$74)>6,"+ "&(COUNT($AC$50:$AC$74)-6)&" weitere Hinweise – alle auf dem '
-          'Dashboard ›","")', "Dashboard", tooltip="Alle aktiven Prüfhinweise auf dem Dashboard", size=T_SMALL,
-          h="left", formula=True)
-    set_height(ws, 56, C.H_GAP)      # die leeren Hinweisplätze liefern den übrigen Weißraum
+    last = f'$B{top + 1}=""'                       # letzter gefüllter Hinweis → feine Abschlusslinie (P32)
+    # Jede Regel ist vollständig (Excel und LibreOffice wenden je Zelle die erste zutreffende Regel an):
+    # Ankerzelle B (gilt für den ganzen Verbund B:L) – Kante links in Statusfarbe, Schrift, Fläche F3F7FC
+    anchors = f"B{top}:B{bot}"
+    for cond, fg, edge in ((warn, RED, RED), (info, INK2, ACCENT)):
+        C.cf_rule(ws, anchors, f"AND({cond},{last})", font_=Font(color=fg), fill_=fill(TINT_XL),
+                  border=Border(left=side("thick", edge), bottom=close))
+        C.cf_rule(ws, anchors, cond, font_=Font(color=fg), fill_=fill(TINT_XL),
+                  border=Border(left=side("thick", edge), bottom=white))
+    # übrige Zellen des Verbunds: Fläche und Fuge bzw. Abschlusslinie
+    rest = f"C{top}:L{bot}"
+    C.cf_rule(ws, rest, f"AND({info},{last})", fill_=fill(TINT_XL), border=Border(bottom=close))
+    C.cf_rule(ws, rest, info, fill_=fill(TINT_XL), border=Border(bottom=white))
+    ws["B56"].value = None
+    ws["B56"].hyperlink = None
+    set_height(ws, 56, 6)            # Abschlusszeile (P32): Abstand zum Kopf „Diagramme“ ≈ Blockabstand
+
+
+def text_formats(ws):
+    """P16: Formelzellen mit Textformat „@“ auf Standard (sonst zeigt Excel nach F2 + Enter die Formel als Text)."""
+    for row in ws.iter_rows():
+        for c in row:
+            if c.number_format == "@" and is_formula(c.value):
+                c.number_format = "General"
 
 
 # --------------------------------------------------------------------------------------------- Diagramme
@@ -558,4 +584,5 @@ def apply(wb):
     hints(ws)
     charts(ws)
     page_footer(ws)
+    text_formats(ws)
     C.cf_close(ws)

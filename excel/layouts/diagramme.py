@@ -10,9 +10,12 @@ Läuft als letztes Layout-Modul. Aufgaben:
      S08: vor Steuern (Schritt 09 folgt).
    - „Gesamtertrag“: echter flacher Wasserfall (unsichtbare Basis, Zu-/Abfluss/Ergebnis je als +/−-Teil, Beschriftung
      über Reihen-Namen aus Zellen – dynamisch in Excel und LibreOffice).
-   - AfA-Vergleich: Balken nach Bedeutung (angewendet / anwendbar / nicht anwendbar) als drei Reihen mit #NV;
-     Gutachten-Linie mit dynamischem Namen („liegt nicht vor“).
-   - Restschuld/AfA: Nullreihen mit dynamischem Namen („Darlehen II (keines)“, „Sonder-AfA (keine)“).
+   - AfA-Vergleich: Balken nach Bedeutung (angewendet / anwendbar / nicht anwendbar) als drei Reihen, Kategorie ohne
+     Wert mit „– n. v.“; Linien je Variante plus „Im Modell angewendet“ (Farbe nach Anwendbarkeit in finish_pro).
+   - Restschuld/AfA: leere Reihen fallen in finish_pro aus der Legende; Fußnote unter dem Diagramm („Kein zweites
+     Darlehen …“, „Keine Sonder-AfA …“).
+   - „Cashflow vor und nach Steuern“: Kombidiagramm (Säule n. St. + Linie v. St.); Kreise: Legendentexte
+     „Kurzname · 12 %“ für die Kleinstsegmente.
    - Haushaltsrechnung/Vermögensaufstellung: Kurzlabels, nur Positionen > 0, absteigend sortiert (ohne Matrixformeln).
 2. Blatt „Diagramme“: Seitenkopf, Abschnittsköpfe (core.section Ebene 1, „↑ Übersicht“), Raster B:P für die Diagramme,
    Datentabellen im Tabellenstil (Summenstufen über core.sum_row), Anhang „Diagrammdaten“ als eingeklappte Gliederung,
@@ -177,7 +180,7 @@ def _all_series(ch):
     out = list(ch.series)
     for sub in getattr(ch, "_charts", []):
         if sub is not ch:
-            out += [s for s in sub.series if s not in out]
+            out += [s for s in sub.series if not any(s is o for o in out)]
     return out
 
 

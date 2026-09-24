@@ -38,7 +38,7 @@ LONG = ["Objekt", "Kaufpreis & Miete", "Kaufnebenkosten", "Kaufpreisaufteilung",
 GAP = C.H_GAP            # genau eine Leerzeile zwischen Komponenten
 CHART_MIN = 180          # Mindesthöhe eines Diagramms (pt)
 PIE_MIN = 150            # Mindesthöhe eines Kreises in der rechten Spalte (pt)
-PIE_CHART_MIN = 210      # P17: Kreisdiagramme links über C:F, Kreis ≥ 200 px
+PIE_CHART_MIN = 190      # P17: Kreisdiagramme links über C:F, Kreis ≥ 200 px
 ROW1, ROW2, ROW3 = C.H_STEP_ROW, C.H_STEP_ROW2, 47
 NBSP = "\u00a0"
 # Steuerwirkung in der Cash-Sicht (P07: + = Geld fließt zu). Die Formel liefert die Steuer-Sicht (+ Zahlung), die Anzeige
@@ -71,6 +71,7 @@ def nbsp(text):
         return text
     text = re.sub(r'"[ ](%|€)', '"' + NBSP + r'\1', text)
     text = re.sub(r'(\d)[ ](%|€)', r'\1' + NBSP + r'\2', text)
+    text = re.sub(r'§[ ](?=\d)', '§' + NBSP, text)          # „§ 82b“ nie am Zeilenende trennen
     return text
 
 
@@ -163,7 +164,7 @@ SPEC = {
         callout=dict(head=20, src="H21", title="Steuerliche Behandlung"),
         charts=[dict(side="L", title="Zusammensetzung der Kaufnebenkosten", unit="Anteile in %", pie=True)],
         tile=dict(label="Kaufnebenkosten gesamt", value="=NK_Summe",
-                  sub=f'="Quote "&FIXED(NK_Quote*100,1)&"{NBSP}% des Kaufpreises"'),
+                  sub=f'=IFERROR("je m² Wohnfläche: "&FIXED(NK_Summe/Wohnflaeche,0)&"{NBSP}€","")'),
         nav=44, foot=46, hide=(60, 66)),
     4: dict(
         inputs=range(12, 16), text=(12,),
@@ -173,7 +174,7 @@ SPEC = {
                13: "lt. Gutachterausschuss / BORIS (Methode 1)",
                14: "nur Methode „Bodenanteil in %“",
                15: "nur Methode „Gebäudewert“ (ohne Inventar)"},
-        results={11: ("n", None, None, None), 12: ("n", None, None, None),
+        results={11: ("n", "Kaufpreis ohne Inventar/Rücklage", None, None), 12: ("n", None, None, None),
                  13: ("n", None, None, C.NUMFMT["pct1"]),
                  14: ("n", "AK Grund und Boden (inkl. NK)", None, None),
                  15: ("f", "= AfA-Basis Gebäude (inkl. NK)", None, None),
@@ -183,7 +184,7 @@ SPEC = {
         charts=[dict(side="L", title="Aufteilung des Kaufpreises", unit="inkl. Inventar und Rücklage · Anteile in %",
                      pie=True)],
         tile=dict(label="AfA-Basis Gebäude", value="=AK_Gebaeude",
-                  sub=f'="Gebäudeanteil am Kaufpreis "&FIXED(Gebaeudeanteil_Pct*100,1)&"{NBSP}%"'),
+                  sub=f'="Reguläre Gebäude-AfA Jahr 1: "&FIXED(INDEX(Steuern!$D$49:$AQ$49,1),0)&"{NBSP}€"'),
         nav=43, foot=45),
     5: dict(
         inputs=range(12, 20), text=(16,),
@@ -210,7 +211,7 @@ SPEC = {
         callout=dict(head=18, src="H19", title=f"Die 15{NBSP}%-Grenze"),
         charts=[dict(side="L", title="Zusammensetzung der Gesamtinvestition", unit="Anteile in %", pie=True)],
         tile=dict(label=C.KPI_LABELS["EK"], value="=EK_Bedarf_gesamt",
-                  sub=f'="Gesamtinvestition "&FIXED(Gesamtinvestition,0)&"{NBSP}€"'),
+                  sub=f'=IFERROR("Anteil an der Gesamtinvestition "&FIXED(EK_Bedarf_gesamt/Gesamtinvestition*100,1)&"{NBSP}%","")'),
         nav=44, foot=46),
     6: dict(
         inputs=range(12, 20), indent2=(13, 14),
@@ -230,7 +231,7 @@ SPEC = {
         callout=dict(head=17, src="H18", title="Nettomietrendite", kpi="NMR", prefix=TEXT_NMR_PREFIX),
         charts=[dict(side="L", title="Bewirtschaftungskosten Jahr 1", unit="€ p. a. · Anteile", pie=True)],
         tile=dict(label="Einnahmenüberschuss (NOI) / Monat", value="=INDEX(Projektion!$D$29:$AQ$29,1)/12",
-                  sub=f'="Nettomietrendite "&FIXED(S06_NMR*100,1)&"{NBSP}% · Jahr 1"'),
+                  sub=f'="Jahr 1 · "&FIXED(INDEX(Projektion!$D$29:$AQ$29,1),0)&"{NBSP}€ p.{NBSP}a."'),
         nav=41, foot=43, hide=(60, 66)),
     7: dict(
         inputs=range(12, 22), note=22,
@@ -566,7 +567,7 @@ def next_card(ws, heights, head, n, names):
     """„Als Nächstes“: Vorschau auf den nächsten Schritt (Name fett + Kurzbeschreibung), Link auf das Blatt."""
     nxt = names[n + 1]
     desc = ws.parent[nxt]["C7"].value
-    desc = desc if isinstance(desc, str) and not C.is_formula(desc) else ""
+    desc = nbsp(desc) if isinstance(desc, str) and not C.is_formula(desc) else ""
     head2(ws, head, "H", "I", "Als Nächstes", f"Schritt {n + 1:02d} / 12")
     heights[head] = max(heights.get(head, 0), C.H_HEAD)
     body = head + 1

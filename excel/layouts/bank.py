@@ -91,10 +91,51 @@ def _link(ws, coord, text, target, h="right", size=C.T_SMALL, v="center"):
     cell.alignment = C.align(h, v, 0)
 
 
-def _subnav(ws, col, nxt, back):
-    """Zurück/Weiter an EINER Stelle auf allen Bank-Blättern: Z. 6 „Weiter: … ›“, Z. 7 „‹ Zurück: …“, rechtsbündig."""
-    _link(ws, f"{col}6", f"Weiter: {nxt[0]}  ›", nxt[1], size=C.T_BODY)
-    _link(ws, f"{col}7", f"‹  Zurück: {back[0]}", back[1], v="top")
+def _text_formula_general(ws):
+    """Formelzellen mit Textformat „@“ auf Standard (sonst zeigt Excel nach F2 + Enter die Formel als Text)."""
+    for row in ws.iter_rows():
+        for c in row:
+            if c.number_format == "@" and C.is_formula(c.value):
+                c.number_format = "General"
+
+
+def _move_footer(ws, row, c1, c2):
+    """Seitenfuß (global_rules.early) an eine neue Zeile verlegen – Platz für die Buttonzeile darüber."""
+    old = None
+    for c in ws._cells.values():
+        if isinstance(c.value, str) and c.value == C.FOOTER_1:
+            old = c.row
+            break
+    if old is not None and old != row:
+        for r in (old, old + 1):
+            for c in C.iter_cells(ws, "A", r, "Z", r):
+                if not C.is_formula(c.value):
+                    c.value = None
+                c.border = Border()
+                c.fill = C.NOFILL
+            ws.row_dimensions[r].height = None
+    C.footer(ws, row, c1, c2)
+
+
+def _nav_row(ws, row, back, nxt, footer_cols):
+    """P22: Zurück/Weiter als Buttonzeile am Seitenende (dieselbe Komponente wie S01–S12): Leerzeile · Buttons ·
+    Leerzeile · Seitenfuß. back/nxt: (c1, c2, Text, Zielblatt)."""
+    C.set_height(ws, row - 1, C.H_GAP)
+    items = [dict(c1=back[0], c2=back[1], text=back[2], target=back[3], kind="secondary",
+                  tooltip=f"Zurück zu {back[3]}"),
+             dict(c1=nxt[0], c2=nxt[1], text=nxt[2], target=nxt[3], kind="primary", tooltip=f"Weiter zu {nxt[3]}")]
+    for it in items:
+        _unmerge(ws, row, row, it["c1"], it["c2"])
+    out = C.btn_row(ws, row, items)
+    C.set_height(ws, row + 1, C.H_GAP)
+    _move_footer(ws, row + 2, *footer_cols)
+    return out
+
+
+def _made_for(cell, size=C.T_BODY):
+    cell.value = '=IFERROR(IF(Erstellt_fuer="","","Erstellt für "&Erstellt_fuer),"")'
+    cell.font = C.font(size, True, C.NAVY)
+    cell.alignment = C.align("right", "center")
 
 
 def _heights(ws, rows):
@@ -132,8 +173,14 @@ BANK_LABELS = {
     "E36": "Zu versteuerndes Einkommen",
     "E37": "Haushaltsüberschuss p. a.",
     "E38": "Nettovermögen",
-    "E41": "Beleihungsobjekt",
+    "E41": "Beleihungsobjekt (Ort)",
 }
+BANK_CHECKLIST = (
+    "• Selbstauskunft: Haushaltsrechnung und Vermögensaufstellung (Unterreiter oben) ausfüllen und unterschreiben.\n\n"
+    "• Einkommen: die letzten drei Gehaltsabrechnungen bzw. zwei Einkommensteuerbescheide.\n\n"
+    "• Eigenkapital: aktueller Konto- oder Depotauszug.\n\n"
+    "• Objekt: Exposé, Grundbuchauszug, Teilungserklärung, Energieausweis, Wohnflächenberechnung, Fotos.\n\n"
+    "• Vermietung: Mietvertrag bzw. Mietaufstellung.")
 BANK_NOTE = ("¹ Einschließlich Steuereffekt des Objekts (Steuererstattung bzw. -zahlung).  ·  Alle Werte stammen aus "
              "der Kalkulation (Blätter Eingaben, Finanzierung, Projektion, Steuern). Prognosewerte sind Annahmen und "
              "keine Zusicherung. Haushaltsrechnung und Vermögensaufstellung liegen als separate Vorlagen bei.  ·  "
@@ -218,9 +265,11 @@ def bank(ws):
         C.set_text(ws[coord], text)
     ws["F36"].value = _fmt_sub(ws["F36"].value, '"GmbH – Jahresabschluss"', '"lt. Jahresabschluss"')
     ws["C40"].value = _fmt_sub(ws["C40"].value, '" J. / "', '" Jahre / "')
+    if not C.is_formula(ws["B39"].value):                  # P20: kanonische KPI-Beschriftung
+        ws["B39"].value = C.kpi_label("IRR", formula=True)
     # P3-09: Beleihungsobjekt als Label-Wert-Paar (F41 = reine Anzeigeformel, rechtsbündig)
     _unmerge(ws, 41, 41, "E", "F")
-    ws["F41"].value = "=Obj_Adresse"
+    ws["F41"].value = '=IFERROR(TRIM(MID(Obj_Adresse,FIND(",",Obj_Adresse)+1,200)),Obj_Adresse)'   # nur Ort
 
     # ---- Datenzeilen: eine Text- und eine Wertkante je Panel, Haarlinie, alles 10 pt 1A1D21
     heads = {(19, "B"), (19, "E"), (19, "H"), (24, "B"), (24, "E"), (24, "H"), (27, "E")}
@@ -235,11 +284,9 @@ def bank(ws):
             _hair(ws, r, c1, c2)
             _label(lab)
             _value(val)
-    # Adresse: passt sie nicht in F, bricht sie zweizeilig um (Zeile 41 wächst auf das 2-Zeilen-Raster)
-    addr = C.display_text(ws["F41"]) or ""
-    if not C.fits(addr, C.col_px(ws, "F"), C.T_BODY, False, 1):
-        ws["F41"].alignment = C.align("right", "center", 1, wrap=True)
-        C.fit_row(ws, 41, "F", "F")
+    # P27: alle Datenzeilen 18 pt, keine Umbrüche in Wertzellen (F41 zeigt nur den Ort, die Adresse steht im Kopf)
+    ws["F41"].alignment = C.align("right", "center", 1)
+    C.set_height(ws, 41, C.H_ROW)
 
     for coord in PCT1:
         ws[coord].number_format = C.NUMFMT["pct1"]
@@ -295,39 +342,35 @@ def bank(ws):
     C.set_height(ws, 62, 4)
     legend = ws["B64"]
     legend.value = C.rich([("Farbkennzeichnung der Kennzahlen (Schwellen lt. Konfiguration):   ", C.T_MICRO, False,
-                            C.MUTED)] + list(_legend_parts()))
+                            C.MUTED)] + list(_legend_parts()) +
+                          [("   ·   negative Cashflow-Beträge rot", C.T_MICRO, False, C.MUTED)])
     legend.font = C.font(C.T_MICRO, False, C.MUTED)
     legend.alignment = C.align("left", "center")
     C.set_height(ws, 64, 16)
 
-    # ---- Rail rechts (nur Bildschirm, außerhalb des Druckbereichs): Zurück/Weiter wie auf HH/VA, Hinweis-Box
-    _unmerge(ws, 5, 41, "K", "K")
-    _clear(ws, "K", 5, "K", 41)
-    _subnav(ws, "K", ("Haushaltsrechnung", HH), ("Sensitivität", "Sensitivität"))
-    body = "\n\n".join(BANK_BULLETS)
-    width = C.col_px(ws, "K")
-    need = C.px_pt(C.lines_needed_metric(body, width, C.T_SMALL, False, 1) * C.line_pt(C.T_SMALL) + 12)
-    r, acc = 18, 0
-    while (acc < need or r <= 30) and r < 42:
-        acc += ws.row_dimensions[r].height or 15
-        r += 1
-    last = r - 1
-    C.callout_box(ws, "K", 17, "K", 18, last, title="Bessere Konditionen im Bankgespräch", text=body, pill=False,
-                  fit=None)
+    # ---- Rail rechts (nur Bildschirm, außerhalb des Druckbereichs): zwei Hinweis-Boxen, bündig mit den beiden
+    #      Abschnittsreihen (Z. 17–30 und 32–41); Navigation nur noch Unterreiter oben + Buttonzeile unten (P22)
+    _unmerge(ws, 5, 45, "K", "K")
+    _clear(ws, "K", 5, "K", 45)
+    C.callout_box(ws, "K", 17, "K", 18, 30, title="Bessere Konditionen im Bankgespräch",
+                  text="\n\n".join(BANK_BULLETS), pill=False, fit=None)
     C.set_height(ws, 17, C.H_BAND)          # Kopf bündig mit den Abschnittsköpfen der Zeile 17
     C.set_height(ws, 18, 6)
-    for i, (text, target) in enumerate((("Haushaltsrechnung ausfüllen  ›", HH),
-                                        ("Vermögensaufstellung ausfüllen  ›", VA),
-                                        ("Alle Diagramme  ›", "Diagramme"))):
-        cell = ws[f"K{max(last + 2, 34) + i}"]
-        C.text_link(cell, text, target, size=C.T_BODY, bold=True)
-        cell.alignment = C.align("left", "center", 1)
+    C.callout_box(ws, "K", 32, "K", 33, 41, title="Unterlagen für die Finanzierungsanfrage", text=BANK_CHECKLIST,
+                  pill=False, fit=None)
+    C.set_height(ws, 32, C.H_BAND)
+    C.set_height(ws, 33, 6)
+
+    # ---- Buttonzeile am Seitenende (P22) – gleiche Breiten: B:C ≈ H:I
+    _nav_row(ws, 66, ("B", "C", "‹  Zurück: Sensitivität", "Sensitivität"),
+             ("H", "I", "Weiter: Haushaltsrechnung  ›", HH), ("B", "I"))
+    _text_formula_general(ws)
     C.cf_close(ws)
 
 
 def _legend_parts():
-    """„● Ziel erreicht · ● knapp · ● kritisch“ als Rich-Text-Teile (8 pt, Punkte in Statusfarbe)."""
-    for i, (lvl, lab) in enumerate((("green", "Ziel erreicht"), ("amber", "knapp"), ("red", "kritisch"))):
+    """„● erfüllt · ● prüfen · ● kritisch“ als Rich-Text-Teile (8 pt, Punkte in Statusfarbe)."""
+    for i, (lvl, lab) in enumerate((("green", "erfüllt"), ("amber", "prüfen"), ("red", "kritisch"))):
         if i:
             yield ("   ·   ", C.T_MICRO, False, C.MUTED)
         yield (C.STATUS_DOT + " ", C.T_MICRO, True, C.STATUS_COLORS[lvl][0])
