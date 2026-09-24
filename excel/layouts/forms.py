@@ -1,4 +1,4 @@
-"""Formularblätter Eingaben, Konfiguration, Hinweise (Agent E) – ruhiger „Private Banking“-Stil, Runde 3.
+"""Formularblätter Eingaben, Konfiguration, Hinweise (Agent E) – ruhiger „Private Banking“-Stil, Runde 4.
 
 Komponentensprache ausschließlich aus core.py:
   Seitenkopf core.page_header (P04: Eyebrow links / Unterreiter rechts · Titel + Objekt · Untertitel + „Erstellt für“) ·
@@ -8,9 +8,9 @@ Komponentensprache ausschließlich aus core.py:
   Zeilenhöhen core.fit_row (Hinweise: metric=True, n × 12,5 + 8 pt, P27) · Rich-Text core.rich · Fuß core.footer.
 
 Inhaltsbreite aller drei Blätter: Kopfleiste endet bei 1 368 px (core.NAV_MIN_PX), P3-07/Befund „Inhaltsbreite“:
-  Eingaben    A 31 | B 300 | C:D 350 | E 88 | F 56 | G:L 543  → 1 368 px (Randspalte M liegt hinter der Kopfleiste)
+  Eingaben    A 31 | B 300 | C 112 | D 8 | E 318 | F 56 | G:L 543  → 1 368 px (Wertachse = rechte Kante C, P1-13)
   Konfiguration A 31 | B 301 | C 76 | D 70 | E 308 | F 40 (Rinne) | G 542 → 1 368 px
-  Hinweise    A 31 | B 210 | C 550 | D 382 | E 195 → 1 368 px (Breiten nach minimaler Zeilenzahl ohne Grenzfälle)
+  Hinweise    A 31 | B 196 | C 560 | D 393 | E 188 → 1 368 px (Breiten nach minimaler Zeilenzahl ohne Grenzfälle)
 
 Nur Darstellung: Formeln und Eingabewerte bleiben unverändert; verändert werden nur Stile, Zahlenformate,
 statische Beschriftungen (auf die nichts verweist), Verbünde, Spaltenbreiten und Zeilenhöhen.
@@ -367,7 +367,7 @@ def eingaben(wb):
     # P1-13 (Runde 4): Wertachse = rechte Kante von C (112 px, so breit wie ein Eingabefeld); D ist eine 8-px-Fuge,
     # E trägt die Einheit direkt hinter der Zahl. Auswahl-/Texte stehen linksbündig über C:E (438 px, 10 pt einzeilig).
     _widths_px(ws, (("B", 300), ("C", 112), ("D", 8), ("E", 318), ("F", 56),
-                    ("G", 90), ("H", 90), ("I", 90), ("J", 90), ("K", 90), ("L", 93)))
+                    ("G", 94), ("H", 94), ("I", 94), ("J", 94), ("K", 93), ("L", 74)))   # L: nur „↑ Übersicht“
     _width(ws, "M", 3)
 
     # ---- Seitenkopf (P04): Objekt / „Erstellt für“ rechts an der Inhaltskante
@@ -495,6 +495,7 @@ def _data_row(ws, wb, steps, r, last):
     if is_text and ws.cell(r, 4).value is None and (e.value is None or r in EIN_UNIT_CLEAR):
         e.value = None
         C.safe_merge(ws, "C", r, "E", r)
+    linked = linked or bool(link and link in steps)  # jede Leitfaden-Übernahme blau (auch „Ja“/„Nein“-Auswahlen)
     cval.font = font(T_BODY, False, BLUE if linked else INK)
     cval.alignment = align("left" if is_text else "right", "center", 1, wrap=is_text)
     # Einheit: 9 pt grau, ohne Einzug direkt hinter der Zahl (C-Einzug + 8-px-Fuge D)
@@ -693,19 +694,25 @@ def konfiguration(wb):
 
 
 # ================================================================================================ Hinweise
-# Redaktionell gestraffte Annahmetexte: klar ein- oder zweizeilig über C:D (keine Grenzfälle, P27)
+# Redaktionell gestraffte Annahmetexte: einzeilig über C:D (≤ 870 px), nur Finanzierung/AfA-Kombination zweizeilig
 HIN_TEXT = {
-    31: "Konstanter Grenzsteuersatz (Privat) bzw. KSt-Staffel + Soli (+ GewSt) – keine vollständige "
-        "Veranlagungsrechnung, keine Progressionswirkung des Objekts auf das übrige Einkommen.",
-    33: "Zuführungen zur WEG-Erhaltungsrücklage und zur eigenen Instandhaltungsrücklage sind Liquiditätsabflüsse, "
-        "aber nicht sofort steuerwirksam; Verausgabungen der WEG sind nicht separat modelliert.",
+    29: "Jahr 1 = die ersten 12 Monate ab Kaufdatum; AfA und Kosten werden nicht zeitanteilig auf Kalenderjahre "
+        "verteilt (steuerlich: AfA im Kaufjahr monatsgenau).",
+    31: "Konstanter Grenzsteuersatz (Privat) bzw. KSt-Staffel + Soli (+ GewSt) – keine vollständige Veranlagung, "
+        "keine Progressionswirkung auf das übrige Einkommen.",
+    33: "Zuführungen zur WEG-Erhaltungsrücklage und zur eigenen Rücklage sind Liquiditätsabflüsse, aber nicht sofort "
+        "steuerwirksam; WEG-Ausgaben nicht modelliert.",
+    34: "Keine Hinzurechnungen (§ 8 GewStG), keine Mindestbesteuerung (§ 10d Abs. 2 EStG), keine Ausschüttungsbelastung "
+        "im Cashflow, keine GrESt beim Share Deal.",
+    35: "Wert-, Miet- und Kostensteigerung sind Prognoseannahmen; die Eigenkapitalrendite (IRR) bezieht sich auf das "
+        "eingesetzte Eigenkapital ohne Liquiditätsreserve.",
 }
 # Thema (B) · Vereinfachung (C:D) · Einordnung (E, Kurzkategorie – P3-12: vierspaltiges Raster läuft weiter)
 HIN_TOPICS = {29: ("Zeitraster", "Vereinfachung"), 30: ("Finanzierung", "Vereinfachung"),
               31: ("Steuersatz", "Vereinfachung"), 32: ("AfA-Kombination", "konservativ"),
               33: ("Rücklagen", "Vereinfachung"), 34: ("GmbH", "nicht abgebildet"),
               35: ("Prognose", "Annahme"), 36: ("Haftung", "Rechtshinweis")}
-HIN_WIDTHS = (("B", 210), ("C", 586), ("D", 313), ("E", 228))     # A:E = 1 368 px; E ≈ 32 Zeichen (P3-12), C/D so, dass keine Zeile an einer Umbruchgrenze liegt
+HIN_WIDTHS = (("B", 196), ("C", 560), ("D", 393), ("E", 188))     # A:E = 1 368 px; Breiten so gesucht, dass keine Zeile an einer Umbruchgrenze liegt (P3-12)
 
 
 def hinweise(wb):
