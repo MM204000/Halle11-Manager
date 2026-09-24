@@ -534,7 +534,6 @@ def next_card(ws, heights, head, n, names):
     body = head + 1
     for c in C.iter_cells(ws, "H", body, "I", body):
         c.fill, c.border = C.NOFILL, Border()
-    C.safe_merge(ws, "H", body, "I", body)
     cell = ws.cell(body, 8)
     cell.value = C.rich([(LONG[n], C.T_BODY, True, C.NAVY), (f"  ·  {desc}", C.T_SMALL, False, C.MUTED)])
     cell.font = C.font(C.T_SMALL, False, C.MUTED)
@@ -784,28 +783,26 @@ def standard_page(ws, n, sp, names):
 
     # Einordnung (rechts, eine Leerzeile unter dem Ergebnis)
     co = sp["callout"]
+    head = co["head"]
+    body = co.get("body", head + 1)
+    src_value = ws[co["src"]].value
+    blank(ws[co["src"]])
     for rr in range(results_end + 1, results_end + 16):   # alte Köpfe/Reste der Vorlage im Einordnungsbereich
         for c in (ws.cell(rr, 8), ws.cell(rr, 9)):
             if c.value is not None and not C.is_formula(c.value):
                 blank(c)
-    head = co["head"]
-    body = co.get("body", head + 1)
     for rr in range(results_end + 1, head):
         heights.setdefault(rr, GAP)
-    text = None
     if co.get("second"):  # S07: Ampel-Box DSCR, darunter neutrale Box mit dem Originaltext
-        second_text = ws[co["src"]].value.replace('="Zinsänderungsrisiko: Nach ', '="Nach ')
-        blank(ws[co["src"]])
+        second_text = src_value.replace('="Zinsänderungsrisiko: Nach ', '="Nach ')
         text = co["text"]
+    elif co.get("text"):
+        text = co["text"]
+    elif co.get("prefix"):
+        old = src_value[1:] if C.is_formula(src_value) else lit(str(src_value))
+        text = "=" + co["prefix"] + "&" + old
     else:
-        if co["src"] != f"H{body}":
-            move_formula(ws, co["src"], f"H{body}")
-        if co.get("text"):
-            text = co["text"]
-        elif co.get("prefix"):
-            old = ws[f"H{body}"].value
-            old = old[1:] if C.is_formula(old) else lit(str(old))
-            text = "=" + co["prefix"] + "&" + old
+        text = src_value
     callout_end = box(ws, heights, head, co["title"], co.get("kpi"), text, body)
     if co.get("second"):
         h2 = callout_end + 2
@@ -824,6 +821,7 @@ def standard_page(ws, n, sp, names):
             g += 1
         cbody, cneed = next_card(ws, heights, g + 1, n, names)
         heights[cbody] = max(cneed, heights.get(cbody, 0))
+        C.safe_merge(ws, "H", cbody, "I", cbody)
         fixed = sum(heights.get(r, 0) for r in range(chead + 1, cbody + 1) if r != g)
         heights[g] = max(GAP, C.px_pt(sp.get("chart_min", CHART_MIN) - fixed))
         chart_end = chart_block(ws, heights, charts, ch_specs[0], chead, "C", "F", end_row=cbody,
@@ -852,8 +850,7 @@ def standard_page(ws, n, sp, names):
         heights.setdefault(g, GAP)
         cbody, cneed = next_card(ws, heights, g + 1, n, names)
         end = stack(heights, cbody, cneed)
-        if end > cbody:
-            C.safe_merge(ws, "H", cbody, "I", end)
+        C.safe_merge(ws, "H", cbody, "I", end)
         right_end = end
 
     content_end = max(left_end, results_end, right_end, chart_end)
@@ -917,9 +914,11 @@ def page_s08(ws, names):
     if chart is not None:
         set_anchor(chart, "E", 18, "F", 23)
 
-    # rechts unten: „Als Nächstes“, bündig mit der Herleitung
-    cbody, cneed = next_card(ws, heights, 22, n, names)
-    heights[cbody] = max(heights[cbody], cneed)
+    # rechts: „Als Nächstes“ – Kopf auf einer Linie mit „Herleitung“ und „Einnahmen vs. Ausgaben“
+    cbody, cneed = next_card(ws, heights, 17, n, names)
+    C.safe_merge(ws, "H", cbody, "I", stack(heights, cbody, cneed))
+    for c in C.iter_cells(ws, "H", 17, "I", 17):
+        c.alignment = C.align(c.alignment.horizontal or "left", "bottom", 1)
     for r, hh in heights.items():
         h[r].height = hh
     return nav_and_footer(ws, n, 26, names)
@@ -930,6 +929,12 @@ EINORDNUNG_S12_ZUSATZ = ('"Ab "&IF(Darlehen_Summe>0,Volltilgung_Txt,"sofort")&" 
                          'Cashflow nach Steuern steigt dann auf rund "&FIXED(INDEX(Projektion!$D$37:$AQ$37,MIN(40,'
                          'IFERROR(MATCH(0,Finanzierung!$D$38:$AQ$38,0),40)+1)),0)&" € pro Monat: die Zusatzrente aus '
                          'dem Objekt (Prognosewerte)."')
+
+S12_TAX_OLD = ('abzüglich Rate ("&FIXED(Kapitaldienst_Monat_J1,0)&" €), Bewirtschaftung ("&FIXED(BWK_J1/12,0)&'
+               '" €) und Steuer ("&FIXED(Steuer_J1/12,0)&" €).')
+S12_TAX_NEW = ('abzüglich Rate ("&FIXED(Kapitaldienst_Monat_J1,0)&" €) und Bewirtschaftung ("&FIXED(BWK_J1/12,0)&'
+               '" €), "&IF(Steuer_J1<0,"zuzüglich Steuererstattung (","abzüglich Steuerzahlung (")&'
+               'FIXED(ABS(Steuer_J1/12),0)&" €).')
 
 LINKS_S12 = [("Dashboard", "Gesamtbewertung, Ampel, Zeitverlauf", "Dashboard"),
              ("Cockpit", "alle Kennzahlen im Detail", "Cockpit"),
@@ -971,7 +976,7 @@ def page_s12(ws, names):
                fmt=t["fmt"], sub=t["sub"], neg=t.get("neg"), gap_right=(t["c1"] == "C"), gap_top=(t["lr"] > 11))
 
     # Einordnung rechts: IRR (Ampel) und Cashflow (neutral), bündig mit den Kacheln
-    first = ws["H29"].value
+    first = ws["H29"].value.replace(S12_TAX_OLD, S12_TAX_NEW)   # Steuerwirkung wie in Kachel/Herleitung (P3-08)
     blank(ws["H29"])
     blank(ws["H37"])
     heights = {10: C.H_BAND, 11: C.H_TILE_LABEL, 12: C.H_TILE_VALUE, 13: C.H_TILE_SUB,

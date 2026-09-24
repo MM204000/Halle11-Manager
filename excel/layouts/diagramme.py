@@ -11,7 +11,7 @@ Läuft als letztes Layout-Modul. Aufgaben:
    - „Gesamtertrag“: echter flacher Wasserfall (unsichtbare Basis, Zu-/Abfluss/Ergebnis je als +/−-Teil, Beschriftung
      über Reihen-Namen aus Zellen – dynamisch in Excel und LibreOffice).
    - AfA-Vergleich: Balken nach Bedeutung (angewendet / anwendbar / nicht anwendbar) als drei Reihen mit #NV;
-     Gutachten-Linie als #NV, solange kein Gutachten vorliegt.
+     Gutachten-Linie mit dynamischem Namen („liegt nicht vor“).
    - Restschuld/AfA: Nullreihen mit dynamischem Namen („Darlehen II (keines)“, „Sonder-AfA (keine)“).
    - Haushaltsrechnung/Vermögensaufstellung: Kurzlabels, nur Positionen > 0, absteigend sortiert (ohne Matrixformeln).
 2. Blatt „Diagramme“: Seitenkopf, Abschnittsköpfe (core.section Ebene 1, „↑ Übersicht“), Raster B:P für die Diagramme,
@@ -35,12 +35,14 @@ FIRST_COL, LAST_COL = "B", "P"          # Inhaltsraster (B = 34, C:P = 11)
 YEAR_ROW, INDEX_ROW = 178, 177          # Kalenderjahre / Jahr-Index 1…40
 MARK_ROW = 202                          # Anzeige-Hilfsreihe: Immobilienwert im Verkaufsjahr, sonst 0
 SONDER_ROW = 203                        # Anzeige-Hilfsreihe: Sonder-AfA § 7b + § 7h/7i (eine Legendenposition)
-GUT_ROW = 204                           # Anzeige-Hilfsreihe: AfA Gutachten (#NV ohne Gutachten)
-FOOT_ROW = 206                          # Fuß (Haftung/Impressum) direkt unter dem eingeklappten Anhang
+GUT_ROW = 204                           # Anzeige-Hilfsreihe: AfA Gutachten kumuliert (Name dynamisch)
+MODEL_ROW = 205                         # Anzeige-Hilfsreihe: AfA im Modell kumuliert (Jahre 1–10)
+CF_POS, CF_NEG = 206, 207               # Anzeige-Hilfsreihen: Cashflow n. St. positiver / negativer Teil (Farbe je Vorzeichen)
+FOOT_ROW = 209                          # Fuß (Haftung/Impressum) direkt unter dem eingeklappten Anhang
 
 # Horizont je Datenzeile auf „Diagramme“ (letzte Spalte): Bestände 35 J., Cashflow 30 J., AfA/Steuer 20 J.
 HORIZON = {r: "AL" for r in (179, 180, 181, 182, 183, 189, 190, 191, MARK_ROW)}
-HORIZON.update({r: "AG" for r in (184, 185, 186)})
+HORIZON.update({r: "AG" for r in (184, 185, 186, CF_POS, CF_NEG)})
 HORIZON.update({r: "W" for r in list(range(192, 198)) + [SONDER_ROW]})
 COCKPIT_LAST = "AG"                     # Cockpit: alle Zeitreihen 30 Jahre (P2-08)
 
@@ -53,7 +55,7 @@ SECTIONS = [
     (113, "Exit – Verkauf nach der geplanten Haltedauer", "· Verkaufsjahr aus Schritt 11"),
 ]
 DATA_BAND = 138
-GROUP_FIRST, GROUP_LAST = 139, GUT_ROW   # eingeklappter Anhang
+GROUP_FIRST, GROUP_LAST = 139, CF_NEG    # eingeklappter Anhang
 
 # Diagramm-Raster: Art → (Spalte von, Spalte bis einschließlich, erste Zeile)
 CHART_ROWS = 16
@@ -129,6 +131,15 @@ def _cat_ref(s):
     return None
 
 
+def _literal(s):
+    """Name als Literal-„Formel“ ("Name") → Text, sonst None."""
+    if s.tx is not None and s.tx.strRef is not None:
+        f = (s.tx.strRef.f or "").strip()
+        if len(f) >= 2 and f[0] == '"' and f[-1] == '"':
+            return f[1:-1].replace('""', '"')
+    return None
+
+
 def _tx_ref(s):
     if s.tx is None:
         return ""
@@ -165,7 +176,7 @@ def chart_kind(ws, ch):
             return "restschuld"
         if rows & {184} and rows & {185}:
             return "cashflow"
-        if rows == {185}:
+        if rows == {185} or (rows and rows <= {CF_POS, CF_NEG}):
             return "cf_nach"
         if rows == {186}:
             return "cf_kum"
@@ -252,7 +263,20 @@ def chart_contents(wb):
             continue
         for idx, ch in enumerate(list(ws._charts)):
             ch.visible_cells_only = False          # Daten in ausgeblendeten Zeilen/Spalten weiter anzeigen
+            for s in ch.series:                    # Literalnamen (<c:f>"Name"</c:f>) → <c:v>Name</c:v> (Excel-Reparatur)
+                lit = _literal(s)
+                if lit is not None:
+                    s.tx = _label(lit)
             kind = chart_kind(ws, ch)
+            if kind == "cf_nach":
+                last = COCKPIT_LAST
+                cats = f"{SHEET}!$D${YEAR_ROW}:${last}${YEAR_ROW}"
+                ch.series[:] = [_series(_r(SHEET, "D", r, last, r), name, cat_ref=cats, cat_num=True)
+                                for r, name in ((CF_POS, "Überschuss"), (CF_NEG, "Unterdeckung"))]
+                ch.grouping, ch.overlap = "stacked", 100
+                for i, s in enumerate(ch.series):
+                    s.idx, s.order = i, i
+                continue
             if kind == "jahr1":
                 new = _jahr1_chart(with_tax=not ws.title.startswith("S08"))   # S08: vor Steuern
                 new.visible_cells_only = False
@@ -288,6 +312,13 @@ def chart_contents(wb):
                     keep.append(s)
                 ch.series[:] = keep
             if ws.title == "AfA-Vergleich" and isinstance(ch, LineChart):
+                first = _parse(_val_ref(ch.series[0])) if ch.series else None
+                if first and not any("modell" in (x.tx.v or "").lower() for x in ch.series if x.tx is not None):
+                    # angewendete Variante als eigene (kräftige) Linie aus der Summenzeile „Im Modell angewendet“
+                    s_m = _series(_r(SHEET, first[1], MODEL_ROW, first[3], MODEL_ROW), "Im Modell angewendet")
+                    s_m.cat = ch.series[0].cat
+                    ch.series.append(s_m)
+                    _PENDING["model"] = first
                 for s in ch.series:
                     p = _parse(_val_ref(s))
                     name = (s.tx.v if s.tx is not None and s.tx.v else "") or ""
@@ -430,7 +461,7 @@ def helper_blocks(ws):
     _put(ws, f"G{J1_SUM_VST}", "=C170+C172+C173+C174", num)
     _put(ws, f"H{J1_SUM_VST}", "=D170+D172+D173+D174", num)
     _put(ws, f"F{NAME_D2}", '=IF(MAX(D181:AL181)>0,"Darlehen II","Darlehen II (keines)")', h="left")
-    _put(ws, f"F{NAME_GUT}", f'=IF(COUNT(D{GUT_ROW}:M{GUT_ROW})>0,"Gutachten (RND)","Gutachten (RND) – liegt nicht vor")',
+    _put(ws, f"F{NAME_GUT}", f'=IF(MAX(D{GUT_ROW}:M{GUT_ROW})>0,"Gutachten (RND)","Gutachten (RND) – liegt nicht vor")',
          h="left")
 
     # ---- Wasserfall Gesamtertrag (C164:C167: Kum. Cashflow, Nettoerlös, − Eigenkapital, = Gesamtertrag)
@@ -465,7 +496,7 @@ def helper_blocks(ws):
         sign = f'IF(C{r}<0,"−","")' if total else f'IF(C{r}<0,"−","+")'
         _put(ws, f"Q{r}", f'={sign}&FIXED(ABS(C{r})/1000,1)&" T€"')
         for j, c in enumerate("RSTU"):
-            _put(ws, f"{c}{r}", f"=P{r}" if j == i else "=NA()", num)
+            _put(ws, f"{c}{r}", f"=P{r}" if j == i else "=0", num)
 
     # ---- AfA-Vergleich: Summe je Variante nach Bedeutung
     if "afa" in _PENDING:
@@ -478,9 +509,9 @@ def helper_blocks(ws):
             name, val, st = _r(csh, cc, cr1 + i), _r(sh, vc, sr), _r(sh, stat, sr)
             model = f'{name}="Im Modell angewendet"'
             _put(ws, f"F{r}", f'=IF({model},"Im Modell",{name})', h="left")
-            _put(ws, f"G{r}", f"=IF({model},{val},NA())", num)
-            _put(ws, f"H{r}", f'=IF(AND(NOT({model}),LEFT({st},2)="Ja"),{val},NA())', num)
-            _put(ws, f"I{r}", f'=IF(AND(NOT({model}),LEFT({st},2)<>"Ja"),{val},NA())', num)
+            _put(ws, f"G{r}", f"=IF({model},{val},0)", num)
+            _put(ws, f"H{r}", f'=IF(AND(NOT({model}),LEFT({st},2)="Ja"),{val},0)', num)
+            _put(ws, f"I{r}", f'=IF(AND(NOT({model}),LEFT({st},2)<>"Ja"),{val},0)', num)
 
     # ---- Haushaltsrechnung / Vermögensaufstellung: absteigend, nur > 0
     def ranked(key, head, c0, short_table):
@@ -515,10 +546,10 @@ def helper_blocks(ws):
             if key == "hh":
                 objk = f"INDEX(${obj}${r1}:${obj}${r2},{pos}{r})"
                 valk = f"INDEX({rngv},{pos}{r})"
-                _put(ws, f"{v1}{r}", f'=IF({pos}{r}="",NA(),IF({objk}=1,NA(),{valk}))', num)
-                _put(ws, f"{v2}{r}", f'=IF({pos}{r}="",NA(),IF({objk}=1,{valk},NA()))', num)
+                _put(ws, f"{v1}{r}", f'=IF({pos}{r}="",0,IF({objk}=1,0,{valk}))', num)
+                _put(ws, f"{v2}{r}", f'=IF({pos}{r}="",0,IF({objk}=1,{valk},0))', num)
             else:
-                _put(ws, f"{v1}{r}", f'=IF({pos}{r}="",NA(),INDEX({rngv},{pos}{r}))', num)
+                _put(ws, f"{v1}{r}", f'=IF({pos}{r}="",0,INDEX({rngv},{pos}{r}))', num)
 
     ranked("hh", HH_HEAD, "F", HH_SHORT)
     ranked("va", VA_HEAD, "P", VA_SHORT)
@@ -542,8 +573,34 @@ def time_helper_rows(ws):
         any_ref = _r(sh, c1, r1, c2, r1)
         for i, L in enumerate(src):
             tgt = ws.cell(GUT_ROW, _col("D") + i)
-            tgt.value = f"=IF(MAX({any_ref})>0,{_r(sh, L, r1)},NA())"
+            tgt.value = f"={_r(sh, L, r1)}"
             tgt.number_format = num
+
+
+def more_helper_rows(ws):
+    """Zeilen 205–207: AfA im Modell kumuliert, Cashflow n. St. positiver/negativer Teil."""
+    num = K.NUMFMT["num"]
+    K.set_text(ws.cell(MODEL_ROW, 2), "AfA im Modell kumuliert (Diagramm)")
+    K.set_text(ws.cell(MODEL_ROW, 3), "€")
+    model = _PENDING.get("model")
+    afa = _PENDING.get("afa")
+    if model and afa:
+        sh = model[0]
+        mrow = afa[0][4]                               # letzte Zeile der Summentabelle = „Im Modell angewendet“
+        c0 = _col(model[1])
+        for i in range(_col(model[3]) - c0 + 1):
+            L = K.L(c0 + i)
+            src = _r(sh, L, mrow)
+            ws.cell(MODEL_ROW, _col("D") + i).value = f"={src}" if i == 0 else f"={K.L(_col('D') + i - 1)}{MODEL_ROW}+{src}"
+            ws.cell(MODEL_ROW, _col("D") + i).number_format = num
+    for r, name, fn in ((CF_POS, "Cashflow n. St. – Überschuss (Diagramm)", "MAX"),
+                        (CF_NEG, "Cashflow n. St. – Unterdeckung (Diagramm)", "MIN")):
+        K.set_text(ws.cell(r, 2), name)
+        K.set_text(ws.cell(r, 3), "€")
+        for cc in range(_col("D"), _col("AQ") + 1):
+            L = K.L(cc)
+            ws.cell(r, cc).value = f"={fn}(0,{L}185)"
+            ws.cell(r, cc).number_format = num
 
 
 def layout_sheet(ws):
@@ -629,7 +686,8 @@ def layout_sheet(ws):
             c.border = Border()
     _mark_row(ws)
     time_helper_rows(ws)
-    for r in range(YEAR_ROW, GUT_ROW + 1):
+    more_helper_rows(ws)
+    for r in range(YEAR_ROW, CF_NEG + 1):
         _body_row(ws, r, "AQ", unit=True)
     for c in K.iter_cells(ws, "B", YEAR_ROW, "AQ", YEAR_ROW):
         c.fill = K.fill(K.TINT)
@@ -639,7 +697,7 @@ def layout_sheet(ws):
         ws.cell(YEAR_ROW, cc).number_format = "0"
     for cc in range(_col("D"), _col("AQ") + 1):
         ws.cell(201, cc).number_format = K.NUMFMT["pct1"]
-    for r in (MARK_ROW, SONDER_ROW, GUT_ROW):          # Hilfszeilen einheitlich: 9 pt kursiv grau
+    for r in (MARK_ROW, SONDER_ROW, GUT_ROW, MODEL_ROW, CF_POS, CF_NEG):   # Hilfszeilen einheitlich: 9 pt kursiv grau
         K.memo(ws, r, "B", "AQ")
         for cc in range(_col("C"), _col("AQ") + 1):
             ws.cell(r, cc).alignment = K.align("right" if cc > 3 else "left", "center", 1)
@@ -656,7 +714,7 @@ def layout_sheet(ws):
         ws.sheet_properties.outlinePr = Outline(summaryBelow=True, summaryRight=True)
     else:
         ws.sheet_properties.outlinePr.summaryBelow = True
-    ws.row_dimensions[GUT_ROW + 1].height = 18
+    ws.row_dimensions[CF_NEG + 1].height = 18
     K.footer(ws, FOOT_ROW, "B", "P")
     K.cf_close(ws)
 

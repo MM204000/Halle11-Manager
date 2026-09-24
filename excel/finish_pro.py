@@ -221,7 +221,7 @@ FMT_EUR = '#,##0" €"'
 FMT_PCT = "0 %"
 LBL_EUR = '#,##0" €";-#,##0" €"'
 LBL_EUR_POS = '#,##0" €";;'
-LBL_TEUR1 = '#,##0.0," T€";-#,##0.0," T€";"–"'
+LBL_TEUR1 = '#,##0.0," T€";-#,##0.0," T€";'
 TILG = "9DB9DA"        # Tilgung (hell, noch klar sichtbar auf Weiß)
 BAR_GREY = "9AA4B1"    # Bewirtschaftung / neutrale Kosten
 LINE_GREY = "8A94A6"   # Restschuld, Steuer (Linien)
@@ -256,6 +256,8 @@ SERIES_RULES = [
     (r"^bewegliche", K.SKY, None, None),
     (r"^steuerliches ergebnis", K.BLUE, None, None),
     (r"^steuer\b", LINE_GREY, None, None),
+    (r"^(ü|ue)berschuss", K.ACCENT, None, None),
+    (r"^unterdeckung", K.BLUE, None, None),
     # Wasserfall / AfA-Summe / Haushalt (Hilfsreihen aus layouts/diagramme.py)
     (r"^basis", None, None, None),
     (r"^zufluss", K.ACCENT, None, None),
@@ -503,7 +505,7 @@ def chart_kind(sheet, root):
             return "restschuld"
         if 184 in rows and 185 in rows:
             return "cashflow"
-        if rows == {185}:
+        if rows == {185} or (rows and rows <= {206, 207}):
             return "cf_nach"
         if rows == {186}:
             return "cf_kum"
@@ -851,7 +853,9 @@ def style_axes(root, kind, n_cat, size=None, horizontal=False):
             put_val(ax, "minorTickMark", "none", o)
             put_val(ax, "tickLblPos", "low", o)
             # Kategorieachse = Nulllinie: bei negativen Werten 1 pt 8A9099, sonst 0,75 pt
-            if horizontal:
+            if kind in HBAR_KINDS:
+                put(ax, sppr(ln=line(nofill=True)), o)
+            elif horizontal:
                 put(ax, sppr(ln=line(0.75, "C5CDD8")), o)
             else:
                 put(ax, sppr(ln=line(1.0 if lo < 0 else 0.75, K.MUTED2)), o)
@@ -919,17 +923,25 @@ def set_ser_dlbls(ser, dl, order):
         put(ser, dl, order)
 
 
-def pie_labels(ser, kind, cats, size=8, bold=False):
-    """Kreis: jedes Segment „Kurzname · 12 %“ außen mit Führungslinie (0 %-Segmente ohne Beschriftung)."""
+def pie_labels(ser, kind, cats, size=8, bold=False, vals=(), colors=()):
+    """Kreis: jedes Segment „Kurzname · 12 %“ – große Segmente (≥ 30 %, kurzer Name) innen weiß fett, mittlere außen
+    am Ende, kleine (< 8 %) außen mit Führungslinie per bestFit (keine Überlagerung); 0 %-Segmente ohne Beschriftung."""
+    tot = sum(max(0.0, v) for v in vals) or 1.0
     d = E("c:dLbls")
     for i, name in enumerate(cats):
         short = short_cat(kind, name).replace('"', "")
+        share = (max(0.0, vals[i]) / tot) if i < len(vals) else 0
+        inside = share >= 0.3 and len(short) <= 12       # lange Namen passen nicht ins Segment
+        col = colors[i] if i < len(colors) else K.BLUE
         lb = SE(d, "c:dLbl")
         SE(lb, "c:idx", i)
         lb.append(num_fmt(f'[=0]"";"{short} · "0 %'))
         lb.append(sppr(nofill=True, ln=line(nofill=True)))
-        lb.append(txpr(size, K.INK, bold, wrap="none"))
-        SE(lb, "c:dLblPos", "bestFit")
+        if inside:
+            lb.append(txpr(max(size, 9), K.WHITE if col in WHITE_ON or col == "1D4F8A" else K.NAVY, True, wrap="none"))
+        else:
+            lb.append(txpr(size, K.INK, bold, wrap="none"))
+        SE(lb, "c:dLblPos", "ctr" if inside else ("outEnd" if share >= 0.08 else "bestFit"))
         _flags(lb, showPercent=True)
     d.append(num_fmt('[=0]"";0 %'))
     d.append(sppr(nofill=True, ln=line(nofill=True)))
@@ -981,14 +993,17 @@ def style_series(root, kind, n_cat, size=None):
     plot = root.find(".//" + q("c:plotArea"))
     hidden = []
     k = 0
-    bar_totals = {}
+    bar_totals, bar_counts = {}, {}
     if kind == "jahr1":
         for s in plot.xpath("./c:barChart/c:ser|./c:bar3DChart/c:ser", namespaces=NS):
             for pt in s.xpath("./c:val//c:pt", namespaces=NS):
                 try:
-                    bar_totals[int(pt.get("idx"))] = bar_totals.get(int(pt.get("idx")), 0) + max(0.0, float(pt.find(q("c:v")).text))
+                    v = float(pt.find(q("c:v")).text)
                 except (TypeError, ValueError, AttributeError):
-                    pass
+                    continue
+                i = int(pt.get("idx"))
+                bar_totals[i] = bar_totals.get(i, 0) + max(0.0, v)
+                bar_counts[i] = bar_counts.get(i, 0) + (1 if v > 0 else 0)
     for ct in list(plot):
         ctn = local(ct)
         if ctn not in CHART_TAGS:
@@ -1005,10 +1020,11 @@ def style_series(root, kind, n_cat, size=None):
                 drop(ser, "dPt", "explosion")
                 if ser.find(q("c:spPr")) is not None:
                     ser.remove(ser.find(q("c:spPr")))
-                for i, col in enumerate(pie_colors(kind, cats, vals)):
+                colors = pie_colors(kind, cats, vals)
+                for i, col in enumerate(colors):
                     put(ser, dpt(i, col, ln=line(1, K.WHITE)), so)
                 narrow = size is not None and size[0] < 360
-                pie_labels(ser, kind, cats, size=9 if narrow else 8, bold=narrow)
+                pie_labels(ser, kind, cats, size=9 if narrow else 8, bold=narrow, vals=vals, colors=colors)
                 continue
             m = match_series(name)
             color, w, dash = m if m else (FALLBACK[k % len(FALLBACK)], None, None)
@@ -1017,12 +1033,25 @@ def style_series(root, kind, n_cat, size=None):
             if ctn in ("lineChart", "line3DChart"):
                 if kind == "jahr1":                       # Summe über jeder Säule (Linie unsichtbar)
                     _line_style(ser, so, None, None, None, hidden=True)
-                    set_ser_dlbls(ser, dlbls_val(LBL_EUR, 9, K.NAVY, True, pos="t"), so)
+                    d = dlbls_val(LBL_EUR, 9, K.NAVY, True, pos="t")
+                    k_ = 0
+                    for i in sorted(bar_counts):              # nur bei mehreren Segmenten (sonst doppelt)
+                        if bar_counts[i] <= 1:
+                            d.insert(k_, dlbl_delete(i))
+                            k_ += 1
+                    set_ser_dlbls(ser, d, so)
                     hidden.append(idx)
                     continue
                 if kind == "ertrag":                      # Beschriftungsreihen: Name = Betrag aus Zelle
                     _line_style(ser, so, None, None, None, hidden=True)
-                    set_ser_dlbls(ser, dlbls_val("General", 9, K.NAVY, True, pos="t", ser_name=True), so)
+                    d = dlbls_val("General", 9, K.NAVY, True, pos="t", ser_name=True)
+                    p_ = ref_rows(ser_ref(ser))
+                    own = "RSTU".find(p_[1]) if p_ else -1      # Reihe R/S/T/U beschriftet Kategorie 1/2/3/4
+                    n_ = len(categories(ser)) or 4
+                    for i in reversed(range(n_)):
+                        if i != own:
+                            d.insert(0, dlbl_delete(i))
+                    set_ser_dlbls(ser, d, so)
                     hidden.append(idx)
                     continue
                 _line_style(ser, so, color, w, dash)
@@ -1083,12 +1112,6 @@ def style_series(root, kind, n_cat, size=None):
                     put(ser, sppr(solid(color or K.BLUE), line(nofill=True)), so)
                     fmt = LBL_TEUR1 if kind == "afa_summe" else LBL_EUR_POS
                     set_ser_dlbls(ser, dlbls_val(fmt, 8, K.INK2, pos="outEnd"), so)
-                    continue
-                if kind == "cf_nach":
-                    put(ser, sppr(solid(K.ACCENT), line(nofill=True)), so)
-                    put_val(ser, "invertIfNegative", 1, so)
-                    put(ser, invert_ext(K.BLUE), so)
-                    drop(ser, "dLbls")
                     continue
                 put(ser, sppr(solid(color), line(nofill=True)), so)
                 drop(ser, "dLbls")
@@ -1265,7 +1288,7 @@ def style_chart(xml, sheet=None, mark=None, size=None):
                if int(s.find(q("c:idx")).get("val")) not in hidden]
     if not dashboard:
         pos = "r" if (width_px and width_px < 560 and len(visible) > 3) else "b"
-        set_legend(root, kind3d != "pie" and kind not in PIE_KINDS and len(visible) > 1, hidden, pos)
+        set_legend(root, kind3d != "pie" and kind not in PIE_KINDS | {"cf_nach"} and len(visible) > 1, hidden, pos)
     else:
         lg = chart.find(q("c:legend"))
         if lg is not None:
