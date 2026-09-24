@@ -8,6 +8,8 @@ fix(files) erhält das entpackte Paket als dict {pfad: bytes} und ändert es an 
 - dxf-Einträge ohne Schriftnamen (Altschriften Fraunces/Inter aus der Vorlage)          P3-06
 - Datenbalken als Vollton ohne Verlauf (x14-Erweiterung, Excel 2010+)                   Wunsch G
 - Gliederung: [+]/[–] an der Abschnittszeile über dem Block (summaryBelow=0)            Wunsch D (Runde 3)
+- ScreenTips der Brotkrumen (Z. 5) „Zurück: Dashboard“ – LibreOffice verwirft sie          P2-04 / P3-17
+  (alle übrigen Zell-Links ergänzt core.patch_tooltips nach navigation.py)
 """
 import os
 import posixpath
@@ -137,6 +139,21 @@ def fix_outline(name, root):
     op.set("summaryRight", "1")
 
 
+def fix_crumb_tooltips(name, root):
+    """Brotkrume in Z. 5 (B5/C5): ScreenTip wie die Formen („Zurück zur Startseite“, „Zurück: Leitfaden“)."""
+    hls = root.find(q("hyperlinks"))
+    if hls is None:
+        return
+    for hl in hls.findall(q("hyperlink")):
+        if hl.get("ref") not in ("B5", "C5") or not hl.get("location"):
+            continue
+        m = re.match(r"^'?(.*?)'?!", hl.get("location"))
+        if not m:
+            continue
+        target = m.group(1).replace("''", "'")
+        hl.set("tooltip", G.crumb_tooltip(target))
+
+
 def fix_view(name, root):
     if name in G.PRESENTATION or G.STEP_RE.match(name):
         for sv in root.iter(q("sheetView")):
@@ -216,6 +233,7 @@ def fix(files):
             fix_validations(name, root)
             fix_view(name, root)
             fix_outline(name, root)
+            fix_crumb_tooltips(name, root)
             fix_databars(root)
             files[p] = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
         except Exception as exc:  # ein Blatt darf den Nachlauf nicht abbrechen

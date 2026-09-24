@@ -11,10 +11,11 @@ from openpyxl.utils import column_index_from_string, get_column_letter
 
 from core import ACCENT, CONTENT_EDGE, H_GAP, NAVY, NOFILL, col_px, fill
 
-# Runde 3 (P01): Kopfband, Reiterleiste und Inhalt enden auf jedem Blatt an derselben Kante. Die genaue Kante
-# (rechte Inhaltskante) misst navigation.py nach der Neuberechnung am fertigen Blatt; hier wird die Navy-Fläche
-# nur großzügig vorgelegt (bis BAND_PREFILL_PX bzw. core.CONTENT_EDGE) – navigation.trim_band schneidet sie
-# exakt zu, navigation.band_extension ergänzt eine angeschnittene Spalte als Fläche.
+# Runde 4 (P1-08): Die Reiterleiste hat auf allen Blättern dieselbe feste Pixelgeometrie (navigation.NAV_X …
+# NAV_END); das Navy-Band reicht bis navigation.BAND_END (rechts derselbe Innenabstand wie links), bei etwas
+# breiterem Inhalt bis zur Inhaltskante, auf den Jahrestabellen nie über die Jahresspalten. Hier wird die
+# Navy-Fläche nur großzügig vorgelegt (bis BAND_PREFILL_PX bzw. core.CONTENT_EDGE) – navigation.trim_band schneidet
+# sie nach der Neuberechnung exakt zu, navigation.band_extension ergänzt den Rest als (nicht gedruckte) Fläche.
 JUMP_ROW_SHEETS = ("Eingaben", "Diagramme")  # Zeile 8 trägt die Sprungleiste (navigation.jump_bar)
 BAND_TO = CONTENT_EDGE                       # Kompatibilität für Altaufrufer
 BAND_PREFILL_PX = 1800                       # Vorlage der Navy-Fläche; Zuschnitt auf die Inhaltskante: navigation.py
@@ -43,7 +44,7 @@ def band_end_col(ws):
 
 def masthead(ws):
     """Kopfleiste als Farbfläche: Z. 1 (6 pt) und 2 (33 pt) Navy, Z. 3 (3 pt) Akzentlinie. Endet nach dem
-    Zuschnitt (navigation.trim_band) an der rechten Inhaltskante; dahinter bleibt die Kopfzone weiß."""
+    Zuschnitt (navigation.trim_band) an der Bandkante (navigation.Frame.band); dahinter bleibt die Kopfzone weiß."""
     for mr in list(ws.merged_cells.ranges):
         if mr.min_row <= 2 <= mr.max_row:
             ws.unmerge_cells(str(mr))

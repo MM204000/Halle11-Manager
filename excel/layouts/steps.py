@@ -19,7 +19,7 @@ import re
 from openpyxl.chart import BarChart, Reference, Series
 from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, TwoCellAnchor
 from openpyxl.formatting.formatting import ConditionalFormattingList
-from openpyxl.styles import Alignment, Border
+from openpyxl.styles import Alignment, Border, Font
 from openpyxl.worksheet.hyperlink import Hyperlink
 
 import core as C
@@ -29,7 +29,8 @@ import core as C
 # Runde 3 (P13/P39/P02): ein Drittelraster für alle zwölf Seiten – C:D = E:F(+G) = H:I = 65 Zeichen (455 px).
 #   Zurück-Button C:D und Weiter-Button H:I sind pixelgleich breit und stehen auf allen Schrittseiten an derselben
 #   Stelle; „Übersicht“ (Textlink) sitzt genau in der Mitte (E:G). Spalte A 2,5 → linke Satzkante wie B-Blätter (A+B = 4,5).
-GRID = (("A", 2.5), ("B", 2), ("C", 31), ("D", 34), ("E", 10), ("F", 55), ("G", 3), ("H", 43), ("I", 22))
+# Runde 4 (P2-08): Eingabefeld über D:E (eine Breite, Einheit im Zahlenformat) – E 11 / F 54 geben Auswahltexten Platz.
+GRID = (("A", 2.5), ("B", 2), ("C", 31), ("D", 34), ("E", 11), ("F", 54), ("G", 3), ("H", 43), ("I", 22))
 # Ergebnisseiten S08/S12: zwei gleich breite Kachelspalten C:D | E:F (Kontext links, Status-Chip rechts)
 GRID_KPI = (("A", 2.5), ("B", 2), ("C", 33), ("D", 32), ("E", 33), ("F", 32), ("G", 3), ("H", 43), ("I", 22))
 LONG = ["Objekt", "Kaufpreis & Miete", "Kaufnebenkosten", "Kaufpreisaufteilung", "Maßnahmen & Reserve",
@@ -97,9 +98,11 @@ TEXT_DSCR_S08 = ('="Banken erwarten meist eine Kapitaldienstdeckung von mindeste
                  '"× (Einnahmenüberschuss ÷ Rate). Darunter trägt der Investor einen Teil der Rate aus seinem '
                  'Einkommen."')
 TEXT_CFV_S08 = ('=IF(CF_vSt_J1>=0,"Die Miete deckt Bewirtschaftung, Zinsen und Tilgung: Es bleiben "&'
-                'FIXED(CF_vSt_J1/12,0)&" € pro Monat vor Steuern für Rücklagen oder Sondertilgungen.","Es fehlen "&'
-                'FIXED(-CF_vSt_J1/12,0)&" € pro Monat, die aus anderen Einkünften zugeschossen werden. Ob sich das '
-                'Objekt trotzdem lohnt, zeigen Steuereffekt (Schritte 9–10) und Wertentwicklung (Schritt 11).")')
+                'FIXED(CF_vSt_J1/12,0)&" € pro Monat vor Steuern als Puffer für Rücklagen, Mietausfall oder '
+                'Sondertilgungen. Was nach Steuern bleibt, zeigen die Schritte 9 bis 12.","Es fehlen "&'
+                'FIXED(-CF_vSt_J1/12,0)&" € pro Monat: Der Einnahmenüberschuss deckt die Rate an die Bank nicht, die '
+                'Lücke kommt aus anderen Einkünften. Ob sich das Objekt trotzdem lohnt, zeigen Steuereffekt '
+                '(Schritte 9–10) und Wertentwicklung (Schritt 11).")')
 TEXT_IRR_S12 = ('=IFERROR(IF(EK_IRR>=Ampel_IRR_gruen,"Über "&Haltedauer&" Jahre verzinst sich das Eigenkapital mit "&'
                 'FIXED(EK_IRR*100,1)&" % p. a. nach Steuern – das Ziel von "&FIXED(Ampel_IRR_gruen*100,1)&" % ist '
                 'erreicht.",IF(EK_IRR>=Ampel_IRR_gelb,"Über "&Haltedauer&" Jahre verzinst sich das Eigenkapital mit "&'
@@ -107,7 +110,8 @@ TEXT_IRR_S12 = ('=IFERROR(IF(EK_IRR>=Ampel_IRR_gruen,"Über "&Haltedauer&" Jahre
                 'FIXED(Ampel_IRR_gruen*100,1)&" %. Hebel: Kaufpreis, Miete, Finanzierung und Haltedauer.","Über "&'
                 'Haltedauer&" Jahre verzinst sich das Eigenkapital nur mit "&FIXED(EK_IRR*100,1)&" % p. a. nach '
                 'Steuern – unter der Mindestschwelle von "&FIXED(Ampel_IRR_gelb*100,1)&" %. Kaufpreis, Miete und '
-                'Finanzierung prüfen.")),"Die Eigenkapitalrendite lässt sich mit diesen Annahmen nicht berechnen.")')
+                'Finanzierung prüfen."))&" Aus 1 € Eigenkapital werden bis zum Verkauf "&FIXED(EK_Multiple,2)&" €.",'
+                '"Die Eigenkapitalrendite lässt sich mit diesen Annahmen nicht berechnen.")')
 
 # ============================================================================ Blatt-Spezifikation
 # results: Zeile → (Rolle, Beschriftung|None, Formel|None, Format|None)
@@ -149,6 +153,8 @@ SPEC = {
                  15: ("f", "= Bruttomietrendite", None, C.NUMFMT["pct1"]),
                  16: ("m", "nachrichtlich: Warmmiete pro Monat", "=Miete_Monat+NK_umlagefaehig", C.NUMFMT["eur"])},
         callout=dict(head=18, src="H19", title="Bruttomietrendite", kpi="BMR", text=TEXT_BMR),
+        tile=dict(kpi="BMR", value="=Bruttomietrendite", fmt=C.NUMFMT["pct1"],
+                  sub='="Kaufpreisfaktor "&FIXED(Kaufpreisfaktor,1)&"×  ·  " & ' + C.threshold_text("BMR")),
         nav=26, foot=28),
     3: dict(
         inputs=range(12, 17), optional=(12,),
@@ -208,7 +214,8 @@ SPEC = {
                       '=IF(HK_Flag=1,"Aktiviert (AfA)",IF(Verteilung_eff>1,"Verteilt (§ 82b)","Sofortabzug"))', None),
                  14: ("n", "Maßnahmen + Sonderumlage Jahr 1", None, None),
                  15: ("i", None, None, None), 16: ("f", None, None, None)},
-        callout=dict(head=18, src="H19", title=f"Die 15{NBSP}%-Grenze"),
+        callout=dict(head=18, src="H19", title=f"Die 15{NBSP}%-Grenze",
+                     conditions=[("$I$11>$I$12", "amber"), ("ISNUMBER($I$11)", "green")]),
         charts=[dict(side="L", title="Zusammensetzung der Gesamtinvestition", unit="Anteile in %", pie=True)],
         tile=dict(label=C.KPI_LABELS["EK"], value="=EK_Bedarf_gesamt",
                   sub=f'=IFERROR("Anteil an der Gesamtinvestition "&FIXED(EK_Bedarf_gesamt/Gesamtinvestition*100,1)&"{NBSP}%","")'),
@@ -251,8 +258,12 @@ SPEC = {
                  17: ("n", None, None, None),
                  18: ("f", "= Rate an die Bank / Monat", "=Kapitaldienst_Monat_J1", C.NUMFMT["eur"])},
         callout=dict(head=20, src="H20", body=21, title="Kapitaldienstdeckung (DSCR)", kpi="DSCR",
-                     text=TEXT_DSCR_S07, second=dict(title="Zinsänderungsrisiko")),
-        charts=[dict(side="L", title="Restschuld am Jahresende", unit="Jahre 1–35 · T€ · Jahresende", chart_col=7),
+                     text=TEXT_DSCR_S07),
+        # P1-09: Leitwert-Kachel wie S03–S11; das Zinsänderungsrisiko steht kompakt in der Fußzeile
+        tile=dict(kpi="RATE", value="=Kapitaldienst_Monat_J1",
+                  sub=f'="Jahr 1  ·  ab Jahr "&(Zinsbindung_I+1)&" je +1 %-Pkt. Zins: +"&FIXED(Restschuld_ZB_I*0.01/12,0)&"{NBSP}€ / Monat"'),
+        charts=[dict(side="L", title="Restschuld am Jahresende", unit="Jahre 1–35 · T€ · Jahresende", chart_col=7,
+                     hz=181, empty=(181, "kein Darlehen II", "MAX")),
                 dict(side="R", title="Finanzierungsstruktur", unit="Anteile in %", chart_col=2)],
         chart_min=165, nav=44, foot=46),
     9: dict(
@@ -276,7 +287,7 @@ SPEC = {
         band_right="Jahr 1",
         callout=dict(head=18, src="H19", title="Besteuerung nach Rechtsform"),
         charts=[dict(side="L", title="Steuerliches Ergebnis und Steuer", unit="Jahre 1–20 · T€ · Steuer: + Zahlung / − Erstattung",
-                     new=True)],
+                     new=True, hz=196)],
         tile=dict(label="Steuerwirkung / Monat (Jahr 1)", value="=Steuer_J1/12", fmt=SIGNED_EFFECT, neg=False,
                   sub=f'=IF(Steuer_J1<0,"Erstattung","Zahlung")&"  ·  Cash-Sicht wie Schritt 12"'),
         nav=27, foot=29),
@@ -302,7 +313,8 @@ SPEC = {
                  17: ("m", f"Steuereffekt ggü. Standard-AfA (10{NBSP}J.)", None, None)},
         band_right="Jahr 1",
         callout=dict(head=19, src="H20", title="Wahl der Abschreibung"),
-        charts=[dict(side="L", title="Abschreibungen nach Komponenten", unit="Jahre 1–20 · T€ p. a.")],
+        charts=[dict(side="L", title="Abschreibungen nach Komponenten", unit="Jahre 1–20 · T€ p. a.", hz=203,
+                     empty=(203, "keine Sonder-AfA", "SUM"))],
         tile=dict(label="Abschreibungen / Monat (Jahr 1)", value="=INDEX(Steuern!$D$56:$AQ$56,1)/12",
                   sub=f'="Jahr 1 gesamt: "&FIXED(INDEX(Steuern!$D$56:$AQ$56,1),0)&"{NBSP}€ p.{NBSP}a."'),
         nav=45, foot=47),
@@ -325,7 +337,7 @@ SPEC = {
                  17: ("f", "= IRR n. St. (Eigenkapitalrendite)", None, C.NUMFMT["pct1"])},
         band_right="Verkauf",
         callout=dict(head=19, src="H20", title="Verkauf und Steuern"),
-        charts=[dict(side="L", title="Immobilienwert, Restschuld und Nettovermögen", unit="Jahre 1–35 · T€ · Jahresende")],
+        charts=[dict(side="L", title="Immobilienwert, Restschuld und Nettovermögen", unit="Jahre 1–35 · T€ · Jahresende", hz=179)],
         tile=dict(kpi="IRR", label=C.kpi_label("IRR", caps=True, formula=True), value="=EK_IRR", fmt=C.NUMFMT["pct1"],
                   sub="=" + C.threshold_text("IRR")),
         nav=45, foot=47),
@@ -431,17 +443,20 @@ def lit(text, size=200):
     return "&".join('"' + p.replace('"', '""') + '"' for p in parts)
 
 
-def stack(heights, start, need, fill_max=None):
-    """Zeilen ab `start` belegen, bis `need` pt erreicht sind. Gesetzte Zeilen zählen mit ihrer Höhe;
-    die erste freie Zeile erhält genau den Rest (mind. 12 pt). Liefert die letzte belegte Zeile."""
+def stack(heights, start, need, tol=3.0):
+    """Zeilen ab `start` belegen, bis `need` pt erreicht sind. Gesetzte Zeilen zählen mit ihrer Höhe; die erste freie
+    Zeile erhält genau den Rest (mind. 8 pt). Fehlen nur ≤ `tol` pt, endet der Block schon vorher (≈ 4 px weniger
+    Innenraum statt einer Zusatzzeile). Liefert die letzte belegte Zeile."""
     r, acc = start, 0.0
     while True:
         if r in heights:
             acc += heights[r]
-            if acc >= need - 1:
+            if acc >= need - tol:
                 return r
         else:
-            heights[r] = max(C.px_pt(need - acc), 12 if fill_max is None else min(fill_max, 12))
+            if r > start and need - acc <= tol:
+                return r - 1
+            heights[r] = max(C.px_pt(need - acc), 8.0)
             return r
         r += 1
 
@@ -498,9 +513,23 @@ def move_formula(ws, src, dst):
     return v
 
 
-def head2(ws, row, c1, c2, title, unit=None):
-    """Ebene-2-Kopf (Unterabschnitt, Linie) für Diagramm- und Tabellenblöcke: 8 pt Versalien, Einheit rechts."""
+def head2(ws, row, c1, c2, title, unit=None, unit_formula=None):
+    """Ebene-2-Kopf (Unterabschnitt, Linie) für Diagramm- und Tabellenblöcke: 8,5 pt Versalien, Einheit rechts.
+    unit_formula: Anzeigeformel für die Meta-Zelle (z. B. Zusatz „ · kein Darlehen II“, wenn eine Reihe leer ist)."""
     C.section(ws, row, c1, c2, title, level=2, variant="line", meta=unit)
+    if unit_formula:
+        ws[f"{c2}{row}"].value = unit_formula
+
+
+def horizon_years(row):
+    """Jahre einer Zeitreihe auf „Diagramme“ – liest den Horizont aus layouts.diagramme (Agent H), damit der
+    Diagrammkopf immer zur Achse passt."""
+    try:
+        from layouts import diagramme as D
+        last = D.HORIZON.get(row)
+        return C.col(last) - C.col("D") + 1 if last else None
+    except Exception:  # noqa: BLE001 – Kopf fällt auf den Standard zurück
+        return None
 
 
 def set_anchor(chart, c1, r1, c2, r2):
@@ -544,22 +573,51 @@ def header(ws, n):
     C.safe_merge(ws, "H", 7, "I", 7)
 
 
-def box(ws, heights, head, title, kpi=None, text=None, body=None, fixed_end=None, draw=True):
-    """Einordnungs-Box (core.callout_box) mit Zeilenbedarf nach Textlänge. Liefert die letzte Zeile.
-    Ampel-Boxen: Pill „● Urteil  ·  Ist-Wert“ über core (suffix), Statuskante links. draw=False: nur bemessen."""
+def box_lines(ws, value, c1="H", c2="I"):
+    """Textzeilen (9 pt) des Körpers einer Einordnungs-Box: statischer Text wie gesetzt (feste Umbrüche), Formeln je
+    Zweig (größter Wert aus eigener Zweigzerlegung und core.display_text)."""
+    w = C.span_px(ws, c1, c2)
+    if value in (None, ""):
+        return 1
+    if not C.is_formula(value):
+        return C.lines_needed_metric(str(value), w, C.T_SMALL, False, 1)
+    n = max(C.lines_needed_metric(t, w, C.T_SMALL, False, 1) for t in variants(value))
+    class _Probe:   # Stellvertreter-Zelle nur zum Bemessen (legt keine Zelle im Blatt an)
+        parent = ws
+    _Probe.value = value
+    try:
+        t = C.display_text(_Probe)
+        if t:
+            n = max(n, C.lines_needed_metric(t, w, C.T_SMALL, False, 1))
+    except Exception:  # noqa: BLE001
+        pass
+    return n
+
+
+def box(ws, heights, head, title, kpi=None, text=None, body=None, fixed_end=None, draw=True, conditions=None,
+        c1="H", c2="I"):
+    """Einordnungs-Box (core.callout_box). Körperhöhe = Textzeilen × 12,5 + 8 pt (core.callout_height, P2-01): die
+    Box belegt ab `body` nur so viele Zeilen, wie der Text braucht. Statischer Text bekommt feste Umbrüche mit
+    Innenabstand rechts (core.hard_wrap), Formeltexte das typografische Minus (core.minus_text).
+    Ampel-Boxen: Pill „● Urteil  ·  Ist-Wert“ (suffix), Statuskante links. draw=False: nur bemessen."""
     body = body or head + 1
-    cell = ws.cell(body, 8)
+    cell = ws.cell(body, C.col(c1))
     if text is not None:
         cell.value = nbsp(text)
     elif isinstance(cell.value, str):
         cell.value = nbsp(cell.value)
+    w = C.span_px(ws, c1, c2)
+    if isinstance(cell.value, str):
+        cell.value = C.minus_text(cell.value) if C.is_formula(cell.value) else C.hard_wrap(cell.value, w, C.T_SMALL,
+                                                                                            indent=1)
     heights[head] = max(heights.get(head, 0), C.H_CALLOUT_HEAD)
-    need, _ = max((body_need(t, C.span_px(ws, "H", "I")) for t in variants(cell.value)), key=lambda x: x[0]) \
-        if C.is_formula(cell.value) else body_need(text_bound(cell.value), C.span_px(ws, "H", "I"))
+    need = C.callout_height(box_lines(ws, cell.value, c1, c2))
     end = fixed_end or stack(heights, body, need)
     if draw:
         kw = dict(kpi=kpi, value_ref=VALUE_REF[kpi], suffix=val_text(kpi)) if kpi else {}
-        C.callout_box(ws, "H", head, "I", body, end, title=title, fit=None, **kw)
+        if conditions:
+            kw = dict(conditions=conditions)
+        C.callout_box(ws, c1, head, c2, body, end, title=title, fit=None, **kw)
     return end
 
 
@@ -631,48 +689,98 @@ def clear_rows_after(ws, first, last):
         ws.row_dimensions[r].height = None
 
 
+def unit_format(fmt, qualifier):
+    """Bezugsangabe (pro Monat, pro Jahr, je m², der Miete) ins Zahlenformat der Eingabe (P3-09): „950 € / Monat“,
+    „3,0 % der Miete“ – die Spalte EINHEIT entfällt, das Eingabefeld reicht über D:E."""
+    suffix = {"pro Monat": " / Monat", "pro Jahr": " p. a.", "je m²": " / m²", "je m² p. a.": " / m² p. a.",
+              "der Miete": " der Miete"}.get(qualifier)
+    if suffix is None:
+        return fmt
+    if "%" in fmt:
+        return f'0.0\\ %"{suffix}";"{C.MINUS}"0.0\\ %"{suffix}"'
+    return f'#,##0" €{suffix}";"{C.MINUS}"#,##0" €{suffix}"'
+
+
+def zero_dash_fmt(fmt):
+    """Anzeige „–“ für 0 in inaktiven Feldern (Befund 25) – als bedingtes Zahlenformat, das Feld bleibt Eingabe."""
+    if not fmt or fmt in ("General", "@"):
+        return None
+    if fmt.startswith("[=1]"):
+        parts = fmt.split(";")
+        return f'{parts[0]};[=0]"–";{parts[-1]}' if len(parts) == 2 else fmt
+    try:
+        return C.zero_dash(fmt)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def inactive_rule(ws, ref, condition, numfmt=None):
+    """Wie core.inactive_when (grau, bleibt editierbar), zusätzlich 0 → „–“."""
+    ln = C.side("thin", C.LINE2)
+    C.cf_rule(ws, ref, condition, font_=Font(color=C.INACTIVE_FG, bold=False), fill_=C.fill(C.INACTIVE_BG),
+              border=Border(left=ln, right=ln, top=ln, bottom=ln), numfmt=numfmt)
+
+
 def style_input_table(ws, sp):
-    """Kopfzeile Z. 11 und Eingabezeilen: Beschriftung, Eingabe (nur Spalte D), Einheit (nur E), Hinweis.
-    Liefert den Zeilenbedarf je Zeile (Anzahl Textzeilen)."""
+    """Kopfzeile Z. 11 und Eingabezeilen: Beschriftung (C) · Eingabefeld D:E (eine Breite für alle Felder, Einheit und
+    Bezugsangabe im Zahlenformat) · Hinweis (F). Liefert den Zeilenbedarf je Zeile (Anzahl Textzeilen)."""
     need = {}
-    C.section(ws, 11, "C", "F", None, level=2, labels={"C": ("Position", "left"), "D": ("Eingabe", "right"),
-                                                          "E": ("Einheit", "left"), "F": ("Hinweis", "left")})
+    for c in C.iter_cells(ws, "C", 11, "F", 11):   # alte Spaltenköpfe (EINGABE/EINHEIT) der Vorlage
+        c.value = None
+    C.section(ws, 11, "C", "F", None, level=2, labels={"C": ("Position", "left"), "E": ("Eingabe", "right"),
+                                                          "F": ("Hinweis", "left")})
     text_rows = set(sp.get("text", ()))
-    wc, wd, wf = C.span_px(ws, "C", "C"), C.span_px(ws, "D", "D"), C.span_px(ws, "F", "F")
+    inactive = sp.get("inactive", {})
+    wc, wf = C.span_px(ws, "C", "C"), C.span_px(ws, "F", "F")
+    wd = C.span_px(ws, "D", "E")
     for r in sp["inputs"]:
         lab, inp, unit, hint = (ws.cell(r, k) for k in (3, 4, 5, 6))
         if r in sp.get("labels", {}):
             C.set_text(lab, sp["labels"][r])
         if r in sp.get("hints", {}):
             C.set_text(hint, sp["hints"][r])
-        if r in sp.get("units", {}):
-            C.set_text(unit, sp["units"][r])
-        elif isinstance(unit.value, str) and unit.value.strip() in UNITS:
-            unit.value = UNITS[unit.value.strip()]
+        qualifier = sp.get("units", {}).get(r, unit.value.strip() if isinstance(unit.value, str) else None)
+        qualifier = UNITS.get(qualifier, qualifier)
+        if r in sp.get("fmts", {}):   # P38/Befund 29: Einheit im Zahlenformat, eine Genauigkeit je Größe
+            inp.number_format = sp["fmts"][r]
+        if qualifier and isinstance(inp.value, (int, float)):
+            inp.number_format = unit_format(inp.number_format, qualifier)
+        if C.is_formula(unit.value):
+            print(f"  steps: {ws.title}!E{r} enthält eine Formel – Eingabefeld bleibt einspaltig")
+        else:
+            blank(unit)
         ind = 2 if r in sp.get("indent2", ()) else 1
         lab.font = C.font(C.T_BODY, False, C.INK)
         lab.alignment = C.align("left", "center", ind, wrap=True)
-        unit.font = C.font(C.T_SMALL, False, C.MUTED)
-        unit.alignment = C.align("left", "center", 1)
         hint.font = C.font(C.T_SMALL, False, C.MUTED)
         hint.alignment = C.align("left", "center", 1, wrap=True)
         state = "linked" if r == sp.get("linked") else ("optional" if r in sp.get("optional", ()) else "required")
         is_text = r in text_rows
-        C.input_style(inp, state)
-        inp.font = C.font(C.T_BODY, state != "linked", C.INPUT_FG)
-        if r in sp.get("fmts", {}):   # P38/Befund 29: Einheit im Zahlenformat, eine Genauigkeit je Größe
-            inp.number_format = sp["fmts"][r]
+        for c in (inp, unit):
+            C.input_style(c, state)
+        size = C.T_BODY
+        if is_text:   # P2-08: Auswahltexte einzeilig – erst 10 pt, sonst 9 pt (Listenwerte bleiben unverändert)
+            t = C.display_text(inp) or ""
+            if not C.fits(t, wd, C.T_BODY, state != "linked", 1, 0.97):
+                size = C.T_SMALL
+        inp.font = C.font(size, state != "linked", C.INPUT_FG)
         inp.alignment = C.align("left", "center", 1, wrap=True) if is_text else C.align("right", "center", 1)
-        for c in (lab, unit, hint):
+        if not C.is_formula(unit.value):
+            C.safe_merge(ws, "D", r, "E", r)
+        for c in (lab, hint):
             row_line(ws, r, C.L(c.column), C.L(c.column))
+        if r in inactive:   # inaktiver Zustand: Hinweis beginnt mit „inaktiv – “ (nur solange inaktiv)
+            base = hint.value if isinstance(hint.value, str) and not C.is_formula(hint.value) else None
+            if base:
+                hint.value = f'=IF({inactive[r]},"{C.INACTIVE_PREFIX}","")&{lit(base)}'
         n = max(lines(lab.value, wc, C.T_BODY, False, ind),
-                lines(hint.value, wf, C.T_SMALL, False, 1),
-                lines(C.display_text(inp), wd, C.T_BODY, True, 1) if is_text else 1)
+                lines(C.display_text(hint) if C.is_formula(hint.value) else hint.value, wf, C.T_SMALL, False, 1),
+                lines(C.display_text(inp), wd, size, True, 1) if is_text else 1)
         need[r] = n
         if n > 1:
             print(f"  steps: {ws.title} Z. {r} zweizeilig ({lab.value!r} | {hint.value!r} | {C.display_text(inp)!r})")
-    for r, cond in sp.get("inactive", {}).items():
-        C.inactive_when(ws, f"D{r}", cond)
+    for r, cond in inactive.items():
+        inactive_rule(ws, f"D{r}:E{r}", cond, zero_dash_fmt(ws.cell(r, 4).number_format))
     return need
 
 
@@ -724,7 +832,15 @@ def style_results(ws, sp):
 
 def chart_block(ws, heights, charts, spec, head_row, c1, c2, end_row=None, target=CHART_MIN, chart_c2=None):
     """Ebene-2-Kopf und Diagramm darunter; das Diagramm endet auf `end_row` oder nach `target` pt."""
-    head2(ws, head_row, c1, c2, spec["title"], spec.get("unit"))
+    unit, uf = spec.get("unit"), None
+    years = horizon_years(spec["hz"]) if spec.get("hz") else None
+    if unit and years:
+        unit = re.sub(r"Jahre 1–\d+", f"Jahre 1–{years}", unit)
+    if spec.get("empty") and years:   # leere Reihe fehlt in der Legende → Hinweis im Kopf (Wunsch H)
+        row, word, func = spec["empty"]
+        last = C.L(C.col("D") + years - 1)
+        uf = f'={lit(unit)}&IF({func}(Diagramme!$D${row}:${last}${row})>0,"","  ·  {word}")'
+    head2(ws, head_row, c1, c2, spec["title"], unit, uf)
     heights[head_row] = max(heights.get(head_row, 0), C.H_HEAD)
     for c in C.iter_cells(ws, c1, head_row, c2, head_row):   # Kopf sitzt immer auf seiner Linie (auch in hohen Zeilen)
         c.alignment = C.align(c.alignment.horizontal or "left", "bottom", 1)
@@ -815,13 +931,15 @@ def standard_page(ws, n, sp, names):
 
     # Diagrammkopf links reservieren (die Einordnung rechts läuft über diese Zeilen)
     ch_specs = sp.get("charts", [])
+    left_chart = next((c for c in ch_specs if c["side"] == "L"), None)
+    pie = next((c for c in ch_specs if c["side"] == "R"), None)
     chead = None
-    if ch_specs:   # Fuge + Kopf links vor den Boxen festlegen, damit die Boxen rechts diese Zeilen mitzählen
+    if left_chart:
         chead = left_end + 2
         heights.setdefault(left_end + 1, GAP)
         heights[chead] = max(heights.get(chead, 0), C.H_HEAD)
 
-    # Einordnung (rechts, eine Leerzeile unter dem Ergebnis)
+    # Einordnung (rechts, eine Leerzeile unter dem Ergebnis) – Höhe aus dem Text (P2-01)
     co = sp["callout"]
     head = co["head"]
     body = co.get("body", head + 1)
@@ -833,83 +951,49 @@ def standard_page(ws, n, sp, names):
                 blank(c)
     for rr in range(results_end + 1, head):
         heights.setdefault(rr, GAP)
-    if co.get("second"):  # S07: Ampel-Box DSCR, darunter neutrale Box mit dem Originaltext
-        second_text = src_value.replace('="Zinsänderungsrisiko: Nach ', '="Nach ')
-        text = co["text"]
-    elif co.get("text"):
+    if co.get("text"):
         text = co["text"]
     elif co.get("prefix"):
         old = src_value[1:] if C.is_formula(src_value) else lit(str(src_value))
         text = "=" + co["prefix"] + "&" + old
     else:
         text = src_value
-    single = len(ch_specs) == 1
-    callout_end = box(ws, heights, head, co["title"], co.get("kpi"), text, body, draw=not single)
-    if co.get("second"):
-        h2 = callout_end + 2
-        heights.setdefault(callout_end + 1, GAP)
-        ws.cell(h2 + 1, 8).value = second_text
-        callout_end = box(ws, heights, h2, co["second"]["title"], None, None, h2 + 1)
+    callout_end = box(ws, heights, head, co["title"], co.get("kpi"), text, body, conditions=co.get("conditions"))
 
-    # Diagrammband
-    right_end = callout_end
-    chart_end = 0
-    card = n not in (7, 12)
-    if single:
-        # P14: rechte Spalte ohne Loch – die Einordnungs-Box wächst bis eine Leerzeile vor „Als Nächstes“ (flexible
-        # Zeile g gehört zur Box, Text oben), „Als Nächstes“ endet bündig mit der Diagrammunterkante.
-        # Rechte Spalte (P14): Box (Text) · Leitwert-Kachel (core.tile, hell; Wertfeld wächst mit) · „Als Nächstes“ –
-        # die Karte endet bündig mit der Diagrammunterkante, es entsteht kein Loch.
-        g = max(callout_end + 1, chead + 1)
-        while g in heights:
-            g += 1
-        if g - 1 > callout_end:      # Box reicht bis vor die erste freie Zeile, die Zeile davor ist die Fuge
-            box_end, lr = g - 2, g
-        else:
-            box_end, lr = callout_end, g + 1
-            heights[g] = GAP
-        box(ws, heights, head, co["title"], co.get("kpi"), None, body, fixed_end=box_end)
-        t = sp["tile"]
-        vr, sr = lr + 1, lr + 2
-        heights.update({lr: C.H_CALLOUT_HEAD, sr: C.H_TILE_SUB, sr + 1: GAP})
-        cbody, cneed = next_card(ws, heights, sr + 2, n, names)
-        heights[cbody] = max(cneed, heights.get(cbody, 0))
-        C.safe_merge(ws, "H", cbody, "I", cbody)
-        fixed = sum(heights.get(r, 0) for r in range(chead + 1, cbody + 1) if r != vr)
-        cmin = sp.get("chart_min", PIE_CHART_MIN if ch_specs[0].get("pie") else CHART_MIN)
-        heights[vr] = C.grid_height(max(C.H_TILE_VALUE, cmin - fixed))
-        for c in C.iter_cells(ws, "H", lr, "I", sr):
-            blank(c)
-        C.tile(ws, "H", "I", lr, vr, sr, label=t.get("label"), value=t["value"], sub=nbsp(t.get("sub")),
-               kpi=t.get("kpi"), fmt=t.get("fmt", C.NUMFMT["eur"]), neg=t.get("neg"), variant="light",
-               value_size=C.T_HERO if heights[vr] >= 60 else C.T_KPI)   # hohe Kachel → Leitwert groß
-        chart_end = chart_block(ws, heights, charts, ch_specs[0], chead, "C", "F", end_row=cbody)
-        right_end = cbody
-    elif len(ch_specs) == 2:
-        lhead, rhead = left_end + 2, callout_end + 2
-        heights.setdefault(left_end + 1, GAP)
-        heights.setdefault(callout_end + 1, GAP)
-        heights[lhead] = max(heights.get(lhead, 0), C.H_HEAD)
+    # Rechte Spalte, feste Folge auf allen Schrittseiten: Box · Leitwert-Kachel (core.tile 18/30/20) · [Kreis] ·
+    # „Als Nächstes“. Genau eine 12-pt-Fuge zwischen den Blöcken; braucht das Diagramm links mehr Höhe, geht der Rest
+    # in die Fuge vor „Als Nächstes“ (P1-02) bzw. in den Kreis (S07) – nie in die Kachel.
+    r = callout_end + 1
+    heights.setdefault(r, GAP)
+    if sp.get("tile"):
+        sr = place_tile(ws, heights, r + 1, sp["tile"])
+        r = sr + 1
+        heights[r] = GAP
+    flex = r
+    if pie:
+        rhead = r + 1
         heights[rhead] = max(heights.get(rhead, 0), C.H_HEAD)
-        target = sp.get("chart_min", CHART_MIN)
-        r, acc = lhead + 1, 0.0
-        while True:
-            heights.setdefault(r, 15)
-            acc += heights[r]
-            if acc >= target - 4 and r > rhead and \
-                    sum(heights[x] for x in range(rhead + 1, r + 1)) >= PIE_MIN - 4:
-                break
-            r += 1
-        chart_end = chart_block(ws, heights, charts, ch_specs[0], lhead, "C", "F", end_row=r)
-        chart_block(ws, heights, charts, ch_specs[1], rhead, "H", "I", end_row=r)
-        right_end = r
-    elif card:
-        g = callout_end + 1
-        heights.setdefault(g, GAP)
-        cbody, cneed = next_card(ws, heights, g + 1, n, names)
-        end = stack(heights, cbody, cneed)
-        C.safe_merge(ws, "H", cbody, "I", end)
-        right_end = end
+        pie_end = stack(heights, rhead + 1, PIE_MIN)
+        chart_block(ws, heights, charts, pie, rhead, "H", "I", end_row=pie_end)
+        flex = pie_end
+        r = pie_end + 1
+        heights[r] = GAP
+    cbody, cneed = next_card(ws, heights, r + 1, n, names)
+    heights[cbody] = max(cneed, heights.get(cbody, 0))
+    C.safe_merge(ws, "H", cbody, "I", cbody)
+    right_end = cbody
+
+    chart_end = 0
+    if left_chart:
+        cmin = sp.get("chart_min", PIE_CHART_MIN if left_chart.get("pie") else CHART_MIN)
+        have = sum(heights.get(rr, 15) for rr in range(chead + 1, right_end + 1))
+        if have < cmin:
+            if flex > chead:
+                heights[flex] = C.px_pt(heights[flex] + cmin - have)
+            else:
+                heights[right_end + 1] = C.px_pt(cmin - have)
+                right_end += 1
+        chart_end = chart_block(ws, heights, charts, left_chart, chead, "C", "F", end_row=right_end)
 
     content_end = max(left_end, results_end, right_end, chart_end)
     for r, h in heights.items():
@@ -917,10 +1001,22 @@ def standard_page(ws, n, sp, names):
     return nav_and_footer(ws, n, content_end + 3, names)
 
 
+def place_tile(ws, heights, lr, t):
+    """Leitwert-Kachel rechts (core.tile, Variante nach Blattrolle): Kopf 18 · Wert 30 · Fuß 20 pt. Liefert die
+    Fußzeile."""
+    vr, sr = lr + 1, lr + 2
+    heights.update({lr: C.H_TILE_LABEL, vr: C.H_TILE_VALUE, sr: C.H_TILE_SUB})
+    for c in C.iter_cells(ws, "H", lr, "I", sr):
+        blank(c)
+    C.tile(ws, "H", "I", lr, vr, sr, label=t.get("label"), value=t["value"], sub=nbsp(t.get("sub")),
+           kpi=t.get("kpi"), fmt=t.get("fmt", C.NUMFMT["eur"]), neg=t.get("neg"), variant="light")
+    return sr
+
+
 # ============================================================================ Ergebnisseiten S08/S12
-def result_rows(ws, heights, labels, r_head):
-    """Herleitung links (C:D): gleichmäßige Zeilen (21 pt), Haarlinien; Kopfzeile r_head mit 32 pt (Abstand zu den
-    Kacheln, Text unten)."""
+def result_rows(ws, heights, labels, r_head, row_h=C.H_STEP_ROW):
+    """Herleitung links (C:D): gleichmäßige Zeilen (Tabellenzeile der Schrittseiten, P3-16), Haarlinien; Kopfzeile
+    r_head mit 32 pt (Abstand zu den Kacheln, Text unten)."""
     for r, text in labels.items():
         lab, val = ws.cell(r, 3), ws.cell(r, 4)
         C.set_text(lab, text)
@@ -928,7 +1024,7 @@ def result_rows(ws, heights, labels, r_head):
         lab.alignment = C.align("left", "center", 1)
         val.alignment = C.align("right", "center", 1)
         row_line(ws, r, "C", "D")
-        heights[r] = C.text_row_height(1)
+        heights[r] = row_h
     heights[r_head] = ROW2
 
 
@@ -949,10 +1045,10 @@ def tiles_block(ws, tiles):
 
 
 def tile_heights(heights, first, rows):
-    """Kachelreihen: Kopf 20 pt (= Kopf der Einordnungs-Box daneben), Wert 30 pt, Fußzeile 20 pt."""
+    """Kachelreihen nach core (P1-02): Kopf 18 pt, Wert 30 pt, Fußzeile 20 pt."""
     for i in range(rows):
         lr = first + 3 * i
-        heights.update({lr: C.H_CALLOUT_HEAD, lr + 1: C.H_TILE_VALUE, lr + 2: C.H_TILE_SUB})
+        heights.update({lr: C.H_TILE_LABEL, lr + 1: C.H_TILE_VALUE, lr + 2: C.H_TILE_SUB})
 
 
 # ============================================================================ S08 Zwischenergebnis
@@ -1068,11 +1164,17 @@ def page_s12(ws, names):
 
     # Zeile 20: Herleitung · Diagramm · Weiter zur Auswertung (gleiche Zeilen 21–26)
     head2(ws, 20, "C", "D", "Herleitung pro Monat", "Jahr 1")
-    head2(ws, 20, "E", "F", "Cashflow nach Steuern", "Jahre 1–30 · T€ p. a.")
+    try:
+        from layouts import diagramme as D
+        cf_years = C.col(getattr(D, "CF_NACH_LAST", "AG")) - C.col("D") + 1
+    except Exception:  # noqa: BLE001
+        cf_years = 30
+    head2(ws, 20, "E", "F", "Cashflow nach Steuern", f"Jahre 1–{cf_years} · T€ p. a.")
     head2(ws, 20, "H", "I", "Weiter zur Auswertung")
     result_rows(ws, heights, {21: "Cashflow vor Steuern / Monat", 22: "± Steuerwirkung / Monat (+ Erstattung)",
                               23: "= Cashflow nach Steuern / Monat", 24: C.KPI_LABELS["EK"],
-                              25: "Gesamtertrag n. St. bis Verkauf", 26: C.KPI["MULT"]["label"]}, 20)
+                              25: "Gesamtertrag n. St. bis Verkauf", 26: C.KPI["MULT"]["label"]}, 20,
+                row_h=C.H_BTN)   # 6 × 25,5 = 153 pt Plotzeilen für das Cashflow-Diagramm (P1-07)
     for c in C.iter_cells(ws, "C", 20, "I", 20):
         c.alignment = C.align(c.alignment.horizontal or "left", "bottom", 1)
     ws["D22"].number_format = SIGNED_EFFECT

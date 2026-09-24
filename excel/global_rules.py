@@ -49,19 +49,19 @@ HEADERS = {
     "Eingaben": ("B", "L", "Eingaben", "Eingaben",
                  "Vollständige Übersicht aller Eingaben und Profi-Felder  ·  Gelb hinterlegt = Eingabe, "
                  "blau = aus dem Leitfaden übernommen (dort ändern)"),
-    "Sensitivität": ("C", "M", "Sensitivität", "Sensitivität",
+    "Sensitivität": ("C", "M", ("Berechnung", "Sensitivität"), "Sensitivität",
                      "Was passiert, wenn Miete, Zins oder Wertentwicklung anders laufen?  ·  Jahr-1-Größen als "
                      "lineare Näherung, die IRR-Matrix rechnet die volle Zahlungsreihe neu"),
-    "Haushaltsrechnung": ("B", "E", "Bank  ›  Haushaltsrechnung", "Haushaltsrechnung",
+    "Haushaltsrechnung": ("B", "E", ("Bank", "Haushaltsrechnung"), "Haushaltsrechnung",
                           "Selbstauskunft für die Bank  ·  Monatswerte in die gelb hinterlegten Felder, "
                           "Jahreswerte rechnen sich selbst"),
-    "Vermögensaufstellung": ("B", "E", "Bank  ›  Vermögensaufstellung", "Vermögensaufstellung",
+    "Vermögensaufstellung": ("B", "E", ("Bank", "Vermögensaufstellung"), "Vermögensaufstellung",
                              "Selbstauskunft für die Bank  ·  aktuelle Werte eingeben und belegen "
                              "(Gutachten, Depot- oder Kontoauszug)"),
-    "Hinweise": ("B", "E", "Anhang  ›  Hinweise", "Hinweise",
+    "Hinweise": ("B", "E", ("Anhang", "Hinweise"), "Hinweise",
                  "Steuerliche Regelungen, Rechtsgrundlagen und Modellannahmen  ·  Rechtsstand September 2026 "
                  "(Investitionssofortprogramm 2025, JStG 2024, EStG i. d. F. 2026)  ·  keine Steuerberatung im Einzelfall"),
-    "Konfiguration": ("B", "G", "Anhang  ›  Konfiguration", "Konfiguration",
+    "Konfiguration": ("B", "G", ("Anhang", "Konfiguration"), "Konfiguration",
                       "Stammdaten und Rechtsstand September 2026  ·  Werte hier zentral pflegen, "
                       "alle Berechnungen greifen auf diese Zellen zu"),
 }
@@ -102,14 +102,23 @@ PCT2_CELLS = {"S09 Steuern": ["I11:I14"], "Cockpit": ["G36"], "AfA-Vergleich": [
               "Steuern": ["C18:C20", "C25:C26", "D71:AQ71", "D72:AQ72", "C87"],
               "Eingaben": ["C29:C31", "C41", "C43", "C124", "C136:C139"],
               "Konfiguration": ["C36:C40", "C45:C53"],   # ESt/Soli/KiSt/KSt wie auf „Steuern“ (5,50 %, 15,00 %)
-              "S01 Objekt": ["I12"], "S03 Kaufnebenkosten": ["D13:D15"], "S07 Finanzierung": ["D13:D21"]}
+              "S01 Objekt": ["I12"], "S03 Kaufnebenkosten": ["D12:D15"], "S07 Finanzierung": ["D13:D21"]}
 # Ganzzahlige Prozente (Wunsch B: S05 „Wertsteigernder Anteil“ 100 %)
 PCT0_CELLS = {"S05 Maßnahmen & Reserve": ["D18"], "Eingaben": ["C69"]}
 # DSCR überall mit Faktorzeichen (0,00×); Dashboard F22 (Ziel „≥ 1,20×“) behält sein eigenes Format (Wunsch G)
-DSCR_CELLS = {"Start": ["E31"], "Leitfaden": ["F13"], "S08 Zwischenergebnis": ["D23"], "Dashboard": ["N15", "E22"],
+DSCR_CELLS = {"Start": ["E31"], "Leitfaden": ["F13"], "S08 Zwischenergebnis": ["D23"], "Dashboard": ["N15", "E23"],
               "Cockpit": ["K24"], "Bankgespräch": ["C35"], "Sensitivität": ["D35:J41"], "Konfiguration": ["C78:D78"]}
 # Formeln/Koeffizienten mit zwei Stellen einheitlich (Konfiguration C32:C35)
 NUM2_CELLS = {"Konfiguration": ["C32:C35"]}
+# P2-07: €/m² überall im Katalogformat EUR_M2 („12,50 €/m²“), Kinderzahl mit Einheit, Nullabschnitt „–“ für
+# nicht zutreffende (inaktive) Eingabefelder, „0 €“ für Summen direkt unter Eingabespalten (gleiche Nulldarstellung
+# wie die Eingaben darüber)
+EUR_M2_CELLS = {"S02 Kaufpreis & Miete": ["I13"], "Eingaben": ["C91"], "Bankgespräch": ["I21"]}
+CHILDREN_CELLS = {"Haushaltsrechnung": ["C12"]}
+ZERO_DASH_INPUTS = {"S10 Abschreibung": {"D13": "years_calc", "D17": "eur"}}
+ZERO_AS_INPUT = {"Vermögensaufstellung": ["C19", "C29"]}
+DASH_TEXT_SUMS = {"Vermögensaufstellung": ["D29"]}   # fester Text „–“ in einer Summenzeile: wie ein Summenwert
+LABEL_FIX = {"Eigenkapital-Multiple": "Eigenkapital-Multiplikator", "EK-Multiple": "Eigenkapital-Multiplikator"}
 # Jahre ganzzahlig mit Einheit im Format – das Label verliert „(Jahre)“
 YEARS_LABEL = re.compile(r"\s*\(Jahre\)\s*$")
 
@@ -248,8 +257,8 @@ def _pct_digits(fmt):
     """1 bzw. 2 bei einem schlichten Prozentformat (0.0 % / 0.00 % mit Varianten), sonst None."""
     if not fmt:
         return None
-    head = fmt.split(";")[0].replace("\\", "").replace('"', "").replace(" ", "")
-    return {"0.0%": 1, "0.00%": 2}.get(head)
+    head = fmt.split(";")[0].replace("\\", "").replace('"', "").replace(" ", "").lstrip("#")
+    return {"0.0%": 1, "0.00%": 2}.get(head)   # auch „#0.00 %“ (Steuern) → Katalog pct2
 
 
 def _ref_value(ws, c):
@@ -660,7 +669,8 @@ def bank_defaults(ws):
         return
     if ws.title == "Haushaltsrechnung" and isinstance(ws["E46"].value, str) and ws["E46"].data_type == "s":
         C.set_text(ws["E46"], "Banken erwarten > 0 nach neuem Kapitaldienst")
-    C.sum_row(ws, res, "B", "E", "final")  # das EINE Blockergebnis
+    # das EINE Blockergebnis; HH: Statusfarbe der Puffer setzt bank.py (C46:D46) – keine zweite Negativ-Regel (Wunsch F)
+    C.sum_row(ws, res, "B", "E", "final", neg=False if ws.title == "Haushaltsrechnung" else None)
     for c in C.iter_cells(ws, "B", res, "E", res):
         if c.value is not None and c.column <= 4:
             _set_font(c, sz=C.T_H3, b=True, color=C.NAVY)
@@ -789,15 +799,53 @@ def units_convention(ws):
             e.value = None
 
 
+UNIT_MARKS = ("€", "%", "×", "m²")
+
+
+def _zero_part(part):
+    return part.replace("\\", "").replace('"', "").strip()
+
+
 def zero_convention(ws):
-    """Berechnete €-Zellen zeigen 0 als „–“ (Eingabefelder behalten „0 €“)."""
+    """P2-07 – eine Nulldarstellung: berechnete/übernommene Zahlen zeigen 0 als „–“ (core.zero_dash), gelbe
+    Eingabefelder zeigen 0 sichtbar (0 €, 0,00 %). Ausnahmen: nicht zutreffende Eingaben (ZERO_DASH_INPUTS) „–“,
+    Summen direkt unter Eingabespalten (ZERO_AS_INPUT) wie die Eingaben „0 €“."""
+    t = ws.title
     for c in ws._cells.values():
         if not C.is_formula(c.value) or _is_input(c):
             continue
         fmt = c.number_format or ""
-        parts = fmt.split(";")
-        if len(parts) == 3 and "€" in parts[0] and parts[2].replace("\\", "").strip('" ') in ("0 €", "0.00 €"):
+        if not fmt or fmt in ("General", "@", ";;;") or not any(u in fmt for u in UNIT_MARKS):
+            continue
+        parts = C._split_fmt(fmt) if hasattr(C, "_split_fmt") else fmt.split(";")
+        if len(parts) == 3 and "[" not in fmt and _zero_part(parts[2]) in ("0 €", "0.00 €", "0,00 €", "0 %",
+                                                                             "0.0 %", "0.00 %"):
             c.number_format = ";".join(parts[:2] + ['"–"'])
+        elif len(parts) == 2:
+            c.number_format = C.zero_dash(fmt)
+    for coord, key in ZERO_DASH_INPUTS.get(t, {}).items():
+        c = ws[coord]
+        if c.value is not None and not isinstance(c.value, str):
+            c.number_format = C.NUMFMT[key]
+    for coord in ZERO_AS_INPUT.get(t, []):
+        c = ws[coord]
+        if c.value is not None and "€" in (c.number_format or ""):
+            c.number_format = C.NUMFMT["eur_in"]
+    for coord in DASH_TEXT_SUMS.get(t, []):
+        c = ws[coord]
+        if isinstance(c.value, str) and c.value.strip() in ("–", "-"):
+            ref = ws.cell(c.row, c.column - 1)
+            c.font = copy(ref.font) if ref.value is not None else C.font(C.T_BODY, True, C.NAVY)
+            _set_align(c, horizontal="right", indent=1, vertical=ref.alignment.vertical or "center")
+    for key, refs in (("eur_qm", EUR_M2_CELLS), ("children", CHILDREN_CELLS)):
+        for ref in refs.get(t, []):
+            for c in _cells(ws, ref):
+                if c.value is not None:
+                    c.number_format = C.NUMFMT[key + "_in"] if (_is_input(c) and key + "_in" in C.NUMFMT) \
+                        else C.NUMFMT[key]
+    for c in ws._cells.values():
+        if _static(c) and c.value.strip() in LABEL_FIX:
+            C.set_text(c, LABEL_FIX[c.value.strip()])
 
 
 # ------------------------------------------------------------------------------- Negativ-Rot (P15, Sicherheitsnetz)
@@ -857,15 +905,27 @@ def input_look(ws):
 
 
 # ------------------------------------------------------------------------------- Zell-Link-Rückfall (P05)
-CRUMB_TARGET = {"BANK": "Bankgespräch", "STEUERN": "Steuern", "LEITFADEN": "Start"}
+# P2-04: erster Krumenteil → Elternblatt des Reiters (core.CRUMB_PARENT: BERECHNUNG → Dashboard, STEUER-TABELLE → Steuern,
+# ANHANG → Start, LEITFADEN → Leitfaden …). Einteilige Krumen („DASHBOARD“, „COCKPIT“) sind reine Überzeilen ohne Link.
+CRUMB_TARGET = {"BANK": "Bankgespräch", "STEUERN": "Steuern", "LEITFADEN": "Start", "EINSTIEG": "Start",
+                **getattr(C, "CRUMB_PARENT", {})}
 SUBNAV_SHEETS = ("Steuern", "AfA-Vergleich", "Bankgespräch", "Haushaltsrechnung", "Vermögensaufstellung",
                  "Hinweise", "Konfiguration")
 BACK_EDGE = {"Leitfaden": "I", "Diagramme": "P", "Sensitivität": "M", "Eingaben": "L"}   # rechte Inhaltskante
 
 
+def crumb_tooltip(target):
+    """ScreenTip der Brotkrume – dieselbe Sprache wie die Formen („Zurück zur Startseite“, „Zurück: Dashboard“)."""
+    if target == "Start":
+        return "Zurück zur Startseite"
+    lab = C.sheet_label(target) if hasattr(C, "sheet_label") else target
+    return f"Zurück: {lab or target}"
+
+
 def breadcrumb_links(ws):
-    """Navigation ohne Formen: Eyebrow (Z. 5) ist Zell-Link eine Ebene höher (S01–S12 → Leitfaden, sonst Start bzw.
-    Gruppenblatt); wo Z. 5 rechts frei ist (keine Unterreiter), zusätzlich „‹  Start“ an der Inhaltskante."""
+    """Navigation ohne Formen: Brotkrume (Z. 5) „REITER › BLATT“ ist Zell-Link auf das Elternblatt des Reiters
+    (S01–S12 → Leitfaden); einteilige Krumen bleiben ohne Link. Wo Z. 5 rechts frei ist (keine Unterreiter),
+    zusätzlich „‹  Elternblatt“ an der Inhaltskante."""
     t = ws.title
     if t == "Start":
         return
@@ -873,17 +933,28 @@ def breadcrumb_links(ws):
     eb = next((ws.cell(5, cc) for cc in (2, 3) if _static(ws.cell(5, cc)) and ws.cell(5, cc).value.strip()), None)
     if eb is None:
         return
-    # Eyebrow einheitlich 8,5 pt fett Versalien 1D4F8A (core.page_header)
+    # Brotkrume einheitlich 8,5 pt fett Versalien 1D4F8A (core.page_header)
     eb.font = C.font(C.T_LABEL, True, C.BLUE)
+    parts = [p.strip() for p in eb.value.split("›") if p.strip()]
+    single = len(parts) < 2 and not STEP_RE.match(t)
     if STEP_RE.match(t):
         target = "Leitfaden"
     else:
-        first = re.split(r"›|·", eb.value)[0].strip().upper()
+        first = re.split(r"·", parts[0])[0].strip().upper()
         target = CRUMB_TARGET.get(first, "Start")
-    if target == t or target not in wbk.sheetnames:
+    # „Dashboard“ entsteht erst nach final() (dashboard.build) – als Ziel trotzdem gültig
+    if target == t or (target not in wbk.sheetnames and target != "Dashboard"):
         target = "Start"
-    if eb.hyperlink is None:
-        eb.hyperlink = Hyperlink(ref=eb.coordinate, location=C.link_loc(target), tooltip=f"Zurück: {target}")
+    if single:
+        target = C.PARENT.get(t, "Start") if hasattr(C, "PARENT") else "Start"
+    tip = crumb_tooltip(target)
+    if single:
+        if eb.hyperlink is not None:
+            eb.hyperlink = None   # „DASHBOARD“ / „COCKPIT“ / „DIAGRAMME“: Überzeile, kein unerklärter Sprung
+    elif eb.hyperlink is None or eb.hyperlink.location != C.link_loc(target):
+        eb.hyperlink = Hyperlink(ref=eb.coordinate, location=C.link_loc(target), tooltip=tip)
+    else:
+        eb.hyperlink.tooltip = tip
     if t in SUBNAV_SHEETS or t in ("Dashboard", "Cockpit") or C.link_target(t) != "A4":
         return
     edge = "I" if STEP_RE.match(t) else BACK_EDGE.get(t)
@@ -893,7 +964,7 @@ def breadcrumb_links(ws):
     anchors = _merged_anchor_map(ws)
     if cell.value is not None or (5, cell.column) in anchors or cell.column <= eb.column:
         return
-    C.text_link(cell, f"‹  {target}", target, size=C.T_LABEL, bold=False, tooltip=f"Zurück: {target}")
+    C.text_link(cell, f"‹  {target}", target, size=C.T_LABEL, bold=False, tooltip=tip)
     cell.alignment = C.align("right", "bottom")
 
 
@@ -1025,8 +1096,14 @@ def _footer_row(ws, c1=1, c2=60):
 
 def _print(ws, area, orient="landscape", w=1, h=0, scale=None, rows=None, cols=None, breaks=(), col_breaks=(),
            over_then_down=False):
+    """Druckeinrichtung. P1-06 (Runde 4): Excel ignoriert manuelle Umbrüche bei „Anpassen an“ – sind Zeilen- oder
+    Spaltenumbrüche gesetzt, gilt deshalb IMMER ein fester Maßstab (fitToPage aus). Ohne Vorgabe ergibt er sich aus
+    min(Seitenbreite, höchster Block zwischen zwei Umbrüchen) – so steht jeder Block geschlossen auf einer Seite.
+    area: ein Bereich „A1:L76“ oder mehrere, durch Komma getrennt (jeder Teilbereich beginnt eine neue Seite)."""
     ws.print_area = area
     ws.page_setup.orientation = orient
+    if scale is None and (breaks or col_breaks):
+        scale = _fixed_scale(ws, area, orient, breaks, rows, cols, col_breaks)
     if scale:
         ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=False)
         ws.page_setup.scale = int(scale)
@@ -1037,22 +1114,63 @@ def _print(ws, area, orient="landscape", w=1, h=0, scale=None, rows=None, cols=N
         ws.page_setup.fitToWidth = w
         ws.page_setup.fitToHeight = h
         ws.page_setup.scale = None
-    ws.print_title_rows = rows if rows else None
+    if rows:
+        ws.print_title_rows = rows
+    else:
+        ws._print_rows = None
     if cols:
         ws.print_title_cols = cols
+    else:
+        ws._print_cols = None
     ws.row_breaks = RowBreak()
     for r in sorted(set(breaks)):
         ws.row_breaks.append(Break(id=r - 1))
     ws.col_breaks = ColBreak()
     for cc in col_breaks:
         ws.col_breaks.append(Break(id=C.col(cc)))
-    if over_then_down:
-        ws.page_setup.pageOrder = "overThenDown"
+    ws.page_setup.pageOrder = "overThenDown" if over_then_down else None
+
+
+def _areas(area):
+    """„A1:M39,A40:AQ76“ → [(c1, r1, c2, r2), …]."""
+    out = []
+    for part in area.split(","):
+        m = re.fullmatch(r"\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)", part.strip().split("!")[-1])
+        if m:
+            out.append((m.group(1), int(m.group(2)), m.group(3), int(m.group(4))))
+    return out
+
+
+def _fixed_scale(ws, area, orient="landscape", breaks=(), rows=None, cols=None, col_breaks=()):
+    """Größter ganzzahliger Maßstab, bei dem jede Seite zwischen zwei Umbrüchen (bzw. Teilbereichsgrenzen) in Breite
+    und Höhe auf A4 passt – Drucktitel (Zeilen/Spalten) eingerechnet."""
+    aw, ah = _avail(orient)
+    t_h, t_r2, t_w, t_c2 = 0.0, 0, 0.0, 0
+    if rows:
+        a, t_r2 = (int(x) for x in rows.replace("$", "").split(":"))
+        t_h = sum(_row_pt(ws, r) for r in range(a, t_r2 + 1))
+    if cols:
+        a, b = cols.replace("$", "").split(":")
+        t_w, t_c2 = _width_pt(ws, a, b), C.col(b)
+    need = [1.0]
+    for c1, r1, c2, r2 in _areas(area):
+        cuts = sorted({C.col(c) for c in col_breaks if C.col(c1) <= C.col(c) < C.col(c2)})
+        edges = [C.col(c1) - 1] + cuts + [C.col(c2)]
+        for k in range(len(edges) - 1):   # Drucktitel-Spalten kommen auf jede Seite rechts von ihnen dazu
+            wpt = _width_pt(ws, edges[k] + 1, edges[k + 1]) + (t_w if edges[k] + 1 > t_c2 else 0.0)
+            need.append(aw * RESERVE_W / max(wpt, 1))
+        bounds = [r1] + sorted(b for b in set(breaks) if r1 < b <= r2) + [r2 + 1]
+        for k in range(len(bounds) - 1):  # Drucktitel-Zeilen auf jeder Seite unterhalb von ihnen
+            hpt = sum(_row_pt(ws, r) for r in range(bounds[k], bounds[k + 1]))
+            need.append(ah * RESERVE / max(hpt + (t_h if bounds[k] > t_r2 else 0.0), 1))
+    return max(10, int(min(need) * 100))
 
 
 # ------------------------------------------------------------------------------- Seitenplanung
 PAPER = {"landscape": (842.0, 595.0), "portrait": (595.0, 842.0)}   # A4 in pt
 RESERVE = 0.985                                                      # Rundungs-/Druckerreserve
+RESERVE_W = 0.92   # fester Maßstab (P1-06): Breitenreserve – Druckspalten fallen je nach Treiber/Schriftmetrik bis ~6 % breiter
+                   # aus als die Bildschirmpixel („Anpassen an“ rechnete das bisher selbst)
 
 
 def _avail(orient):
@@ -1126,19 +1244,21 @@ def section_starts(ws, c1, c2, r1, r2):
 
 
 def best_split(ws, c2, r2, orient="landscape", pages=2, candidates=()):
-    """Aufteilung auf genau `pages` Seiten mit dem größten Maßstab (Umbrüche nur vor Abschnittsköpfen)."""
+    """Aufteilung auf genau `pages` Seiten mit dem größten Maßstab (Umbrüche nur vor Abschnittsköpfen).
+    Bei gleichem Maßstab (breitenbegrenzt) gewinnt die ausgewogenste Aufteilung (kleinster höchster Block)."""
     from itertools import combinations
     aw, ah = _avail(orient)
-    w_scale = min(1.0, aw * RESERVE / max(_width_pt(ws, "A", c2), 1))
+    w_scale = min(1.0, aw * RESERVE_W / max(_width_pt(ws, "A", c2), 1))
     heights = {r: _row_pt(ws, r) for r in range(1, r2 + 1)}
-    best = (0.0, ())
+    best = (0.0, 0.0, ())
     for cut in combinations(sorted(set(candidates)), pages - 1):
         bounds = (1,) + cut + (r2 + 1,)
         segs = [sum(heights[r] for r in range(bounds[k], bounds[k + 1])) for k in range(pages)]
-        sc = min([w_scale] + [ah * RESERVE / max(h, 1) for h in segs])
-        if sc > best[0]:
-            best = (sc, cut)
-    return int(best[0] * 100), list(best[1])
+        sc = int(min([w_scale] + [ah * RESERVE / max(h, 1) for h in segs]) * 100)
+        key = (sc, -max(segs))
+        if key > best[:2]:
+            best = (sc, -max(segs), cut)
+    return best[0], list(best[2])
 
 
 def paginate(ws, c1, c2, r1, r2, orient="landscape", forced=(), candidates=None, title_rows=None, min_scale=70,
@@ -1148,7 +1268,7 @@ def paginate(ws, c1, c2, r1, r2, orient="landscape", forced=(), candidates=None,
     one_page_segments: jedes erzwungene Segment genau eine Seite (Maßstab sinkt dafür bis min_scale).
     Liefert (Maßstab in %, Umbruchzeilen)."""
     aw, ah = _avail(orient)
-    scale = min(max_scale / 100, aw * RESERVE / max(_width_pt(ws, c1, c2), 1))
+    scale = min(max_scale / 100, aw * RESERVE_W / max(_width_pt(ws, c1, c2), 1))   # = fester Druckmaßstab
     t_h = 0.0
     if title_rows:
         a, b = title_rows
@@ -1214,17 +1334,16 @@ def _find_row(ws, text, c_max=20, default=None, contains=False, r_min=1):
 
 def _smart(ws, c1, c2, r2, orient="landscape", forced=(), title_rows=None, one_page_segments=False, min_scale=70,
            **kw):
-    """Druckbereich ab A1 (Kopfleiste und Akzentlinie immer im Druck) mit geplanten Umbrüchen."""
+    """Druckbereich ab A1 (Kopfleiste und Akzentlinie immer im Druck) mit geplanten Umbrüchen.
+    Mit Umbrüchen fester Maßstab (P1-06), ohne Umbruch „1 Seite breit“."""
     scale, breaks = paginate(ws, "A", c2, 1, r2, orient, forced=forced, title_rows=title_rows,
                              one_page_segments=one_page_segments, min_scale=min_scale)
     rows = f"{title_rows[0]}:{title_rows[1]}" if title_rows else None
-    if scale >= _width_scale(ws, c2, orient) - 1:
-        # Maßstab = Seitenbreite: „1 Seite breit, Höhe automatisch“ – die Anwendung rechnet die Breite selbst
-        # (keine zweite Seite nach rechts), die geplanten Zeilenumbrüche bleiben bei offener Höhe wirksam.
-        _print(ws, f"A1:{c2}{r2}", orient, 1, 0, rows=rows, breaks=breaks, **kw)
+    if not breaks and scale >= _width_scale(ws, c2, orient) - 1:
+        _print(ws, f"A1:{c2}{r2}", orient, 1, 0, rows=rows, **kw)
     else:
-        _print(ws, f"A1:{c2}{r2}", orient, scale=scale, rows=rows, breaks=breaks, **kw)
-    return scale, breaks
+        _print(ws, f"A1:{c2}{r2}", orient, rows=rows, breaks=breaks, **kw)
+    return ws.page_setup.scale or scale, breaks
 
 
 def _width_scale(ws, c2, orient="landscape"):
@@ -1242,10 +1361,7 @@ def print_setup(ws):
     elif t == "Start":  # genau zwei Seiten, Umbruch vor dem Abschnitt mit dem größten Maßstab (Legende/Vorgehen)
         last = max(_footer_row(ws, 1, 8) or 0, 65)
         scale, breaks = best_split(ws, "H", last, pages=2, candidates=section_starts(ws, "B", "H", 20, last - 3))
-        if scale >= _width_scale(ws, "H") - 1:
-            _print(ws, f"A1:H{last}", "landscape", 1, 0, breaks=breaks)
-        else:
-            _print(ws, f"A1:H{last}", "landscape", scale=scale, breaks=breaks)
+        _print(ws, f"A1:H{last}", "landscape", breaks=breaks)   # fester Maßstab: der Umbruch wirkt auch in Excel
         if ws.freeze_panes is None:
             ws.freeze_panes = "A4"
     elif t == "Dashboard":  # quer, 3 Seiten (Wunsch G): Kopf/Urteil/Kacheln/Check | Vermögensentwicklung |
@@ -1260,23 +1376,34 @@ def print_setup(ws):
             _smart(ws, "A", "R", last, forced=tuple(r for r in (cut, trend, hints) if r), one_page_segments=True)
     elif t == "Leitfaden":
         _print(ws, f"A1:I{_footer_row(ws, 1, 9) or 53}", "landscape", 1, 1)
-    elif t == "Cockpit":
-        _smart(ws, "A", "L", _footer_row(ws, 1, 12) or 76)
+    elif t == "Cockpit":  # P1-06 / Wunsch C: drei Blöcke, je eine Seite – Diagrammzeile (57–74) nie geteilt
+        last = _footer_row(ws, 1, 12) or 76
+        charts = _find_row(ws, "Diagramme", 12, None, r_min=40)
+        forced = tuple(r for r in (32, charts or 57) if r <= last)
+        _smart(ws, "A", "L", last, forced=forced)
     elif t == "Eingaben":
         _smart(ws, "A", "L", _footer_row(ws, 1, 12) or 148)
-    elif t == "Diagramme":
+    elif t == "Diagramme":  # P1-06: Umbrüche nur an Abschnittsgrenzen (vor 30/51/92/113), fester Maßstab
         last = _footer_row(ws, 1, 42) or ws.max_row
         data = _find_row(ws, "Diagrammdaten", 3, contains=True, r_min=100) or 138
         visible_data = any(_row_pt(ws, r) > 0 and any(ws.cell(r, cc).value is not None for cc in range(2, 17))
                            for r in range(data + 1, max(data + 1, last - 2)))
-        _smart(ws, "A", "P", last, forced=(data,) if visible_data else ())
-    elif t in ("Steuern", "Projektion", "Finanzierung"):
+        forced = [r for r in (30, 51, 92, 113) if r < data]
+        if visible_data:
+            forced.append(data)
+        _smart(ws, "A", "P", last, forced=tuple(forced))
+    elif t == "Steuern":  # P1-06: Parameter | Jahrestabelle (Jahr 1–40, Spalten A:C wiederholt) | Verkaufsszenario
         last = _footer_row(ws) or ws.max_row
-        rows = (40, 42) if t == "Steuern" else (8, 10)
-        forced = (40,) if t == "Steuern" else ()
-        _, breaks = paginate(ws, "A", "M", 1, last, "landscape", forced=forced, title_rows=rows, max_scale=70)
-        _print(ws, f"A1:AQ{last}", scale=70, rows=f"{rows[0]}:{rows[1]}", cols="A:C", breaks=breaks,
-               col_breaks=("M", "W", "AG"), over_then_down=True)
+        head = _find_row(ws, "Jahr der Kalkulation", 3, 40)
+        exit_ = _find_row(ws, "Verkaufsszenario", 3, None, contains=True, r_min=head + 1) or 77
+        area = f"A1:M{head - 1},A{head}:AQ{exit_ - 1},A{exit_}:M{last}"
+        _print(ws, area, "landscape", cols="A:C", col_breaks=("M", "W", "AG"), over_then_down=True)
+    elif t in ("Projektion", "Finanzierung"):  # Folgeseiten (Jahr 11–40) ab dem Tabellenkopf, ohne leeres Kopfband
+        last = _footer_row(ws) or ws.max_row
+        _, breaks = paginate(ws, "A", "M", 1, last, "landscape", title_rows=(8, 10), max_scale=75)
+        area = f"A1:M{last},N8:AQ{last}"
+        _print(ws, area, "landscape", rows="8:10", cols="A:C", breaks=breaks, col_breaks=("W", "AG"),
+               over_then_down=True)
     elif t == "AfA-Vergleich":
         _smart(ws, "A", "Q", _footer_row(ws, 1, 17) or 75)
     elif t == "Sensitivität":  # Hilfsrechnung 65–115 ist eingeklappt; der Fuß (117/118) kommt mit auf die Seite
@@ -1297,6 +1424,15 @@ def print_setup(ws):
         _smart(ws, "A", "G", _footer_row(ws, 1, 7) or 83)
 
 
+def page_label(title):
+    """Druck-Kopfzeile: Reitername statt Blattname (core.sheet_label, z. B. Finanzierung → Tilgungsplan)."""
+    try:
+        lab = C.sheet_label(title)
+    except Exception:
+        lab = None
+    return lab or title
+
+
 def page_setup(wb):
     if "Dashboard" in wb.sheetnames:  # entsteht erst nach final(): dieselben Sicherheitsregeln
         finish_sheet(wb["Dashboard"])
@@ -1306,7 +1442,9 @@ def page_setup(wb):
         for k, v in MARGINS.items():
             setattr(ws.page_margins, k, v)
         ws.print_options.horizontalCentered = True
-        ws.oddHeader.right.text = None if ws.title in BANK_SHEETS else "&A"
+        # P2-04: Kopfzeile nennt das Blatt wie der Reiter („Steuer-Tabelle“, „Tilgungsplan“, „Schritt 02 · …“);
+        # die Fußzeile behält &A (Blattname = Zuordnung der Seiten, auch für die Vorschau)
+        ws.oddHeader.right.text = None if ws.title in BANK_SHEETS else page_label(ws.title).replace("&", "&&")
         ws.oddHeader.right.size = 8
         ws.oddHeader.right.color = C.MUTED
         ws.oddHeader.right.font = "Calibri,Regular"

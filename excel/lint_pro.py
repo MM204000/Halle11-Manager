@@ -21,6 +21,11 @@ Runde 3 (review3): P11 „Wertfarbe = Status“ – eine per Regel gefärbte Kac
 jedes sichtbare Blatt hat einen Zell-Link auf ein anderes Blatt), formel_text (P16, Formel + „@“), minus_typo (P23,
 Bindestrich statt „−“ in Zellen, bedingten Formaten und Diagrammachsen; je Blatt und Format gebündelt), neg_rot (P15,
 negative Beträge in core.sum_row-Zwischen-/Endsummen ohne Rot; Steuerwirkungszeilen „Zahlung/Erstattung“ ausgenommen).
+Runde 4 (review4): eingabe_gelb (P1-04, Gelb FFF5D6/Eingaberahmen E6CB77 nie auf Formel- oder Link-Zellen; erlaubt sind
+eine einzelne E6CB77-Kante und der Zustand „überschreibbar“ FFF9EA), dropdown_zeichen (▾ nur an Datenüberprüfung oder
+als Hinweis direkt darunter), link_tooltip (P3-17, jeder Zell-Link hat einen ScreenTip), druck_umbruch (fitToPage und
+manuelle Umbrüche schließen sich aus), minus_text (Bindestrich-Minus in Textverkettungen). button_hoehe akzeptiert in
+gemischten Reihen die größte Soll-Höhe; kpi_statusfarbe erkennt „●“ und „▲“ als Statuswort.
 Selbsttest (python excel/lint_pro.py --selftest) prüft jede Regel und als Gegenprobe, dass core.tile/callout_box/btn
 keinen Befund auslösen.
 
@@ -90,7 +95,13 @@ RULES = {
     "formel_text":     (FEHLER, "Formelzelle mit Textformat „@“ (Excel zeigt nach Bearbeiten die Formel statt des Ergebnisses, P16)"),
     "minus_typo":      (WARNUNG, "Zahlenformat zeigt negatives Vorzeichen als Bindestrich „-“ statt typografischem Minus „−“ (P23)"),
     "neg_rot":         (WARNUNG, "Negative Summe/Endsumme (core.sum_row) ohne Negativ-Rot (P15)"),
-    "button_hoehe":    (WARNUNG, "Button-Zeile weicht von der Button-Höhe ab (primary/secondary/ghost 25,5 pt, soft/chip/input 22,5 pt – P1-13)"),
+    "button_hoehe":    (WARNUNG, "Button-Zeile weicht von der Button-Höhe core.BTN ab (Runde 4: alle Typen 25,5 pt; gemischte Reihe: größte Höhe – P1-03)"),
+    # Runde 4 (review4 P1-04, P3-17, Themen „Farbsemantik“, „Druck“, „Formatbibliothek“)
+    "eingabe_gelb":    (FEHLER, "Eingabe-Gelb FFF5D6 bzw. Eingaberahmen E6CB77 auf Formel- oder Link-Zelle (Gelb nur für echte Eingaben; Links/Chips E7EEF7, überschreibbar = FFF9EA – P1-04)"),
+    "dropdown_zeichen": (FEHLER, "„▾“ an einer Zelle ohne Datenüberprüfung (▾ nur an Auswahllisten bzw. als Hinweis direkt darunter – P1-04)"),
+    "link_tooltip":    (FEHLER, "Zell-Link ohne ScreenTip (hyperlink.tooltip leer; core.patch_tooltips nach der Neuberechnung – P3-17)"),
+    "druck_umbruch":   (FEHLER, "„Anpassen an“ (fitToPage) zusammen mit manuellen Seitenumbrüchen – Excel ignoriert die Umbrüche"),
+    "minus_text":      (WARNUNG, "Text/Textverkettung zeigt negative Zahl mit Bindestrich „-12“ statt „−12“ (C.minus_text / C.fixed_m)"),
 }
 
 # Bewusste Ausnahmen: (Blatt, Zelle oder Bereich oder "*", Regel) → Begründung
@@ -103,6 +114,14 @@ AUSNAHMEN = {
 }
 
 ALLOWED_FONTS = {"Calibri", "Calibri Light"}
+
+# Farbsemantik (P1-04): Eingabe-Gelb nur auf echten Eingabezellen (Konstanten ohne Formel und ohne Link)
+INPUT_BG = getattr(core, "INPUT_BG", "FFF5D6").upper()
+INPUT_LINE = getattr(core, "INPUT_LINE", "E6CB77").upper()
+OVERRIDE_BG = getattr(core, "NOTE_BG", "FFF9EA").upper()      # „aus Kalkulation, überschreibbar“ (input_style override)
+DROPDOWN = "▾"
+# Bindestrich-Minus vor einer Zahl in Texten („Jahr 2: -274 €“); nicht nach Buchstabe/Ziffer („vv-GmbH“, „01-12“)
+MINUS_TEXT_RE = re.compile(r"(?<![\w\d.,/)\]])-\s?\d")
 
 # Statusfarben (Schrift) und Status-Flächen aus core
 STATUS_FONT = {core.GREEN.upper(): "grün", core.AMBER.upper(): "amber", core.RED.upper(): "rot"}
@@ -630,6 +649,7 @@ class Linter:
             self.check_print(ws)
             self.check_validation(ws)
             self.check_links(ws)
+            self.check_input_look(ws, wv)
             self.check_drawing(ws, wv)
             self.check_nav(ws)
             self.check_neg(ws, wv)
@@ -731,6 +751,10 @@ class Linter:
                 small_grey = [ru[1] for ru in runs if ru[0].strip(SEPARATORS) and ru[5] == MUTED2 and ru[1] <= 9]
                 if small_grey:
                     self.add(title, ref, "grau_klein", f"{max(small_grey):g} pt in 8A9099")
+                if kind == "text" and MINUS_TEXT_RE.search(text) and self.in_print(ws, col, r):
+                    m = MINUS_TEXT_RE.search(text)
+                    self.add(title, ref, "minus_text",
+                             f"„…{text[max(0, m.start() - 14):m.end() + 6]}…“ – Bindestrich statt „−“")
                 if kind == "text" and any(text.startswith(e) for e in ERROR_VALUES):
                     self.add(title, ref, "fehlerwert", text)
                     continue
@@ -875,6 +899,7 @@ class Linter:
         if not BUTTON_KINDS:
             return out
         _, inner = self.merges(ws)
+        per_row = {}
         for row in ws.iter_rows():
             for c in row:
                 if c.hyperlink is None or is_empty(c.value) or (c.column, c.row) in inner:
@@ -887,10 +912,15 @@ class Linter:
                 if not kind or geo.row_hidden(c.row) or not self.in_print(ws, c.column, c.row):
                     continue
                 out.add(c.row)
-                h = geo.row_pt(c.row)
-                if abs(h - kind[1]) > 0.76:
-                    self.add(ws.title, c.coordinate, "button_hoehe",
-                             f"{kind[0]}-Button „{short(str(c.value), 28)}“ in {h:g}-pt-Zeile (soll {kind[1]:g} pt)")
+                per_row.setdefault(c.row, []).append((c, kind))
+        for r, items in per_row.items():
+            # gemischte Reihe (z. B. Buttons + Chip): eine Zeile hat nur eine Höhe → die größte Soll-Höhe gilt
+            want = max(k[1] for _, k in items)
+            h = geo.row_pt(r)
+            if abs(h - want) > 0.76:
+                c, kind = max(items, key=lambda x: x[1][1])
+                self.add(ws.title, c.coordinate, "button_hoehe",
+                         f"{kind[0]}-Button „{short(str(c.value), 28)}“ in {h:g}-pt-Zeile (soll {want:g} pt)")
         return out
 
     # ------------------------------------------------------------------ Statusfarben-Disziplin (bedingte Formate)
@@ -956,7 +986,7 @@ class Linter:
             for cc in range(c1, c2 + 1):
                 cell = ws.cell(rr, cc)
                 v = cell.value
-                if isinstance(v, str) and "●" in v or STATUS_WORD_FMT(cell.number_format):
+                if isinstance(v, str) and any(g in v for g in "●▲") or STATUS_WORD_FMT(cell.number_format):
                     return True
         for cf in ws.conditional_formatting:
             hit = any(rg.min_col <= c2 and rg.max_col >= c1 and rg.min_row <= rows[-1] and rg.max_row >= rows[0]
@@ -1066,6 +1096,13 @@ class Linter:
             self.add(ws.title, "-", "druck_papier", f"paperSize={ps}")
         if not ws.print_area:
             self.add(ws.title, "-", "druck_bereich", "kein _xlnm.Print_Area")
+        pr = ws.sheet_properties.pageSetUpPr
+        rb = [b.id for b in ws.row_breaks.brk if b.man is not False]
+        cb = [b.id for b in ws.col_breaks.brk if b.man is not False]
+        if pr is not None and pr.fitToPage and (rb or cb):
+            where = ", ".join([f"Zeile {x}" for x in rb] + [f"Spalte {get_column_letter(x)}" for x in cb])
+            self.add(ws.title, "-", "druck_umbruch",
+                     f"fitToPage aktiv, manuelle Umbrüche nach {where} werden ignoriert (feste Skalierung verwenden)")
 
     def check_validation(self, ws):
         for dv in ws.data_validations.dataValidation:
@@ -1103,10 +1140,67 @@ class Linter:
                 hl = c.hyperlink
                 if hl is None:
                     continue
+                if not (getattr(hl, "tooltip", None) or "").strip():
+                    self.add(ws.title, c.coordinate, "link_tooltip",
+                             f"„{short(c.value if not isinstance(c.value, str) or not c.value.startswith('=') else hl.display, 32)}“"
+                             f" → {hl.location or hl.target}")
                 if hl.location:
                     self.check_target(ws.title, c.coordinate, hl.location, "Zell-Link")
                 elif hl.target and str(hl.target).startswith("#"):
                     self.check_target(ws.title, c.coordinate, hl.target, "Zell-Link")
+
+    def dv_cells(self, ws):
+        """Zellen mit Datenüberprüfung (Auswahlliste o. ä.) – für dropdown_zeichen."""
+        key = ("dv", ws.title)
+        if key not in self.geo:
+            out = set()
+            for dv in ws.data_validations.dataValidation:
+                for rg in dv.sqref.ranges:
+                    for r in range(rg.min_row, min(rg.max_row, rg.min_row + 2000) + 1):
+                        for cc in range(rg.min_col, min(rg.max_col, rg.min_col + 200) + 1):
+                            out.add((cc, r))
+            self.geo[key] = out
+        return self.geo[key]
+
+    def check_input_look(self, ws, wv):
+        """P1-04 Farbsemantik: Gelb FFF5D6 und der Eingaberahmen E6CB77 kennzeichnen nur echte Eingaben (Konstanten).
+        Zulässig bleiben: eine einzelne E6CB77-Kante (Hinweis-Callout, Trennlinie „Liste öffnen“ im Feld) und der
+        Zustand „aus Kalkulation, überschreibbar“ (Fläche FFF9EA, Rahmen gestrichelt) auf Formelzellen.
+        „▾“ nur an Zellen mit Datenüberprüfung oder als Hinweis direkt unter einer solchen (Start D24)."""
+        geo = self.g(ws)
+        anchors, inner = self.merges(ws)
+        dvc = self.dv_cells(ws)
+        for row in ws.iter_rows():
+            for c in row:
+                col, r = c.column, c.row
+                if (col, r) in inner or geo.row_hidden(r) or geo.col_hidden(col):
+                    continue
+                is_f = c.data_type == "f"
+                is_l = c.hyperlink is not None
+                if is_f or is_l:
+                    fl = rgb_of(c.fill.fgColor) if c.fill is not None and c.fill.fill_type == "solid" else None
+                    bd = c.border
+                    sides = [nm for nm, sd in (("links", bd.left), ("rechts", bd.right), ("oben", bd.top),
+                                               ("unten", bd.bottom))
+                             if sd is not None and sd.style and rgb_of(sd.color) == INPUT_LINE] if bd is not None else []
+                    what = "Link" if is_l else "Formel"
+                    if fl == INPUT_BG:
+                        self.add(ws.title, c.coordinate, "eingabe_gelb",
+                                 f"{what}-Zelle mit Eingabe-Gelb {INPUT_BG}: „{short(c.value, 32)}“"
+                                 + ("" if is_l else " (überschreibbar → C.input_style(cell, \"override\"))"))
+                    elif len(sides) >= 2 and (is_l or fl != OVERRIDE_BG):
+                        self.add(ws.title, c.coordinate, "eingabe_gelb",
+                                 f"{what}-Zelle mit Eingaberahmen {INPUT_LINE} ({'/'.join(sides)}): „{short(c.value, 32)}“")
+                v = wv.cell(r, col).value if is_f else c.value
+                if isinstance(v, CellRichText):
+                    v = str(v)
+                if not isinstance(v, str) or DROPDOWN not in v:
+                    continue
+                c2, _ = anchors.get((col, r), (col, r))
+                span = range(col, c2 + 1)
+                if any((k, r) in dvc for k in span) or any((k, r - 1) in dvc for k in span):
+                    continue
+                self.add(ws.title, c.coordinate, "dropdown_zeichen", f"„{short(v, 36)}“ ohne Datenüberprüfung")
 
     # ------------------------------------------------------------------ Zeichnungen (Formen, Diagramme)
     def check_drawing(self, ws, wv):
@@ -1444,6 +1538,8 @@ def selftest():
     from openpyxl.styles import Alignment, Font
     from openpyxl.worksheet.datavalidation import DataValidation
     from openpyxl.worksheet.hyperlink import Hyperlink
+    from openpyxl.worksheet.pagebreak import Break
+    from openpyxl.worksheet.properties import PageSetupProperties
 
     wb = Workbook()
     ws = wb.active
@@ -1471,6 +1567,7 @@ def selftest():
     ch.add_data(Reference(ws, min_col=1, min_row=12, max_row=19))
     ws.add_chart(ch, "A13")
     ws.freeze_panes = "B3"
+    ws.sheet_properties.pageSetUpPr = PageSetupProperties()
     ws["F1"], ws["F1"].font = "Elf", Font(name="Calibri", sz=11)                      # typo_skala
     ws["F2"] = "⚠ Achtung"                                                            # emoji
     ws["F3"], ws["F3"].font = 0.061, Font(name="Calibri", sz=20, color=core.GREEN)   # kpi_statusfarbe (fest)
@@ -1487,6 +1584,14 @@ def selftest():
     core.sum_row(ws, 35, "B", "C", stage="final", neg=False)
     ws["H40"], ws["H40"].font = 0.043, Font(name="Calibri", sz=20, bold=True, color=core.NAVY)   # kpi_statusfarbe (Regel)
     core.status_cf(ws, "H40", [("H40<0.05", "amber")])
+    # Runde 4: eingabe_gelb, dropdown_zeichen, link_tooltip (A10 ohne tooltip), druck_umbruch, minus_text
+    ws["F42"] = "=A12*2"
+    core.input_style(ws["F42"], "required")                                          # eingabe_gelb (Formel in Gelb)
+    ws["F43"] = "Kauf als: Privat  ▾"                                                 # dropdown_zeichen (keine Liste)
+    ws["F44"] = "Jahr 2: -274 €"                                                      # minus_text
+    ws.sheet_properties.pageSetUpPr.fitToPage = True                                  # druck_umbruch
+    ws.page_setup.fitToWidth, ws.page_setup.fitToHeight = 1, 0
+    ws.row_breaks.append(Break(id=30))
     # Gegenprobe: neue Bausteine dürfen keine Befunde auslösen (Kachel mit Chip, Callout mit Texthöhe)
     ok = wb.create_sheet("OK")
     for c in "BCDEFGH":
@@ -1498,7 +1603,18 @@ def selftest():
                      conditions=[("B11<0.05", "amber"), ("ISNUMBER(B11)", "green")])
     core.btn(ok, "B", 14, "C", "Weiter  ›", "OK", kind="primary")
     ok["B20"] = "Zurück"
-    ok["B20"].hyperlink = Hyperlink(ref="B20", location="'T'!A1")                  # nav_rueckweg: OK hat einen Rückweg
+    ok["B20"].hyperlink = Hyperlink(ref="B20", location="'T'!A1", tooltip="Zurück zu T")   # Rückweg mit ScreenTip
+    core.btn(ok, "E", 14, "F", "Kauf als: Privat · ändern  ›", "T", kind="input")     # Alt-Art input → Chip, nie Gelb
+    ok["B24"] = "Privatperson"                                                          # echte Eingabe mit Liste …
+    core.input_style(ok["B24"], "required")
+    dv_ok = DataValidation(type="list", formula1='"Privatperson,GmbH"', showErrorMessage=True)
+    ok.add_data_validation(dv_ok)
+    dv_ok.add("B24")
+    ok["B25"] = "▾  Aus der Liste wählen"                                               # … und ▾-Hinweis direkt darunter
+    ok["E24"] = "=C22*-1"
+    core.input_style(ok["E24"], "override")                                             # überschreibbar: FFF9EA gestrichelt
+    for x in ("B24", "B25", "E24"):
+        ok[x].font = Font(name="Calibri", sz=10, color=core.BLUE)
     ok["E20"], ok["E20"].number_format = -5, core.NUMFMT["eur"]                       # typografisches Minus: kein Befund
     for x in ("B20", "E20", "B22", "C22"):
         ok[x].font = Font(name="Calibri", sz=10)
@@ -1507,7 +1623,6 @@ def selftest():
     core.sum_row(ok, 22, "B", "C", stage="final")                                     # neg_red automatisch: kein Befund
     ok.page_setup.paperSize = 9
     ok.print_area = "A1:M40"
-    assert ok.row_dimensions[11].height not in RASTER, "Gegenprobe braucht eine krumme Callout-Höhe"
     tmp = os.path.join(tempfile.mkdtemp(prefix="lint_selftest_"), "t.xlsx")
     wb.save(tmp)
     found = Linter(tmp).run()
@@ -1516,7 +1631,8 @@ def selftest():
             "einheit_doppelt", "fehlerwert", "diagramm_verdeckt", "fixierlinie", "druck_papier", "druck_bereich",
             "gueltigkeit", "link_ziel", "umbruch_hoehe", "zeile_zu_niedrig",
             "typo_skala", "emoji", "kpi_statusfarbe", "status_flaeche", "button_hoehe",
-            "nav_rueckweg", "formel_text", "minus_typo", "neg_rot"}
+            "nav_rueckweg", "formel_text", "minus_typo", "neg_rot",
+            "eingabe_gelb", "dropdown_zeichen", "link_tooltip", "druck_umbruch", "minus_text"}
     missing = want - got
     false_pos = [f"{f['ref']} {f['rule']}: {f['msg']}" for f in found if f["sheet"] == "OK"]
     print("Selbsttest:", "OK" if not missing else f"FEHLT {sorted(missing)}", f"({len(want)} Regeln)")

@@ -21,7 +21,8 @@ from core import ACCENT, AMBER, BLUE, GREEN, INK2, MUTED, WHITE, align, fill, fo
 from layouts.start import TILE_SUB, cells_of, clear_rows, drop_cf, heights, rich, set_widths, unmerge_in, wipe
 
 SHEET = "Leitfaden"
-WIDTHS = {"A": 2.5, "B": 2, "C": 8, "D": 38, "E": 46, "F": 46, "G": 0.25, "H": 32, "I": 14}   # G = Fuge vor Kachel 4
+# Runde 4: rechte Inhaltskante = S01–S12 (Ende I ≈ 1 417 px) → Kacheln C:D | E | F | H:I je ≈ 346 px
+WIDTHS = {"A": 2.5, "B": 2, "C": 8, "D": 41.5, "E": 49.5, "F": 49.5, "G": 0.25, "H": 35.5, "I": 14}   # G = Fuge
 
 # Inhalt der Schrittliste (einzeilig in E:F, ≤ 100 Zeichen)
 CONTENT = [
@@ -39,6 +40,7 @@ CONTENT = [
     "Cashflow nach Steuern, Eigenkapitalrendite, Vermögensaufbau und Rente nach Volltilgung.",
 ]
 FIRST_ROW, N_STEPS = 18, 12
+OPT_MARK, OPT_GREY = "◌", "94A3B8"                    # Status „optional“ (Schritt 05, P3-11)
 
 
 def step_sheets(wb):
@@ -52,25 +54,23 @@ def step_sheets(wb):
 
 
 def header(ws):
-    """Seitenkopf (P37: Dachzeile = Kategorie, nie der Blattname) + Hinweis als C.note in Z. 7 (P34).
-    Z. 8 bleibt frei (H_GAP) – dieselbe Luft zwischen Hinweis und Kacheln wie zwischen Kacheln und Abschnittskopf."""
+    """Seitenkopf nach der Kopfschablone (P2-03/P2-04): Brotkrume „LEITFADEN“ (Link auf Start, „‹  Start“ rechts setzt
+    global_rules), Titel, rechts Objekt und „Erstellt für“ wie auf S01–S12 (H6:I6 / H7:I7). Der frühere zweite
+    „Schritt 01 starten“-Button oben rechts entfällt (P1-03) – die Hauptaktion steht einmal unten rechts (Z. 31).
+    Z. 7 links: Hinweis als C.note (P34); Z. 8 bleibt frei (H_GAP)."""
     wipe(ws, "C", 5, "I", 8, formulas=True)              # die Vorlage hat hier keine Formeln
-    C.page_header(ws, "C", "I", ("Einstieg", "In zwölf Schritten zur Investitionsentscheidung"), "Leitfaden")
-    # Leisten-Aktion oben rechts (entspricht „WEITER ›“ der Schrittseiten); Titelzeile bleibt 30 pt,
-    # weiße Ober-/Unterkante lässt den Button optisch so hoch erscheinen wie alle anderen (≈ 34 px)
-    C.btn(ws, "H", 6, "I", "Schritt 01 starten  ›", "S01 Objekt", "primary",
-          tooltip="Weiter zu Schritt 01 · Objekt", set_row=False)
-    wht = side("thick", WHITE)
-    ws["H6"].border = Border(top=wht, bottom=wht)
-    ws["I6"].border = Border(top=wht, bottom=wht)
-    C.set_height(ws, 6, 30)
-    # Hinweis: EINE Bauform (core.note) – Text ohne Link, Aktionslink in eigener Zelle rechts
-    # Hinweis über den Kachelspalten 1–3 (C:G) – rechts darüber steht der Start-Button, darunter bleibt Weißraum
+    C.safe_merge(ws, "H", 6, "I", 6)
+    C.safe_merge(ws, "H", 7, "I", 7)
+    C.page_header(ws, "C", "I", ("Leitfaden",), "Leitfaden", context_col="H",
+                  context=("=Obj_Name",
+                           '=IFERROR(IF(Erstellt_fuer="",Obj_Adresse,"Erstellt für "&Erstellt_fuer),Obj_Adresse)'))
+    # Hinweis: EINE Bauform (core.note) – Text ohne Link, Aktionslink in eigener Zelle rechts (P3-11: Haken ehrlich)
     C.note(ws, 7, "C", "G",
-           "Gelbe Felder enthalten Beispielwerte – einfach überschreiben. „Kauf als“ wählen Sie auf der Startseite.",
+           "Gelbe Felder enthalten Beispielwerte – bitte durch eigene ersetzen. "
+           "Haken zeigen nur, ob Felder gefüllt sind.",
            link_text="Kauf als wählen  ›", target_sheet="Start", target_cell="D23", link_col="F",
            tooltip="Pflichtauswahl „Kauf als“ auf der Startseite")
-    heights(ws, {4: 15, 5: 16, 7: C.H_PILL, 8: C.H_GAP})
+    heights(ws, {8: C.H_GAP})
 
 
 GI_TILES = [  # (c1, c2, KPI, Wertformel) – Teilmenge in der kanonischen Reihenfolge (P20); H10 = Namensziel LF_CFN
@@ -107,14 +107,18 @@ def steps(ws):
     """Checkliste: C Status (✓/○, Anzeigeformel aus der Vorlage) · D „01  Schritt ›“ · E:F Inhalt, einzeilig 24 pt."""
     wb = ws.parent
     unmerge_in(ws, "C", 16, "F", 31)
-    C.section(ws, 16, "C", "F", "Die zwölf Schritte", meta="")
-    lg = ws["F16"]
-    lg.value = rich(("✓", C.T_MICRO, True, GREEN), ("  vollständig      ", C.T_MICRO, False, BLUE),
-                    ("○", C.T_MICRO, True, AMBER), ("  Angaben fehlen", C.T_MICRO, False, BLUE))
+    C.section(ws, 16, "C", "F", "Die zwölf Schritte")
+    # Legende der Statussymbole (P3-11: ehrlich – ✓ heißt nur „Angaben vorhanden“), rechtsbündig über E:F
+    C.safe_merge(ws, "E", 16, "F", 16)
+    lg = ws["E16"]
+    lg.value = rich(("✓", C.T_MICRO, True, GREEN), ("  Angaben vorhanden (auch Beispielwerte)      ", C.T_MICRO, False, BLUE),
+                    ("○", C.T_MICRO, True, AMBER), ("  Angaben fehlen      ", C.T_MICRO, False, BLUE),
+                    (OPT_MARK, C.T_SMALL, True, OPT_GREY), ("  optional", C.T_MICRO, False, BLUE))
+    lg.font = font(C.T_MICRO, False, BLUE)
     lg.alignment = align("right", "center", 1)
     for c in "CDEF":
         ws[f"{c}17"].value = None
-    C.section(ws, 17, "C", "F", None, level=2, labels={"C": ("Status", "center"), "D": ("Schritt", "left"),
+    C.section(ws, 17, "C", "F", None, level=2, labels={"C": ("Angaben", "center"), "D": ("Schritt", "left"),
                                                         "E": ("Inhalt", "left")})
     ws["C17"].alignment = align("center", "center")
     for i, (num, name, long) in enumerate(step_sheets(wb)[:N_STEPS]):
@@ -148,8 +152,9 @@ def steps(ws):
     # Häkchen-Semantik (P25): ✓ nur für echten Status. Schritt 05 hat keine Pflichtangaben („optional“),
     # Schritt 12 ist vollständig, wenn alle vorherigen Schritte vollständig sind (reine Anzeigeformeln).
     s05, s12 = ws[f"C{FIRST_ROW + 4}"], ws[f"C{last}"]
-    C.set_text(s05, "optional")
-    s05.font = font(C.T_MICRO, False, MUTED)
+    C.set_text(s05, OPT_MARK)                           # P3-11: eigenes Symbol statt des Worts „optional“
+    s05.font = font(C.T_H3, True, OPT_GREY)
+    s05.alignment = align("center", "center")
     s12.value = f'=IF(COUNTIF(C{FIRST_ROW}:C{last - 1},"○")>0,"○","✓")'
     drop_cf(ws, cells_of("C", FIRST_ROW, "F", last))
     rng = f"C{FIRST_ROW}:C{last}"
@@ -160,25 +165,50 @@ def steps(ws):
 
 
 def actions(ws):
-    """Button-Reihe (P1-13): Sekundär links (C:D) · Primär rechts (H:I), gleiche Breite und Höhe."""
+    """Button-Reihe wie auf S01–S12 (P1-03): C:D „‹  Zurück: Start“ (secondary, links) · F „Dashboard“ (tertiary,
+    Mitte) · H:I „Schritt 01 starten  ›“ (primary, rechts) – Zurück und Weiter gleich breit, alle 25,5 pt."""
     wipe(ws, "C", 30, "I", 31)
     C.btn_row(ws, 31, [
-        dict(c1="C", c2="D", text="Zum Dashboard  ›", target="Dashboard", kind="secondary",
+        dict(c1="C", c2="D", text="‹  Zurück: Start", target="Start", kind="secondary",
+             tooltip="Zurück zur Startseite"),
+        dict(c1="F", c2="F", text="Dashboard", target="Dashboard", kind="tertiary",
              tooltip="Gesamtbewertung auf einer Seite"),
         dict(c1="H", c2="I", text="Schritt 01 starten  ›", target="S01 Objekt", kind="primary",
              tooltip="Weiter zu Schritt 01 · Objekt"),
     ])
+    # Fuge zum Primär-Button: weiße 3-px-Kante rechts am Tertiär-Button (+ Fugenspalte G) – wie die Kachelrinnen.
+    # (In E stünde der Tertiär-Button ohne Fuge direkt am Rahmen von „Zurück“ – dort gibt es keine Fugenspalte.)
+    t = ws["F31"]
+    b = t.border
+    t.border = Border(left=b.left, top=b.top, bottom=b.bottom, right=side("thick", WHITE))
     heights(ws, {30: C.H_GAP})
 
 
 def charts(ws):
-    """Beide Diagramme exakt in der rechten Kachelspalte H:I, bündig mit der Schrittliste:
-    Z. 16–22 (= Kopf + Schritte 01–05) und Z. 23–29 (Schritte 06–12), je 154 pt."""
-    chs = sorted(ws._charts, key=lambda ch: ch.anchor._from.row)
-    for ch, (r1, r2) in zip(chs, ((16, 22), (23, 29))):
+    """P3-19: EIN Diagramm in voller Breite der rechten Spalte H:I (Vermögen und Restschuld, 3 Legendeneinträge),
+    bündig mit Abschnittskopf (Z. 16) bis Schritt 08 (Z. 25). Das gedrängte Mini-Diagramm „Einnahmen vs. Ausgaben“
+    entfällt (steht vollständig auf Dashboard/Diagramme). Darunter die Box „Fortschritt“ (Z. 27–29)."""
+    keep = [ch for ch in ws._charts if getattr(ch, "tagname", "") != "barChart"]
+    if not keep:                                           # Rückfall: das untere (zweite) Diagramm behalten
+        keep = sorted(ws._charts, key=lambda ch: ch.anchor._from.row)[-1:]
+    ws._charts = keep[:1]
+    for ch in ws._charts:
         a = ch.anchor
-        a._from.col, a._from.colOff, a._from.row, a._from.rowOff = 7, 0, r1 - 1, 0
-        a.to.col, a.to.colOff, a.to.row, a.to.rowOff = 9, 0, r2, 0
+        a._from.col, a._from.colOff, a._from.row, a._from.rowOff = 7, 0, 15, 0
+        a.to.col, a.to.colOff, a.to.row, a.to.rowOff = 9, 0, 25, 0
+
+
+def progress(ws):
+    """Box „Fortschritt“ (C.callout_box, neutral) rechts neben Schritt 10–12: Anzahl der Schritte mit Angaben als Pill,
+    darunter die nächste Aktion. Reine Anzeigeformeln; die Zeilenhöhen bleiben die der Schrittliste (24 pt)."""
+    rng_ = f"$C${FIRST_ROW}:$C${FIRST_ROW + N_STEPS - 1}"
+    C.callout_box(ws, "H", 27, "I", 28, 29, title="Fortschritt", fit=None, pill_col="I",
+                  pill=f'=COUNTIF({rng_},"✓")&" von "&(COUNTA({rng_})-COUNTIF({rng_},"{OPT_MARK}"))',
+                  text=f'=IF(COUNTIF({rng_},"○")=0,"Alle Schritte haben Angaben – Beispielwerte ersetzen, '
+                       f'dann Ergebnis in Schritt 12 und im Dashboard prüfen.","Offen: "&COUNTIF({rng_},"○")'
+                       f'&" Schritt(e) mit ○ – dort fehlen noch Angaben.")')
+    for r in (27, 28, 29):
+        C.set_height(ws, r, C.H_BAND)
 
 
 def foot(ws):
@@ -197,6 +227,7 @@ def layout(ws):
     steps(ws)
     actions(ws)
     charts(ws)
+    progress(ws)
     foot(ws)
     ws.sheet_view.showRowColHeaders = False
     C.cf_close(ws)

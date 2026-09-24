@@ -31,19 +31,20 @@ from core import (ACCENT, BLUE, CONTENT_EDGE, MIST, MUTED, NAVY, SKY, TINT, WHIT
 EMU = 9525  # je Pixel (96 dpi)
 
 # =============================================================================== Namenstabelle (einzige Quelle)
-# (Blatt, Langname = Seitentitel C6, Chip-Name – darf nur verkürzen)
+# (Blatt, Langname = Seitentitel C6, Chip-Name – darf nur verkürzen; Runde 4 P2-05: ein Name pro Schritt, nur
+#  Kaufpreis/Aufteilung/Maßnahmen bleiben als Anfangs- bzw. Endwort des Titels)
 STEP_TABLE = [
     ("S01 Objekt", "Objekt", "Objekt"),
     ("S02 Kaufpreis & Miete", "Kaufpreis & Miete", "Kaufpreis"),
-    ("S03 Kaufnebenkosten", "Kaufnebenkosten", "Nebenkosten"),
+    ("S03 Kaufnebenkosten", "Kaufnebenkosten", "Kaufnebenkosten"),
     ("S04 Kaufpreisaufteilung", "Kaufpreisaufteilung", "Aufteilung"),
     ("S05 Maßnahmen & Reserve", "Maßnahmen & Reserve", "Maßnahmen"),
-    ("S06 Bewirtschaftung", "Bewirtschaftung", "Kosten"),
+    ("S06 Bewirtschaftung", "Bewirtschaftung", "Bewirtschaftung"),
     ("S07 Finanzierung", "Finanzierung", "Finanzierung"),
-    ("S08 Zwischenergebnis", "Zwischenergebnis", "Zwischenstand"),
+    ("S08 Zwischenergebnis", "Zwischenergebnis", "Zwischenergebnis"),
     ("S09 Steuern", "Steuern", "Steuern"),
     ("S10 Abschreibung", "Abschreibung", "Abschreibung"),
-    ("S11 Prognose & Exit", "Prognose & Exit", "Prognose"),
+    ("S11 Prognose & Exit", "Prognose & Exit", "Prognose & Exit"),
     ("S12 Ergebnis", "Ergebnis", "Ergebnis"),
 ]
 STEPS = [chip for _, _, chip in STEP_TABLE]          # Chip-Namen (Kompatibilität)
@@ -148,24 +149,45 @@ def area_of(sheet):
 # =============================================================================== Gestaltung
 # Farben: Reiter auf Navy (Leerlauf 1A3F66 = Navy aufgehellt, nur hier), Schritt-Zustände (P1-07)
 TAB_IDLE, TAB_TXT = "1A3F66", MIST
-STEP_DONE_BG = "DCE7F4"                    # erledigt: Fläche, „✓ 01“ + Name in BLUE
-STEP_NEXT_BG, STEP_NEXT_LINE, STEP_NEXT_TXT = WHITE, "D5DEEA", MUTED   # kommend: weiß, Rahmen 0,75 pt, 5B6068
+# Schritt-Zustände (Runde 4 P3-10): erledigt „✓ 01“ auf D5E3F3 in BLUE · offen weiß, Rahmen C9D6E6, Schrift 64748B
+STEP_DONE_BG = "D5E3F3"
+STEP_NEXT_BG, STEP_NEXT_LINE, STEP_NEXT_TXT = WHITE, "C9D6E6", "64748B"
 
-# Raster je Blatt (R3-P01): Marke bündig mit der linken, „Anhang“ bündig mit der rechten Inhaltskante des Blatts.
-BRAND_X = 45                               # Rückfall: linke Inhaltskante der Schritt-Seiten (Spalte C)
-NAV_STD_W = 1302                           # Standardbreite der Leiste (Schritt-Seiten C…I) für Blätter mit Jahresspalten
-TAB_MAX, TAB_GAP, GROUP_GAP, TAB_H = 92, 4, 8, 28
-TAB_PAD = 4                                # Mindestluft links/rechts neben dem längsten Reitertext
-BRAND_GAP = 16                             # Mindestluft zwischen Marke und erstem Reiter
+# Reiterleiste mit FESTER Geometrie auf allen 28 Blättern (Runde 4 P1-08, Excel-Pixel ab Blattursprung,
+# xdr:absoluteAnchor – unabhängig von Spaltenbreiten, kein Einrasten auf Spaltengrenzen):
+#   Marke ab NAV_X (= linke Inhaltskante aller Blätter, Spalte B bzw. C), 12 Reiter à TAB_W, Abstand konstant TAB_GAP,
+#   x_n = TAB_X0 + n × (TAB_W + TAB_GAP); „Anhang“ endet bei NAV_END (= rechte Inhaltskante der Schritt-Seiten, I).
+#   Die Fuge Dashboard | Cockpit liegt genau auf der Fixierlinie der Jahrestabellen (A:C = 535 px), damit dort
+#   keine Form die Fixierlinie kreuzt. Das Navy-Band reicht bis NAV_END + NAV_X (rechts derselbe Innenabstand wie links).
+NAV_X = 31
+TAB_W, TAB_GAP, TAB_H = 94, 4, 28
+NAV_END = 1417
+TAB_X0 = NAV_END - 12 * TAB_W - 11 * TAB_GAP          # 245
+BAND_END = NAV_END + NAV_X                            # 1448
+BAND_WIDE = 1.25                                      # breitere Inhalte bis zu diesem Faktor: Band bis zur Inhaltskante
+TAB_SIZE = 9
+BRAND_X = NAV_X                            # Kompatibilität
+NAV_STD_W = NAV_END - NAV_X
+BRAND_GAP = 16                             # Luft zwischen Marke und erstem Reiter
 STEP_GAP = 4                               # Schritt-Chips: gleicher Abstand auch vor WEITER
 STEP_INS = 38100                           # Innenabstand der Schritt-Chips links/rechts (4 px, R3-P35)
+# Fixierte Jahrestabellen (P2-11): Ortsmarke im fixierten Bereich A:C (bleibt beim waagerechten Scrollen stehen)
+HERE_LABEL = {"Projektion": "Projektion", "Steuern": "Steuer-Tabelle", "AfA-Vergleich": "AfA-Vergleich",
+              "Finanzierung": "Tilgungsplan"}
 WEITER_COL = "H"                           # WEITER steht genau über dem unteren Weiter-Button (Merge H:I)
 PILL_H, PILL_SIZE, PILL_PAD, PILL_GAP = 22, 8, 10, 4   # Unterreiter und Sprungleisten (ein Pill-Stil)
 INS = 25400                                # Innenabstand links/rechts (2 pt)
 FONT = "Calibri"
-# Leisten als an Zellen verankerte Gruppe (Standard). NAV_GROUPED=0: jede Form einzeln an Zellen verankert
-# (in Excel identisch; nur Vorschau-Renderer mit abweichender Spaltenmetrik zeigen dann Verzerrungen).
+# Verankerung (P1-08): Reiterleiste als xdr:absoluteAnchor (feste EMU-Werte); Schritt-Leiste, Unterreiter und
+# Sprungleisten als twoCellAnchor editAs="absolute" (Excel: „Von Zellposition und -größe unabhängig“ – die Formen
+# behalten Lage und Größe, wenn Nutzer Spaltenbreiten oder Zeilenhöhen ändern). NAV_GROUPED=0: Einzelformen.
 GROUPED = os.environ.get("NAV_GROUPED", "1") != "0"
+ABS, FIXED = "abs", "absolute"
+# Reiterleiste: Standard twoCellAnchor editAs="absolute" mit exakt aus der festen Pixelgeometrie berechneten Ankern.
+# In Excel ist das pixelgleich zu einem absoluteAnchor (fixe Lage/Größe, bewegt sich nicht mit den Zellen); anders
+# als ein absoluteAnchor bleibt die Leiste aber auch in Programmen mit abweichender Spaltenmetrik (LibreOffice,
+# ≈ 6 % breitere Spalten) bündig zum Zellraster. NAV_ANCHOR=abs erzwingt xdr:absoluteAnchor.
+TAB_ANCHOR = ABS if os.environ.get("NAV_ANCHOR") == "abs" else FIXED
 
 NS_REL = "http://schemas.openxmlformats.org/package/2006/relationships"
 REL_HYPER = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
@@ -328,6 +350,17 @@ class Geo:
             r += 1
         return r - 1, 0
 
+    def header_right(self, styles):
+        """Rechte Kante des Kopf-Kontextblocks: rechtsbündige Zellen mit Wert in Zeile 6/7 (verbundene Bereiche bis
+        zum Bereichsende). None, wenn es keinen rechten Kontextblock gibt."""
+        edges = []
+        for (r, c), (st, has_val) in self.cells.items():
+            if r not in (6, 7) or not has_val or styles.halign(st) != "right":
+                continue
+            end = next((c1 for mr, c0, c1 in self.merges if mr == r and c0 == c), c)
+            edges.append(self.x(end + 1))
+        return max(edges) if edges else None
+
     def split_px(self):
         return self.x(self.x_split + 1) if self.x_split else 0
 
@@ -427,41 +460,49 @@ class Canvas:
         """Gruppe beginnen – alle folgenden Formen bis end() gehören zu einer Leiste."""
         self._grp = (name, [], [])
 
-    def end(self, edit_as=None):
-        """Gruppe an Zellen verankern (edit_as=None: bewegt und skaliert mit den Zellen).
+    def end(self, edit_as=FIXED):
+        """Gruppe abschließen. edit_as=ABS: xdr:absoluteAnchor mit festen EMU-Werten (Reiterleiste, P1-08);
+        FIXED („absolute“): twoCellAnchor editAs="absolute" – Excel bewegt/skaliert die Leiste nicht mit den Zellen;
+        None: bewegt und skaliert mit den Zellen.
 
-        Der Rahmen wird nach außen auf Spaltengrenzen gerundet (unsichtbare Rahmenform als erstes Kind):
-        Anker mit colOff 0 bedeuten in jeder Spaltenmetrik dasselbe, die Leiste bleibt überall proportional."""
+        Bei Zellankern wird der Rahmen nach außen auf Spaltengrenzen gerundet (unsichtbare Rahmenform als erstes
+        Kind): Anker mit colOff 0 bedeuten in jeder Spaltenmetrik dasselbe, die Leiste bleibt überall proportional.
+        Gruppen sind gegen Verschieben, Größenänderung und Auflösen gesperrt (a:grpSpLocks, P3-18)."""
         name, items, boxes = self._grp
         self._grp = None
         if not items:
             return
         if not GROUPED:
             for sp, (x, y, w, h) in zip(items, boxes):
-                self.shapes.append(self._wrap(sp, x, y, w, h, True, edit_as))
+                self.shapes.append(self._wrap(sp, x, y, w, h, edit_as != ABS, None if edit_as == ABS else edit_as))
             return
         x0 = min(b[0] for b in boxes)
         y0 = min(b[1] for b in boxes)
         x1 = max(b[0] + b[2] for b in boxes)
         y1 = max(b[1] + b[3] for b in boxes)
         g = self.geo
-        c0, d0 = g.col_at(x0)
-        c1, d1 = g.col_at(x1)
-        sx0 = x0 - d0
-        sx1 = x1 if d1 == 0 else x1 - d1 + g.col_px(c1 + 1)
-        if (sx0, sx1) != (x0, x1):
-            frame = (f'<xdr:sp macro="" textlink=""><xdr:nvSpPr><xdr:cNvPr id="{self.sid()}" name="{xattr(name)} Rahmen"/>'
-                     f'<xdr:cNvSpPr/></xdr:nvSpPr><xdr:spPr><a:xfrm><a:off x="{sx0 * EMU}" y="{y0 * EMU}"/>'
-                     f'<a:ext cx="{(sx1 - sx0) * EMU}" cy="{(y1 - y0) * EMU}"/></a:xfrm><a:prstGeom prst="rect">'
-                     f'<a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></xdr:spPr></xdr:sp>')
-            items.insert(0, frame)
-            x0, x1 = sx0, sx1
+        if edit_as != ABS:
+            c0, d0 = g.col_at(x0)
+            c1, d1 = g.col_at(x1)
+            sx0 = x0 - d0
+            sx1 = x1 if d1 == 0 else x1 - d1 + g.col_px(c1 + 1)
+            if (sx0, sx1) != (x0, x1):
+                frame = (f'<xdr:sp macro="" textlink=""><xdr:nvSpPr><xdr:cNvPr id="{self.sid()}" name="{xattr(name)} Rahmen"/>'
+                         f'<xdr:cNvSpPr/></xdr:nvSpPr><xdr:spPr><a:xfrm><a:off x="{sx0 * EMU}" y="{y0 * EMU}"/>'
+                         f'<a:ext cx="{(sx1 - sx0) * EMU}" cy="{(y1 - y0) * EMU}"/></a:xfrm><a:prstGeom prst="rect">'
+                         f'<a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></xdr:spPr></xdr:sp>')
+                items.insert(0, frame)
+                x0, x1 = sx0, sx1
         off = f'<a:off x="{x0 * EMU}" y="{y0 * EMU}"/><a:ext cx="{(x1 - x0) * EMU}" cy="{(y1 - y0) * EMU}"/>'
         ch = (f'<a:chOff x="{x0 * EMU}" y="{y0 * EMU}"/>'
               f'<a:chExt cx="{(x1 - x0) * EMU}" cy="{(y1 - y0) * EMU}"/>')
-        body = (f'<xdr:grpSp><xdr:nvGrpSpPr><xdr:cNvPr id="{self.sid()}" name="{xattr(name)}"/><xdr:cNvGrpSpPr/>'
+        body = (f'<xdr:grpSp><xdr:nvGrpSpPr><xdr:cNvPr id="{self.sid()}" name="{xattr(name)}"/><xdr:cNvGrpSpPr>'
+                f'<a:grpSpLocks noGrp="1" noUngrp="1" noRot="1" noMove="1" noResize="1"/></xdr:cNvGrpSpPr>'
                 f'</xdr:nvGrpSpPr><xdr:grpSpPr><a:xfrm>{off}{ch}</a:xfrm></xdr:grpSpPr>{"".join(items)}</xdr:grpSp>')
-        self.shapes.append(self._wrap(body, x0, y0, x1 - x0, y1 - y0, True, edit_as))
+        if edit_as == ABS:
+            self.shapes.append(self._wrap(body, x0, y0, x1 - x0, y1 - y0, False))
+        else:
+            self.shapes.append(self._wrap(body, x0, y0, x1 - x0, y1 - y0, True, edit_as))
 
     def add(self, name, x, y, w, h, fill=None, paras=(), link=None, tooltip=None, radius=4, line=None,
             prst="roundRect", lins=INS, rins=INS, anchor="ctr", line_w=9525):
@@ -505,126 +546,117 @@ def distribute(total, weights):
 
 # =============================================================================== Leisten
 class Frame:
-    """Raster der Navigation je Blatt (R3-P01/P03/P04).
+    """Raster der Navigation je Blatt (Runde 4 P1-08/P2-03).
 
-    - box[blatt] = (links, rechts): Marke bündig mit der linken, letzter Reiter („Anhang“) bündig mit der rechten
-      Inhaltskante (Geo.content_box). Kopfband (Z. 1–3) endet an derselben Kante.
-    - Blätter mit fixierten Jahresspalten (Projektion, Steuern, AfA-Vergleich, Finanzierung): dieselbe einzeilige
-      Leiste in Standardbreite (NAV_STD_W = Schritt-Seiten) ab der linken Inhaltskante; das Band läuft über die
-      Jahresspalten weiter.
-    - Unterreiter: je Blatt rechtsbündig an der rechten Kante der eigenen Leiste, mittig in Zeile 5."""
+    - Reiterleiste: auf allen Blättern dieselbe feste Geometrie (NAV_X … NAV_END), unabhängig vom Blatt.
+    - box[blatt] = (links, rechts): Inhaltskanten ab Zeile 4 (Schritt-Leiste, Sprungleiste).
+    - band[blatt]: rechte Kante des Navy-Kopfbands = BAND_END; reicht der Inhalt wenig weiter (Cockpit,
+      AfA-Vergleich), bis zur Inhaltskante; auf den breiten Jahrestabellen nur dann über die Jahresspalten, wenn
+      das Band dort Seitenkontext trägt (Folgeseiten-Hinweise in Z. 2), sonst endet es bei BAND_END.
+    - head[blatt]: rechte Kante des Kopf-Kontextblocks (Z. 6/7 rechtsbündig, „Beispiel: …“ / „Erstellt für …“) –
+      daran schließen die Unterreiter in Zeile 5 rechtsbündig an (eine rechte Fluchtlinie im Kopf, P2-03)."""
 
     def __init__(self, geos, styles, drawings):
-        self.box, self.band = {}, {}
-        std = None
+        self.box, self.band, self.head = {}, {}, {}
         for name, g in geos.items():
             left, right = g.content_box(styles, drawings.get(name, ""))
-            self.band[name] = right
-            if name in STEP_OF_SHEET and std is None:
-                std = right - left
             self.box[name] = [left, right]
-        std = std or NAV_STD_W
-        for name, g in geos.items():
-            left, right = self.box[name]
-            if g.x_split or right - left > std * 1.6:
-                self.box[name][1] = left + std
-                self.band[name] = max(self.band[name], left + std)
+            self.band[name] = right if BAND_END < right <= BAND_END * BAND_WIDE else BAND_END
+            # Kopfband mit Seitenkontext gefüllt (calc.continuation: „Projektion · Jahre 11–20“ in W2/AG2/AQ2 an
+            # jeder Druckseite): dann läuft das Band bis zum letzten Kontexttext (P1-08, Variante „füllen“)
+            ctx = [g.x(c + 1) for (r, c), (_st, hv) in g.cells.items() if r == 2 and hv and g.x(c) >= BAND_END]
+            if ctx:
+                self.band[name] = max(self.band[name], max(ctx))
+            self.head[name] = g.header_right(styles) or min(right, NAV_END)
 
     def edges(self, name):
-        return self.box.get(name, (BRAND_X, BRAND_X + NAV_STD_W))
+        return self.box.get(name, (NAV_X, NAV_END))
 
 
 def nav_frame(geos, styles=None, drawings=None):
     return Frame(geos, styles, drawings or {})
 
 
-def tab_metrics(width):
-    """Reiterbreite, Schriftgröße und Abstände für eine Leistenbreite: Reiter höchstens TAB_MAX breit; reicht die
-    Breite nicht, zuerst engere Abstände, dann 8,5 bzw. 8 pt – nie abgeschnittene Beschriftungen."""
-    labels = [lab for lab, _ in NAV]
-    brand = int(text_px("Immobilien-Kalkulation", 8)) + 2
-    for size, gap, ggap in ((9, TAB_GAP, GROUP_GAP), (9, 3, 6), (8.5, 3, 6), (8, 3, 6), (8, 2, 4)):
-        need = max(text_px(lab, size, True) for lab in labels) + 2 * TAB_PAD
-        gaps = 8 * gap + 3 * ggap
-        w = min(TAB_MAX, int((width - brand - BRAND_GAP - gaps) / 12))
-        if w >= need:
-            return w, size, gap, ggap
-    return w, size, gap, ggap
-
-
-def tab_layout(left, right, split=0):
-    """Positionen der Leiste: (Reiterbreite, Schrift, [(x, Beschriftung, Ziel, QuickInfo)], Markenbreite, Teilung).
-
-    Ohne Fixierung: „Anhang“ endet bündig an right. Mit fixierten Spalten (split = x der Fixierlinie) steht
-    zwischen zwei Reitern genau auf der Fixierlinie eine Fuge; die Leiste zerfällt dort in zwei Formgruppen, von
-    denen keine die Fixierlinie kreuzt (Excel zeichnet Formen je Fensterausschnitt). Gewählt wird die Teilung,
-    deren rechte Kante der Standardbreite am nächsten kommt und die der Marke genug Raum lässt."""
-    tab_w, size, gap, ggap = tab_metrics(right - left)
-    seq = []                                   # (Beschriftung, Ziel, QuickInfo, Abstand davor)
-    for gi, grp in enumerate(NAV_GROUPS):
-        for k, (label, target, tip) in enumerate(grp):
-            seq.append((label, target, tip, 0 if not seq else (ggap if k == 0 else gap)))
-    brand_min = int(text_px("Immobilien-Kalkulation", 8)) + 2 + BRAND_GAP
-
-    def place(x0):
-        out, x = [], x0
-        for label, target, tip, before in seq:
-            x += before
-            out.append((x, label, target, tip))
-            x += tab_w
-        return out
-    width = 12 * tab_w + sum(b for *_, b in seq)
-    if not split or split <= left + brand_min:
-        return tab_w, size, place(right - width), 0
-    best = None
-    for k in range(1, 12):                     # Fuge vor Reiter k liegt mittig auf der Fixierlinie
-        before = seq[k][3]
-        x_k = split + (before - before // 2)
-        x0 = x_k - (k * tab_w + sum(b for *_, b in seq[1:k]) + before)
-        if x0 - left < brand_min:
-            continue
-        pos = place(x0)
-        score = abs(pos[-1][0] + tab_w - right)
-        if best is None or score < best[0]:
-            best = (score, pos, k)
-    if best is None:
-        return tab_w, size, place(right - width), 0
-    return tab_w, size, best[1], best[2]
+def tab_positions():
+    """Feste Reiterpositionen [(x, Beschriftung, Ziel, QuickInfo)] – auf allen Blättern identisch (P1-08)."""
+    seq = [(label, target, tip) for grp in NAV_GROUPS for label, target, tip in grp]
+    return [(TAB_X0 + k * (TAB_W + TAB_GAP), label, target, tip) for k, (label, target, tip) in enumerate(seq)]
 
 
 def tab_bar(cv, name, frame):
-    """Reiterleiste (eine Komponente für alle 28 Blätter): Marke „MM HOLDING / Immobilien-Kalkulation“ bündig mit
-    der linken Inhaltskante, 12 gleich breite Reiter in vier Gruppen, „Anhang“ bündig mit der rechten Kante.
-    Blätter mit fixierten Spalten: dieselbe einzeilige Leiste, an der Fixierlinie in zwei Gruppen geteilt."""
+    """Reiterleiste (eine Komponente für alle 28 Blätter, P1-08): Marke „MM HOLDING / Immobilien-Kalkulation“ ab
+    NAV_X, zwölf gleich breite Reiter (TAB_W) mit konstantem Abstand, „Anhang“ endet bei NAV_END – als
+    xdr:absoluteAnchor, damit die Leiste beim Blattwechsel pixelgenau stehen bleibt.
+
+    Blätter mit fixierten Spalten (P2-11): die Leiste zerfällt an der Fixierlinie in zwei Gruppen (die Fuge
+    Dashboard | Cockpit liegt auf der Fixierlinie). Im fixierten Teil steht neben der Marke eine Ortsmarke mit dem
+    aktuellen Blatt; zusammen mit Start/Leitfaden/Dashboard bleibt das „Wo bin ich?“ beim Scrollen durch die
+    Jahresspalten sichtbar."""
     g = cv.geo
     top, h2 = g.row_px(1), g.row_px(2)
     ty = top + (h2 - TAB_H) / 2
     active = area_of(name)
-    left, right = frame.edges(name)
-    tab_w, size, pos, cut = tab_layout(left, right, g.split_px())
+    pos = tab_positions()
+    split = g.split_px()
+    brand_w = TAB_X0 - BRAND_GAP - NAV_X
+    here = HERE_LABEL.get(name) if split else None
+    if here:
+        brand_w = int(text_px("Immobilien-Kalkulation", 8)) + 4
     cv.begin("Reiterleiste")
-    cv.add("Marke", left, ty - 3, pos[0][0] - left - BRAND_GAP, TAB_H + 6, None,
+    cv.add("Marke", NAV_X, ty - 3, brand_w, TAB_H + 6, None,
            [para([("MM HOLDING", 10, WHITE, True, 60)], "l", 90000),
             para([("Immobilien-Kalkulation", 8, MIST, False)], "l", 90000)],
            link=("Start", None), tooltip="Zur Startseite", lins=0, rins=0)
+    if here:
+        hw = TAB_X0 - BRAND_GAP - (NAV_X + brand_w + 12)
+        hx = TAB_X0 - BRAND_GAP - hw
+        cv.add("Ortsmarke", hx, ty + 3, hw, TAB_H - 6, None,
+               [para([(here, 8, WHITE, True)])], line=MIST, radius=11,
+               link=(name, None), tooltip=f"Sie sind hier: {here} · zum Blattanfang", lins=0, rins=0)
+    cut = next((k for k, (x, *_r) in enumerate(pos) if split and x + TAB_W > split + 8), None)
     for k, (x, label, target, tip) in enumerate(pos):
-        if cut and k == cut:
-            cv.end("absolute")
+        if cut is not None and k == cut:
+            cv.end(TAB_ANCHOR)
             cv.begin("Reiterleiste rechts")
         on = label == active
-        cv.add(f"Reiter {label}", x, ty, tab_w, TAB_H, WHITE if on else TAB_IDLE,
-               [para([(label, size, NAVY if on else TAB_TXT, on)])],
+        w = TAB_W
+        if cut is not None and k == cut - 1 and x + w > split:
+            w = split - x                          # Fixierlinie wenige px im Reiter (AfA-Vergleich): Reiter endet dort
+        cv.add(f"Reiter {label}", x, ty, w, TAB_H, WHITE if on else TAB_IDLE,
+               [para([(label, TAB_SIZE, NAVY if on else TAB_TXT, on)])],
                link=(target, None), tooltip=tip + (" (aktueller Bereich)" if on else ""),
                lins=0, rins=0)
-    cv.end("absolute")
-    return pos[-1][0] + tab_w
+    cv.end(TAB_ANCHOR)
+    return NAV_END
+
+
+def step_widths(total, labels, min_pad=5):
+    """Chipbreiten der Schritt-Leiste: jeder Chip mindestens Name + 2 × min_pad; die übrige Breite hebt zuerst die
+    kürzesten Chips auf ein gemeinsames Maß (Wasserstand) – volle Schrittnamen ohne Kürzel (P2-05), möglichst
+    gleich breite Chips."""
+    need = [int(text_px(lab, 8) + 2 * min_pad + 0.999) for lab in labels]
+    if sum(need) >= total:
+        return distribute(total, need)
+    lo, hi = min(need), total
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if sum(max(n, mid) for n in need) <= total:
+            lo = mid
+        else:
+            hi = mid
+    w = [max(n, lo) for n in need]
+    rest = total - sum(w)
+    order = sorted(range(len(w)), key=lambda i: w[i])
+    for i in order[:rest]:
+        w[i] += 1
+    return w
 
 
 def step_bar(cv, step, frame):
-    """Schritt-Leiste in Zeile 8 über die volle Inhaltsbreite (R3-P02): 12 gleich breite Chips + „WEITER ›“.
-    WEITER ist genau so breit wie der untere Weiter-Button (H:I) und steht bündig darüber; alle Abstände 4 px.
-    Zustände: besucht (DCE7F4, nur Nummer – ✓ bleibt dem Leitfaden-Status vorbehalten, R3-P25), aktiv (Navy +
-    Akzentstrich), kommend (weiß, Rahmen D5DEEA, Schrift 5B6068). Innenabstand 4 px, keine Schrift unter 8 pt."""
+    """Schritt-Leiste in Zeile 8 über die volle Inhaltsbreite: 12 Chips + „WEITER ›“. WEITER ist genau so breit wie
+    der untere Weiter-Button (H:I) und steht bündig darüber; alle Abstände 4 px. Zustände (P3-10): erledigt „✓ 01“
+    (D5E3F3, BLUE), aktiv (Navy + Akzentstrich), offen (weiß, Rahmen C9D6E6, Schrift 64748B). Chip-Namen = Blatttitel
+    (P2-05). Verankerung editAs="absolute" (P1-08)."""
     g = cv.geo
     left, right = frame.edges(cv.sheet)
     y = g.y(8) + 2
@@ -632,10 +664,10 @@ def step_bar(cv, step, frame):
     x_weiter = g.x(col_index(WEITER_COL))
     if not left + 12 * 60 < x_weiter < right - 120:       # Rückfall bei abweichendem Raster
         x_weiter = right - 300
-    pill_w = distribute(x_weiter - left - 12 * STEP_GAP, [1] * 12)
+    widths = step_widths(x_weiter - left - 12 * STEP_GAP, [step_chip(i) for i in range(1, 13)])
     x = left
     cv.begin("Schritt-Leiste")
-    for i, w in enumerate(pill_w, start=1):
+    for i, w in enumerate(widths, start=1):
         done, cur = i < step, i == step
         line = None
         if cur:
@@ -646,9 +678,10 @@ def step_bar(cv, step, frame):
             bg, c_no, c_lab, line = STEP_NEXT_BG, STEP_NEXT_TXT, STEP_NEXT_TXT, STEP_NEXT_LINE
         lab = step_chip(i)
         spc = -10 if text_px(lab, 8) > w - 8 else 0
-        tip = step_caption(i) + (" (aktuelle Seite)" if cur else " (bereits durchlaufen)" if done else "")
+        tip = step_caption(i) + (" (aktuelle Seite)" if cur else " (erledigt)" if done else "")
+        no = f"✓ {step_no(i)}" if done else step_no(i)
         cv.add(f"Schritt {step_no(i)}", x, y, w, h, bg,
-               [para([(step_no(i), 8, c_no, True)], "ctr", 95000),
+               [para([(no, 8, c_no, True)], "ctr", 95000),
                 para([(lab, 8, c_lab, False, spc)], "ctr", 95000)],
                link=(step_sheet(i), None), tooltip=tip, line=line, lins=STEP_INS, rins=STEP_INS)
         if cur:
@@ -661,7 +694,7 @@ def step_bar(cv, step, frame):
             para([(nxt_caption, 8, TINT, False)], "ctr", 90000)],
            link=(nxt_sheet, None), lins=STEP_INS, rins=STEP_INS,
            tooltip=("Weiter zum Dashboard · Gesamtbewertung" if last else f"Weiter zu {nxt_caption}"))
-    cv.end()
+    cv.end(FIXED)
 
 
 def pill_w(label, size=PILL_SIZE, pad=PILL_PAD):
@@ -686,20 +719,21 @@ def pill_row(cv, items, y, h=PILL_H, x_left=None, x_right=None, size=PILL_SIZE, 
 
 
 def sub_nav(cv, name, frame):
-    """Unterreiter der Gruppenblätter (R3-P04): Zeile 5, rechtsbündig an der rechten Kante der Reiterleiste dieses
-    Blatts (= rechte Inhaltskante), senkrecht mittig in Zeile 5. Links in derselben Zeile steht die Eyebrow."""
+    """Unterreiter der Gruppenblätter (P2-03): Zeile 5, rechtsbündig an der rechten Kante des Kopf-Kontextblocks
+    (Z. 6/7: „Beispiel: …“ / „Erstellt für …“; Bankgespräch: Spalte I), senkrecht mittig in Zeile 5. Links in
+    derselben Zeile steht die Brotkrume. Verankerung editAs="absolute"."""
     area = area_of(name)
     grp = SUBNAV.get(area)
     if not grp:
         return
     g = cv.geo
-    right = frame.edges(name)[1]
+    right = frame.head.get(name) or frame.edges(name)[1]
     y = g.y(5) + (g.row_px(5) - PILL_H) / 2
     active = next(lab for lab, t in grp if t == name)
     items = [(lab, t, None, f"{lab} öffnen" if t != name else f"{lab} (aktuelle Seite)") for lab, t in grp]
     cv.begin("Unterreiter")
     pill_row(cv, items, y, x_right=right, active=active, name="Unterreiter")
-    cv.end()
+    cv.end(FIXED)
 
 
 # Rechte Kante der Kopfleisten-Fläche: Frame.band (Inhaltskante je Blatt; core.CONTENT_EDGE nur noch für chrome.py)
@@ -729,21 +763,21 @@ def trim_band(sxml, geo, styles, end_px):
 
 
 def band_extension(cv, styles, end_px):
-    """Sicherheitsnetz: reicht die Navy-Fläche der Kopfleiste (Zeile 2) nicht bis end_px, wird sie mit zwei
-    Flächenformen (Navy Z. 1–2, Akzentlinie Z. 3) verlängert."""
+    """Reicht die Navy-Fläche der Kopfleiste (Zeile 2) nicht bis end_px, wird sie mit zwei Flächenformen (Navy Z. 1–2,
+    Akzentlinie Z. 3) bis end_px verlängert (absolut verankert; wird nicht gedruckt)."""
     g = cv.geo
     navy_cols = [c for (r, c), (st, _) in g.cells.items() if r == 2 and styles.fill(st) == NAVY]
     if not navy_cols:
         return
     end = g.x(max(navy_cols) + 1)
-    if end >= end_px or g.x_split:
+    if end >= end_px:
         return
     start = max(0, end - 3)            # 3 px Überlappung: keine Haarfuge zwischen Zellfläche und Form
     h12 = g.row_px(1) + g.row_px(2)
     cv.begin("Kopfleiste Verlängerung")
     cv.add("Kopfleiste Fläche", start, 0, end_px - start, h12, NAVY, prst="rect")
     cv.add("Kopfleiste Linie", start, h12, end_px - start, g.row_px(3), ACCENT, prst="rect")
-    cv.end("absolute")
+    cv.end(TAB_ANCHOR)
 
 
 def jump_bar(cv, name, frame):
@@ -769,7 +803,7 @@ def jump_bar(cv, name, frame):
     cv.add("Sprungleiste Titel", x, y, cw, PILL_H, None, [para([(cap, 8, MUTED, True, 40)], "l")],
            lins=0, rins=0)
     pill_row(cv, items, y, x_left=x + cw, name="Sprung", pad=pad)
-    cv.end()
+    cv.end(FIXED)
 
 
 # =============================================================================== Paket-Hilfen
@@ -918,7 +952,7 @@ def inject(path):
         end_px = frame.band[name]
         files[spath] = trim_band(files[spath].decode(), geos[name], styles, end_px).encode()
         band_extension(cv, styles, end_px)
-        frame.box[name][1] = tab_bar(cv, name, frame)      # tatsächliche rechte Kante (geteilte Leiste)
+        tab_bar(cv, name, frame)
         if name in STEP_OF_SHEET:
             step_bar(cv, STEP_OF_SHEET[name], frame)
         sub_nav(cv, name, frame)

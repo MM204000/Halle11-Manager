@@ -1,8 +1,8 @@
 """Blatt „Start“: Hero, Entscheidungskarte „① Kauf als“, vier Kennzahl-Kacheln, Ablauf ①–⑥, Legende mit
 Tipp-Kasten, Blätterverzeichnis, Fuß – ausschließlich mit den zentralen Bausteinen aus core.py.
 
-Raster (px, Runde 3 / P01): C 172 | D 112 | E 284 | F 284 | G 284  →  C:D = E = F = G (vier gleich breite Spalten);
-  rechte Kante H ≈ 1 209 px = rechte Kante der Reiterleiste (Kopfband, Hero und Inhalt enden an derselben Spalte).
+Raster (px, Runde 4 / P1-08): C 224 | D 112 | E 336 | F 336 | G 336  →  C:D = E = F = G (vier gleich breite Spalten);
+  Hero B:H von 31 bis 1 417 px = linke/rechte Inhaltskante der Schrittseiten und der festen Reiterleiste (NAV_END).
   Hero:  Logo-Spalte C:D (Logo zentriert), Inhalt E:G; Kennzahlen und Buttons exakt in E | F | G.
   Kacheln Z. 27–29: C:D | E | F | G – C.tile: Kopfstreifen · Wert in Statusfarbe · Fußzeile Kontext links / Status rechts.
 Namensziele bleiben an ihrem Platz: Rechtsform = D23, ST_BMR = E28, ST_CF = C31, ST_DSCR = E31, ST_IRR = F31.
@@ -27,7 +27,8 @@ ui = C                                   # Altname (leitfaden.py importiert Helf
 SHEET = "Start"
 HERO_ROWS = range(5, 20)                 # B5:H19 Navy-Fläche, Z. 20 Weißraum
 HERO_COLS = "BCDEFGH"
-WIDTHS = {"C": 24.6, "D": 16, "E": 40.5, "F": 40.5, "G": 40.5}   # C:D = E = F = G = 284 px
+# Runde 4 (P1-08): rechte Kante des Heros = NAV_END der festen Reiterleiste (1 417 px = Kante der Schrittseiten)
+WIDTHS = {"C": 32, "D": 16, "E": 48, "F": 48, "G": 48}   # C:D = E = F = G = 336 px, H 21 px → Hero bis 1 417 px
 EMU = 9525                               # EMU je Pixel
 KAUF_ALS = 'CHOOSE(Rechtsform_Idx,"Privatperson","vv-GmbH","GmbH / Holding")'
 
@@ -56,9 +57,9 @@ SHEETS = [
     ("Diagramme", "{n} Diagramme zur Kalkulation"),
     ("Eingaben", "Alle Eingaben und Profi-Felder"),
     ("Projektion", "Miete, Kosten, Vermögen – 40 Jahre"),
-    ("Steuern", "Steuerparameter, AfA, Ergebnis, Exit"),
+    ("Steuern", "Steuerberechnung je Jahr  (Eingaben: Schritt 09)"),
     ("AfA-Vergleich", "Abschreibungsvarianten im Vergleich"),
-    ("Finanzierung", "Tilgungspläne Darlehen I und II"),
+    ("Finanzierung", "Tilgungspläne I und II  (Eingaben: Schritt 07)"),
     ("Sensitivität", "Break-even, Miete × Zins, IRR-Matrix"),
     ("Bankgespräch", "Investitionsübersicht für die Bank"),
     ("Haushaltsrechnung", "Selbstauskunft Einnahmen/Ausgaben"),
@@ -66,6 +67,9 @@ SHEETS = [
     ("Hinweise", "Rechtsgrundlagen und Modellannahmen"),
     ("Konfiguration", "Stammdaten, Tarif 2026, Ampel-Schwellen"),
 ]
+
+# Anzeigename im Verzeichnis = Reiterbeschriftung (P2-05: ein Name pro Ziel); das Blatt selbst heißt unverändert
+SHEET_LABEL = {"Steuern": "Steuer-Tabelle", "Finanzierung": "Tilgungsplan"}
 
 
 # ============================================================================ lokale Helfer (auch für leitfaden.py)
@@ -146,9 +150,7 @@ def heights(ws, spec):
         C.set_height(ws, r, h)
 
 
-def fixed_m(expr, digits=0):
-    """FIXED mit typografischem Minus (P23) – für Anzeigeformeln in Kachel-Fußzeilen („Jahr 2: −274 €“)."""
-    return f'SUBSTITUTE(FIXED({expr},{digits}),"-","{C.MINUS}")'
+fixed_m = C.fixed_m                      # FIXED mit typografischem Minus (zentral in core, Runde 4)
 
 
 # Kanonische Kachel-Fußzeilen (P11/P20) – wortgleich mit dem Dashboard; Status setzt C.tile selbst (rechts).
@@ -314,26 +316,31 @@ def hero(ws):
             ("G", "HALTEDAUER", "=Haltedauer", C.NUMFMT["years_n"])]
     for c, lab, val, fmt in band:
         put(f"{c}14", lab, C.T_MICRO, True, SKY, v="bottom")
-        put(f"{c}15", val, C.T_H2, True, WHITE, fmt=fmt)
+        put(f"{c}15", val, C.T_H1, True, WHITE, fmt=fmt)        # P3-01: größte Zahl der Seite (22 pt > Kachel 20 pt)
     for c in "EFG":
         ws[f"{c}14"].border = Border(top=side("hair", ACCENT))
 
-    # Aktionszeile im selben Raster (P06): die Reihenfolge der Seite = Reihenfolge der Buttons.
-    # Primär (weiß auf Navy): zuerst die Pflichtauswahl „Kauf als“ (Sprung auf D23) · Ghost: Leitfaden starten.
-    # Dashboard/Cockpit stehen in der Reiterleiste und entfallen hier.
+    # Aktionszeile im Drittelraster E | F | G (P3-01) – drei Stufen auf Navy, gleiche Höhe (25,5 pt), 3-px-Fugen:
+    #   E  primär   weiß, Schrift 0B2A4A fett   – zuerst die Pflichtauswahl „Kauf als“ (Sprung auf D23)
+    #   F  sekundär 4A86C8, Schrift weiß fett   – Leitfaden starten
+    #   G  tertiär  1D4F8A, Rahmen 4A86C8 (core „ghost“) – Dashboard
     p = C.btn(ws, "E", 17, "E", "Zuerst: Kauf als wählen  ↓", SHEET, "primary", target_cell="D23",
               tooltip="Pflichtauswahl: Privatperson oder Gesellschaft (Liste)")
     p.font = font(C.T_BODY, True, NAVY)
     ws["E17"].fill = fill(WHITE)
-    C.btn(ws, "F", 17, "F", "Leitfaden starten  ›", "Leitfaden", "ghost", tooltip="Zur Übersicht der zwölf Schritte")
+    s2 = C.btn(ws, "F", 17, "F", "Leitfaden starten  ›", "Leitfaden", "ghost", tooltip="Zur Übersicht der zwölf Schritte")
+    ws["F17"].fill = fill(ACCENT)
+    s2.font = font(C.T_BODY, True, WHITE)
+    C.btn(ws, "G", 17, "G", "Dashboard  ›", "Dashboard", "ghost", tooltip="Gesamtbewertung auf einer Seite")
     gap = side("thick", NAVY)
-    edge = side("thin", ACCENT)
-    ws["E17"].border = Border(top=side("thin", WHITE), bottom=side("thin", WHITE), left=side("thin", WHITE), right=gap)
-    ws["F17"].border = Border(top=edge, bottom=edge, left=gap, right=edge)
+    white, acc = side("thin", WHITE), side("thin", ACCENT)
+    ws["E17"].border = Border(top=white, bottom=white, left=white, right=gap)
+    ws["F17"].border = Border(top=acc, bottom=acc, left=gap, right=gap)
+    ws["G17"].border = Border(top=acc, bottom=acc, left=gap, right=acc)
 
     for c in HERO_COLS:                                                 # Abschluss: Akzentlinie
         ws[f"{c}19"].border = Border(bottom=side("thick", ACCENT))
-    heights(ws, {4: 15, 5: 16, 6: 14, 7: 18, 8: 12, 9: 42, 10: 6, 11: 18, 12: 14, 13: 12, 14: 20, 15: 30,
+    heights(ws, {4: C.H_HDR[4], 5: 16, 6: 14, 7: 18, 8: 12, 9: 42, 10: 6, 11: 18, 12: 14, 13: 12, 14: 20, 15: 34,
                  16: 16, 17: C.H_BTN, 18: 12, 19: 10, 20: 12})
     logo(ws)
 
@@ -368,20 +375,23 @@ SEL_LINE = "C9A94A"                    # dunkler Eingabe-Goldton: Rahmen der Pfl
 
 
 def selector(ws):
-    """Pflichtauswahl als erkennbare Auswahlliste (P06): Beschriftung „KAUF ALS ▾ / Pflichtauswahl · Liste“,
-    Feld D23:F23 (gelb, Datenüberprüfung Liste) + angedockter Knopf G23 „Auswahl ändern ▾“ (Sprung auf D23 –
-    dort zeigt Excel den Listenpfeil). Beide in EINEM Rahmen der Eingabefamilie (medium C9A94A, links 3 px)."""
+    """Pflichtauswahl als erkennbare Auswahlliste (P06, P3-01): Beschriftung „KAUF ALS / Pflichtfeld“ (ohne ▾),
+    Feld D23:F23 (gelb, Datenüberprüfung Liste) + Hinweis G23 „Liste öffnen: Alt + ↓“ (weiß, linke Trennlinie E6CB77,
+    Sprung auf D23) – beide in EINEM Rahmen der Eingabefamilie (medium C9A94A, links 3 px). Das ▾ steht nur noch
+    einmal: in der Erklärzeile D24 unter dem Feld."""
     unmerge_in(ws, "C", 21, "H", 22)
     C.section(ws, 21, "C", "G", "Kauf als – Privatperson oder Gesellschaft", meta="Pflichtauswahl")
     lab = ws["C23"]
-    lab.value = rich(("KAUF ALS  ▾", C.T_BODY, True, NAVY), ("\nAuswahlliste", C.T_MICRO, False, BLUE))
+    lab.value = rich(("KAUF ALS", C.T_BODY, True, NAVY), ("\nPflichtfeld", C.T_MICRO, False, BLUE))
     lab.font = font(C.T_BODY, True, NAVY)
     lab.alignment = align("left", "center", 1, wrap=True)
     lab.border = Border()
     lab.fill = C.NOFILL
+    lab.hyperlink = None
     unmerge_in(ws, "D", 23, "G", 23)
     for c in "EFG":
         ws[f"{c}23"].value = None
+        ws[f"{c}23"].hyperlink = None
     C.safe_merge(ws, "D", 23, "F", 23)
     frame = side("medium", SEL_LINE)
     for c in "DEF":
@@ -391,17 +401,21 @@ def selector(ws):
     sel = ws["D23"]
     sel.font = font(C.T_BODY, True, C.INPUT_FG)
     sel.alignment = align("left", "center", 1)
-    # angedockter Auswahl-Knopf (Chip-Stil aus core, im gemeinsamen Rahmen)
-    chip = C.btn(ws, "G", 23, "G", "Auswahl ändern  ▾", SHEET, "chip", target_cell="D23",
-                 tooltip="Feld markieren – über den Pfeil ▾ am Feldrand aus der Liste wählen", set_row=False)
-    chip.font = font(C.T_BODY, True, BLUE)
-    ws["G23"].border = Border(top=frame, bottom=frame, right=frame, left=side("thin", SEL_LINE))
+    # Hinweis im Feld (kein Knopf, keine Fläche): Tastenkürzel für die Liste; Klick markiert das Feld D23
+    hint = ws["G23"]
+    C.set_text(hint, "Liste öffnen:  Alt + ↓")
+    hint.font = font(C.T_LABEL, False, BLUE)
+    hint.alignment = align("center", "center")
+    hint.fill = fill(WHITE)
+    hint.border = Border(top=frame, bottom=frame, right=frame, left=side("thin", C.INPUT_LINE))
+    hint.hyperlink = Hyperlink(ref="G23", location=C.link_loc(SHEET, "D23"), display="Kauf als",
+                               tooltip="Feld „Kauf als“ markieren – dann Alt + ↓ oder den Pfeil am Feldrand")
     ws["H23"].fill = C.NOFILL
     ws["H23"].border = Border()
 
     wipe(ws, "C", 24, "H", 24)
     C.safe_merge(ws, "D", 24, "G", 24)
-    C.set_text(ws["D24"], "▾  Klicken und aus der Liste wählen: Privatperson · vv-GmbH · gewerbliche GmbH/Holding"
+    C.set_text(ws["D24"], "▾  Aus der Liste wählen: Privatperson · vv-GmbH · gewerbliche GmbH/Holding"
                           "   ·   wirkt auf S09 Steuern, S11 Exit, Dashboard und Bankgespräch")
     ws["D24"].font = font(C.T_MICRO, False, MUTED)
     ws["D24"].alignment = align("left", "center", 1)
@@ -476,8 +490,10 @@ def flow(ws):
 
 # ============================================================================ Legende + Tipp | Blätter
 def legend_and_sheets(ws):
-    """Links Legende (C Begriff | D:E Erklärung) + Kasten „Tipp & Support“, rechts Blätterverzeichnis
-    (F Link | G Beschreibung). Beide Spalten gleich hoch (Z. 48–62)."""
+    """Links Legende (C Muster | D:E Erklärung) + Kasten „Tipp & Support“, rechts Blätterverzeichnis
+    (F Link | G Beschreibung). Beide Spalten gleich hoch (Z. 48–62).
+    Legende (P3-20): die vier Eingabezustände über C.input_legend (C.INPUT_STATES), danach Verknüpfung, Berechnung,
+    Ergebnis, Negativ-Rot, Status und Prüfhinweis. Blattschutz und Navigation stehen im Tipp-Kasten."""
     wipe(ws, "C", 46, "H", 63)
     C.section(ws, 46, "C", "E", "Legende")
     C.section(ws, 46, "F", "G", "Alle Blätter", meta="Schritte S01–S12: siehe Leitfaden")
@@ -486,19 +502,40 @@ def legend_and_sheets(ws):
     gutter = side("thick", WHITE)                 # Rinne Legende | Alle Blätter (P26) – wie die Kachelrinnen
     top = 48
 
+    # Eingabezustände (Muster in C mit Kurzwort, Erklärung in D:E)
+    states = {  # Kurzwort im Muster · Erklärung (Satzbau wie die übrigen Legendenzeilen: „Farbe – Bedeutung“)
+        "required": ("Eingabe", "Gelb – hier eingeben, Beispielwerte überschreiben"),
+        "optional": ("optional", "Gestrichelt – darf leer bleiben"),
+        "override": ("überschreibbar", "Aus der Kalkulation vorgeschlagen – bei Bedarf überschreiben"),
+        "inactive": ("inaktiv", "Grau – für die gewählte Methode ohne Wirkung"),
+    }
+    n_states = len(C.INPUT_STATES)
+    for i in range(n_states):
+        C.safe_merge(ws, "D", top + i, "E", top + i)
+    C.input_legend(ws, top, [(f"C{top + i}", f"D{top + i}") for i in range(n_states)])
+    for i, (state, word) in enumerate(C.INPUT_STATES):
+        r = top + i
+        sw, tx = ws[f"C{r}"], ws[f"D{r}"]
+        short, expl = states.get(state, (word, word))
+        C.set_text(sw, short)
+        sw.alignment = align("left", "center", 1)
+        C.set_text(tx, expl)
+        tx.font = font(C.T_SMALL, False, MUTED)
+        tx.alignment = align("left", "center", 1)
+        C.hairline(ws, r, "D", "E")
+        C.set_height(ws, r, C.H_ROW)
+
     legend = [
-        ("Eingabe", "Gelb hinterlegt – hier eingeben, Beispielwerte überschreiben"),
         ("Verknüpfung", "Blau – übernommen aus einer Eingabe an anderer Stelle"),
         ("Berechnung", "Schwarz – berechnet, bitte nicht ändern"),
         ("Ergebnis", "Hervorgehoben – Summe bzw. Blockergebnis"),
         (f"{C.MINUS}1.234 €", C.NEG_RULE_TEXT),
         ("Status", None),
         ("Prüfhinweis", None),
-        ("Blattschutz", "ohne Passwort – bei Bedarf aufheben"),
-        ("Navigation", "Reiter oben  ·  „Weiter ›“ führt zum nächsten Schritt"),
     ]
+    r1 = top + n_states
     for i, (term, text) in enumerate(legend):
-        r = top + i
+        r = r1 + i
         c = ws[f"C{r}"]
         C.set_text(c, term)
         c.font = font(C.T_BODY, False, INK)
@@ -510,31 +547,24 @@ def legend_and_sheets(ws):
         d.font = font(C.T_SMALL, False, MUTED)
         d.alignment = align("left", "center", 1)
         C.hairline(ws, r, "C", "E")
-    inp = ws[f"C{top}"]
-    C.input_style(inp, "required")
-    inp.protection = Protection(locked=True)                    # nur Muster, keine Eingabezelle
-    inp.alignment = align("left", "center", 1)
-    ws[f"C{top + 1}"].font = font(C.T_BODY, False, BLUE)
-    k = ws[f"C{top + 3}"]
-    C.sum_row(ws, top + 3, "C", "C", "result")
-    k.font = font(C.T_BODY, True, NAVY)
-    ws[f"C{top + 4}"].font = font(C.T_BODY, True, RED)
-    ws[f"D{top + 5}"].value = C.status_legend(("erfüllt", "prüfen", "kritisch"), size=C.T_SMALL)
-    ws[f"D{top + 6}"].value = rich(("▲", C.T_SMALL, True, RED), ("  Warnung      ", C.T_SMALL, False, MUTED),
-                                   ("ⓘ", C.T_SMALL, True, BLUE), ("  Information", C.T_SMALL, False, MUTED))
-    for rr in range(top, top + len(legend)):
-        C.set_height(ws, rr, C.H_ROW)
+        C.set_height(ws, r, C.H_ROW)
+    ws[f"C{r1}"].font = font(C.T_BODY, False, BLUE)
+    C.sum_row(ws, r1 + 2, "C", "C", "final")
+    ws[f"C{r1 + 2}"].font = font(C.T_BODY, True, NAVY)
+    ws[f"C{r1 + 3}"].font = font(C.T_BODY, True, RED)
+    ws[f"D{r1 + 4}"].value = C.status_legend(("erfüllt", "prüfen", "kritisch"), size=C.T_SMALL)
+    ws[f"D{r1 + 5}"].value = rich(("▲", C.T_SMALL, True, RED), ("  Warnung      ", C.T_SMALL, False, MUTED),
+                                  ("ⓘ", C.T_SMALL, True, BLUE), ("  Information", C.T_SMALL, False, MUTED))
+    last_leg = r1 + len(legend) - 1                                # 57
 
-    # Tipp & Support (Einordnungs-Box aus core, neutral) unter der Legende
-    r0 = top + len(legend) + 1                                   # 57 (56 = Luft)
-    C.set_height(ws, r0 - 1, C.H_GAP)
+    # Tipp & Support (Einordnungs-Box aus core, neutral) unter der Legende: Kopf 59, Körper 60–62 (3 Zeilen)
+    r0 = last_leg + 2
+    C.set_height(ws, r0 - 1, C.H_ROW)                             # Luft; Zeile gehört rechts zur Blätterliste
     C.callout_box(ws, "C", r0, "E", r0 + 1, 62, title="Tipp & Support", pill=False, fit=None,
-                  text="Beispielwerte in den gelben Feldern einfach überschreiben – alle Blätter rechnen sofort mit.\n"
-                       "Hilfe zu jedem Eingabefeld: Zelle markieren – der Eingabehinweis erscheint.\n"
-                       "Jedes Blatt ist für den Druck auf A4 eingerichtet.\n"
-                       "Blattwechsel per Tastatur: Strg + Bild ↓ / Bild ↑.\n"
-                       "Version Pro  ·  Rechtsstand September 2026  ·  MM Holding GmbH, Weingarten")
-    for rr in range(r0 + 1, 63):
+                  text="Hilfe zu jedem Eingabefeld: Zelle markieren – der Eingabehinweis erscheint.\n"
+                       "Navigation: Reiter oben, „Weiter  ›“ führt zum nächsten Schritt · Strg + Bild ↓ / Bild ↑.\n"
+                       "Blattschutz ohne Passwort · jedes Blatt ist für den Druck auf A4 eingerichtet.")
+    for rr in range(r0, 63):
         C.set_height(ws, rr, C.H_ROW)
 
     n_charts = len(ws.parent["Diagramme"]._charts) if "Diagramme" in ws.parent.sheetnames else 0
@@ -542,7 +572,7 @@ def legend_and_sheets(ws):
     for name, desc in SHEETS:
         if name not in ws.parent.sheetnames and name != "Dashboard":      # Dashboard entsteht erst nach den Layouts
             continue
-        link(ws[f"F{r}"], f"{name}  ›", name)
+        link(ws[f"F{r}"], f"{SHEET_LABEL.get(name, name)}  ›", name)
         g = ws[f"G{r}"]
         C.set_text(g, desc.format(n=n_charts or "Alle"))
         g.font = font(C.T_SMALL, False, MUTED)

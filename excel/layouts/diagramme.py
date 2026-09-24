@@ -36,44 +36,65 @@ import core as K
 SHEET = "Diagramme"
 FIRST_COL, LAST_COL = "B", "P"          # Inhaltsraster (B = 34, C:P = 11)
 YEAR_ROW, INDEX_ROW = 178, 177          # Kalenderjahre / Jahr-Index 1…40
-MARK_ROW = 202                          # Anzeige-Hilfsreihe: Immobilienwert im Verkaufsjahr, sonst 0
+MARK_ROW = 202                          # Anzeige-Hilfsreihe: Immobilienwert im Verkaufsjahr, sonst 0 (Lot + Beschriftung)
 SONDER_ROW = 203                        # Anzeige-Hilfsreihe: Sonder-AfA § 7b + § 7h/7i (eine Legendenposition)
-GUT_ROW = 204                           # Anzeige-Hilfsreihe: AfA Gutachten kumuliert (Name dynamisch)
+ZB_ROW = 204                            # Anzeige-Hilfsreihe: Restschuld Darlehen I im Jahr der Zinsbindung, sonst 0
+D1_ROW = 176                            # Anzeige-Hilfsreihe: Restschuld Darlehen I ohne das Zinsbindungsjahr
+GAP_ROW = 175                           # Jahr 1: „Lücke“ (Ausgaben über Einnahmen) G:H nach / I:J vor Steuern
 MODEL_ROW = 205                         # Anzeige-Hilfsreihe: AfA im Modell kumuliert (Jahre 1–10)
 CF_POS, CF_NEG = 206, 207               # Anzeige-Hilfsreihen: Cashflow n. St. positiver / negativer Teil (Farbe je Vorzeichen)
 FOOT_ROW = 209                          # Fuß (Haftung/Impressum) direkt unter dem eingeklappten Anhang
 
 # Horizont je Datenzeile auf „Diagramme“ (letzte Spalte): Bestände 35 J., Cashflow 30 J., AfA/Steuer 20 J.
-HORIZON = {r: "AL" for r in (179, 180, 181, 182, 183, 189, 190, 191, MARK_ROW)}
-HORIZON.update({r: "AG" for r in (184, 185, CF_POS, CF_NEG)})
+HORIZON = {r: "AL" for r in (179, 180, 181, 182, 183, 189, 190, 191, MARK_ROW, ZB_ROW, D1_ROW)}
+HORIZON.update({r: "AG" for r in (184, 185)})
+CF_NACH_LAST = "AL"                     # S12 „Cashflow nach Steuern“: Jahre 1–35 (Umschlag nach Volltilgung sichtbar, P1-07)
 HORIZON[186] = "AL"                     # kumulierter Cashflow: 35 J. wie „Kumulierte Zinsen …“ daneben (P44)
 HORIZON.update({r: "W" for r in list(range(192, 198)) + [SONDER_ROW]})
 COCKPIT_LAST = "AG"                     # Cockpit: alle Zeitreihen 30 Jahre (P2-08)
 
 # Abschnitte: (Bandzeile, Titel, Zusatz hinter dem Titel)
 SECTIONS = [
-    (9, "Investition, Finanzierung und Kaufpreisaufteilung", "· Zeitpunkt Kauf · Anteile"),
-    (30, "Einnahmen, Ausgaben und Cashflow", "· Jahr 1 · Jahre 1–30"),
-    (51, "Entwicklung von Vermögen, Darlehen und Cashflow", "· Jahre 1–35 · Jahresende"),
-    (92, "Steuern und Abschreibung", "· Jahre 1–20 · T€ p. a."),
-    (113, "Exit – Verkauf nach der geplanten Haltedauer", "· Verkaufsjahr aus Schritt 11"),
+    (9, "Investition, Finanzierung und Kaufpreisaufteilung", None),
+    (30, "Einnahmen, Ausgaben und Cashflow", None),
+    (51, "Entwicklung von Vermögen, Darlehen und Cashflow", None),
+    (92, "Steuern und Abschreibung", None),
+    (113, "Exit – Verkauf nach der geplanten Haltedauer", None),
 ]
 DATA_BAND = 138
+DATA_HINT = "Datengrundlage der Diagramme: eingeklappt ([+] links) – nur lesen"
 GROUP_FIRST, GROUP_LAST = 139, CF_NEG    # eingeklappter Anhang
 
-# Diagramm-Raster: Art → (Spalte von, Spalte bis einschließlich, erste Zeile)
+# Diagramm-Raster (P3-05): nur 3 × 1/3 (B–D | F–J | L–P) oder 1/3 + 2/3 (B–D | F–P) – jedes rechte Diagramm beginnt in F.
+# Art → (Spalte von, Spalte bis einschließlich, erste Zeile); darüber je Diagramm ein Unterabschnitt (Titel + Meta).
 CHART_ROWS = 16
 GRID = {
     "invest": ("B", "D", 11), "finanz": ("F", "J", 11), "kpa": ("L", "P", 11),
     "jahr1": ("B", "D", 32), "cashflow": ("F", "P", 32),
-    "bestand": ("B", "G", 53), "restschuld": ("I", "P", 53),
-    "kumzins": ("B", "G", 71), "cf_kum": ("I", "P", 71),
-    "afa": ("B", "G", 94), "steuer": ("I", "P", 94),
+    "bestand": ("B", "D", 53), "restschuld": ("F", "P", 53),
+    "kumzins": ("B", "D", 71), "cf_kum": ("F", "P", 71),
+    "afa": ("B", "D", 94), "steuer": ("F", "P", 94),
     "exit": ("B", "D", 115), "ertrag": ("F", "P", 115),
 }
+# Unterabschnitt je Diagramm (P2-10): Versalien 8,5 pt fett 1D4F8A mit Linie 4A86C8, Meta rechts (Horizont · Einheit)
+SUBHEADS = {
+    "invest": ("Gesamtinvestition", "Anteile in %"),
+    "finanz": ("Finanzierungsstruktur", "Anteile in %"),
+    "kpa": ("Kaufpreisaufteilung", "Anteile in %"),
+    "jahr1": ("Einnahmen vs. Ausgaben", "Jahr 1 · € / Monat"),
+    "cashflow": ("Cashflow vor und nach Steuern", "Jahre 1–30 · T€ p. a."),
+    "bestand": ("Vermögen und Restschuld", "Jahre 1–35 · T€"),
+    "restschuld": ("Restschuld am Jahresende", "Jahre 1–35 · T€ · bis zur Volltilgung"),
+    "kumzins": ("Zinsen, Tilgung und Steuer kumuliert", "Jahre 1–35 · T€"),
+    "cf_kum": ("Kumulierter Cashflow nach Steuern", "Jahre 1–35 · T€"),
+    "afa": ("Abschreibungen nach Komponenten", "Jahre 1–20 · T€ p. a."),
+    "steuer": ("Steuerliches Ergebnis und Steuer", "Jahre 1–20 · T€ p. a."),
+    "exit": ("Verwendung des Verkaufserlöses", "Anteile in %"),
+    "ertrag": ("Gesamtertrag nach Steuern", "Brücke · T€"),
+}
+SUBHEAD_H = 24
 # Zeilenhöhen der Diagrammzone (Abstände): Zeile → pt
-SPACER_ROWS = {10: 8, 31: 8, 52: 8, 93: 8, 114: 8,
-               27: 10, 28: 10, 29: 10, 48: 10, 49: 10, 50: 10, 69: 9, 70: 9,
+SPACER_ROWS = {27: 10, 28: 10, 29: 10, 48: 10, 49: 10, 50: 10, 69: 9,
                87: 6, 88: 6, 89: 6, 90: 6, 91: 6, 110: 10, 111: 10, 112: 10,
                131: 5, 132: 5, 133: 5, 134: 5, 135: 5, 136: 5, 137: 5}
 
@@ -112,8 +133,8 @@ PIE_SHORT = {
     "kpa": [(r"^geb", "Gebäude"), (r"^grund", "Boden"), (r"^beweg", "Inventar"), (r"r(ü|ue)cklage", "Rücklage")],
     "kanc": [(r"^grunderwerb", "Grunderwerbsteuer"), (r"^notar", "Notar"), (r"^grundbuch", "Grundbuch"),
              (r"^makler", "Makler"), (r"^sonst", "Sonstige")],
-    "bewirt": [(r"^hausgeld", "Hausgeld"), (r"erhaltungsr", "Erhaltungsrücklage"), (r"^verwaltung", "Verwaltung"),
-               (r"instandhaltung", "Instandhaltung"), (r"^mietausfall", "Mietausfall"), (r"werbungskosten", "Werbungskosten")],
+    "bewirt": [(r"^hausgeld", "Hausgeld"), (r"erhaltungsr", "Rücklage WEG"), (r"^verwaltung", "Verwaltung"),
+               (r"instandhaltung", "Instandh."), (r"^mietausfall", "Mietausfall"), (r"werbungskosten", "Werbungsk.")],
     "exit": [(r"^verkaufskosten", "Verkaufskosten"), (r"^steuer", "Steuer"), (r"restschuld", "Restschuld"),
              (r"^nettoerl", "Nettoerlös")],
 }
@@ -198,9 +219,9 @@ def chart_kind(ws, ch):
     if sheets == {SHEET}:
         if rows & {179, 182, 183}:
             return "bestand"
-        if rows <= {180, 181}:
+        if rows & {180, 181, D1_ROW} and rows <= {180, 181, D1_ROW, ZB_ROW}:
             return "restschuld"
-        if rows & {184} and rows & {185}:
+        if rows & {184} and rows & {185, CF_POS}:
             return "cashflow"
         if rows == {185} or (rows and rows <= {CF_POS, CF_NEG}):
             return "cf_nach"
@@ -247,14 +268,19 @@ def _replace(ws, idx, old, new):
 
 # ============================================================================ Neuaufbau einzelner Diagramme
 def _jahr1_chart(with_tax):
-    """„Einnahmen vs. Ausgaben“ flach gestapelt: Miete · Bewirtschaftung · Zinsen · Tilgung (· Steuer) + Summe."""
+    """„Einnahmen vs. Ausgaben“ flach gestapelt in Stapelfolge (P2-02): Einnahmen = Nettokaltmiete (· Steuer),
+    Ausgaben = Bewirtschaftung · Zinsen · Tilgung; darüber die „Lücke“ (leerer, rot umrandeter Stapelteil auf der
+    Einnahmen-Säule, nur wenn die Ausgaben höher sind) und die Summe über jeder Säule."""
     cats = _r(SHEET, "C", 169, "D", 169)
     bar = BarChart()
     bar.type, bar.grouping, bar.overlap, bar.gapWidth = "col", "stacked", 100, 80
-    for row, name in ((170, "Nettokaltmiete"), (172, "Bewirtschaftung"), (173, "Zinsen"), (174, "Tilgung")):
-        bar.series.append(_series(_r(SHEET, "C", row, "D", row), name, cat_ref=cats))
+    bar.series.append(_series(_r(SHEET, "C", 170, "D", 170), "Nettokaltmiete", cat_ref=cats))
     if with_tax:
         bar.series.append(_series(_r(SHEET, "G", J1_TAX, "H", J1_TAX), title_ref=_r(SHEET, "F", J1_TAX), cat_ref=cats))
+    for row, name in ((172, "Bewirtschaftung"), (173, "Zinsen"), (174, "Tilgung")):
+        bar.series.append(_series(_r(SHEET, "C", row, "D", row), name, cat_ref=cats))
+    g1, g2 = ("G", "H") if with_tax else ("I", "J")
+    bar.series.append(_series(_r(SHEET, g1, GAP_ROW, g2, GAP_ROW), "Lücke", cat_ref=cats))
     line = LineChart()
     row = J1_SUM if with_tax else J1_SUM_VST
     line.series.append(_series(_r(SHEET, "G", row, "H", row), "Summe", cat_ref=cats))
@@ -277,6 +303,8 @@ def _ertrag_chart():
     for i, c in enumerate(("R", "S", "T", "U")):
         line.series.append(_series(_r(SHEET, c, WF_HEAD + 1, c, WF_HEAD + 4), title_ref=_r(SHEET, "Q", WF_HEAD + 1 + i),
                                    cat_ref=cats))
+    for c in ("V", "W", "X"):          # gestrichelte Verbindung Stufe k → k+1 (P2-12)
+        line.series.append(_series(_r(SHEET, c, WF_HEAD + 1, c, WF_HEAD + 4), "Verbindung", cat_ref=cats))
     line.y_axis.axId = bar.y_axis.axId
     line.x_axis = bar.x_axis
     bar += line
@@ -288,8 +316,11 @@ def _cashflow_chart(last):
     statt 60 schmaler gruppierter Säulen."""
     cats = f"{SHEET}!$D${YEAR_ROW}:${last}${YEAR_ROW}"
     bar = BarChart()
-    bar.type, bar.grouping, bar.overlap, bar.gapWidth = "col", "clustered", 0, 40
-    bar.series.append(_series(_r(SHEET, "D", 185, last, 185), "Cashflow nach Steuern", cat_ref=cats, cat_num=True))
+    # P1-07: Säulen positiv 1D4F8A, negativ B42318 – als zwei gestapelte Anzeige-Reihen (Vorzeichen), damit die Farbe in
+    # jeder Excel-Version und in LibreOffice gilt (invertIfNegative ohne c14 wäre weiß)
+    bar.type, bar.grouping, bar.overlap, bar.gapWidth = "col", "stacked", 100, 80
+    for r, name in ((CF_POS, "Überschuss nach Steuern"), (CF_NEG, "Unterdeckung nach Steuern")):
+        bar.series.append(_series(_r(SHEET, "D", r, last, r), name, cat_ref=cats, cat_num=True))
     line = LineChart()
     line.series.append(_series(_r(SHEET, "D", 184, last, 184), "Cashflow vor Steuern", cat_ref=cats, cat_num=True))
     line.y_axis.axId = bar.y_axis.axId
@@ -329,15 +360,42 @@ def _pie_legend_cats(ws, ch, kind):
 
 def _afa_line_series(ch):
     """AfA-Vergleich „Kumulierte AfA“: Varianten bleiben einzelne Reihen (Farbe nach Anwendbarkeit setzt finish_pro aus
-    den Hilfszeilen F155:I162), dazu die kräftige Linie „Im Modell angewendet“ aus der Summenzeile (P33)."""
+    den Hilfszeilen F155:I162), dazu die kräftige Linie „Im Modell angewendet“ aus der Summenzeile (P33).
+    P1-15: Die Modell-Linie steht ZWEIMAL – zuerst (Legende an erster Stelle: „Im Modell angewendet · Anwendbar · Nicht
+    anwendbar“) und zuletzt (liegt über allen Varianten; Legendeneintrag entfällt in finish_pro)."""
     src = [s for s in ch.series if (p := _parse(_val_ref(s))) and p[0] != SHEET]
     if not src:
         return
     first = _parse(_val_ref(src[0]))
     _PENDING["model"] = first
-    s_m = _series(_r(SHEET, first[1], MODEL_ROW, first[3], MODEL_ROW), "Im Modell angewendet")
-    s_m.cat = src[0].cat
-    ch.series[:] = src + [s_m]
+    model = []
+    for _ in range(2):
+        s_m = _series(_r(SHEET, first[1], MODEL_ROW, first[3], MODEL_ROW), "Im Modell angewendet")
+        s_m.cat = src[0].cat
+        model.append(s_m)
+    ch.series[:] = [model[0]] + src + [model[1]]
+
+
+def _restschuld_series(ch):
+    """Restschuld (S07, Diagramme): Darlehen I und II gestapelt; das Jahr der Zinsbindung als eigene Säule in 4A86C8
+    (Beschriftung „Ende Zinsbindung“ setzt finish_pro) – dynamisch über die Anzeige-Hilfszeilen 176/204 (P3-03)."""
+    keep, d1 = [], None
+    for s in ch.series:
+        p = _parse(_val_ref(s))
+        if p and p[2] == 180 and d1 is None:
+            d1 = s
+            continue
+        if p and p[2] in (D1_ROW, ZB_ROW):
+            continue
+        keep.append(s)
+    if d1 is None:
+        return
+    last = _parse(_val_ref(d1))[3]
+    cats = f"{SHEET}!$D${YEAR_ROW}:${last}${YEAR_ROW}"
+    s1 = _series(_r(SHEET, "D", D1_ROW, last, D1_ROW), "Darlehen I", cat_ref=cats, cat_num=True)
+    s2 = _series(_r(SHEET, "D", ZB_ROW, last, ZB_ROW), title_ref=_r(SHEET, "B", ZB_ROW), cat_ref=cats, cat_num=True)
+    ch.series[:] = [s1, s2] + keep
+    ch.grouping, ch.overlap = "stacked", 100
 
 
 def chart_contents(wb):
@@ -361,11 +419,11 @@ def chart_contents(wb):
                 _replace(ws, idx, ch, new)
                 continue
             if kind == "cf_nach":
-                last = COCKPIT_LAST
+                last = COCKPIT_LAST if ws.title == "Cockpit" else CF_NACH_LAST
                 cats = f"{SHEET}!$D${YEAR_ROW}:${last}${YEAR_ROW}"
                 ch.series[:] = [_series(_r(SHEET, "D", r, last, r), name, cat_ref=cats, cat_num=True)
-                                for r, name in ((CF_POS, "Überschuss"), (CF_NEG, "Unterdeckung"))]
-                ch.grouping, ch.overlap = "stacked", 100
+                                for r, name in ((CF_POS, "Überschuss nach Steuern"), (CF_NEG, "Unterdeckung nach Steuern"))]
+                ch.grouping, ch.overlap, ch.gapWidth = "stacked", 100, 80
                 for i, s in enumerate(ch.series):
                     s.idx, s.order = i, i
                 continue
@@ -386,9 +444,12 @@ def chart_contents(wb):
                 _ranked_series(ws, ch)
                 continue
             if ws.title == "Sensitivität":
-                for s in ch.series:                 # „Miete -10%“ → „Miete −10 %“ (Literalnamen im Diagramm)
+                for s in ch.series:                 # „Miete -10%“ → „−10 %“, „Miete Basis“ → „Basis“ (einzeilige Legende)
                     if s.tx is not None and s.tx.v:
-                        s.tx.v = re.sub(r"\s*-\s*(\d)", r" −\1", s.tx.v).replace("%", " %").replace("  ", " ")
+                        t = re.sub(r"\s*-\s*(\d)", r" −\1", s.tx.v).replace("%", " %").replace("  ", " ")
+                        s.tx.v = re.sub(r"^\s*Miete\s*", "", t).strip() or t
+            if kind == "restschuld":
+                _restschuld_series(ch)
             if kind == "afa":
                 keep = []
                 sonder_done = False
@@ -540,6 +601,12 @@ def helper_blocks(ws):
     _put(ws, f"G{J1_SUM_VST}", "=C170+C172+C173+C174", num)
     _put(ws, f"H{J1_SUM_VST}", "=D170+D172+D173+D174", num)
     _put(ws, f"F{NAME_D2}", '=IF(MAX(D181:AL181)>0,"Darlehen II","Darlehen II (keines)")', h="left")
+    # „Lücke“: Ausgaben über Einnahmen (leerer, rot umrandeter Stapelteil auf der Einnahmen-Säule, P2-02)
+    _put(ws, f"F{GAP_ROW}", "Lücke (n. St. G:H · v. St. I:J)", h="left")
+    _put(ws, f"G{GAP_ROW}", f"=MAX(0,H{J1_SUM}-G{J1_SUM})", num)
+    _put(ws, f"H{GAP_ROW}", "=0", num)
+    _put(ws, f"I{GAP_ROW}", f"=MAX(0,H{J1_SUM_VST}-G{J1_SUM_VST})", num)
+    _put(ws, f"J{GAP_ROW}", "=0", num)
 
     # ---- Wasserfall Gesamtertrag (C164:C167: Kum. Cashflow, Nettoerlös, − Eigenkapital, = Gesamtertrag)
     _helper_head(ws, WF_HEAD, "F", "U", {"F": "Wasserfall (Diagramm)", "G": "Start", "H": "Ende", "I": "Basis",
@@ -569,11 +636,18 @@ def helper_blocks(ws):
             _put(ws, f"M{r}", f"=IF(C{r}<0,{dn},0)", num)
             _put(ws, f"N{r}", "=0", num)
             _put(ws, f"O{r}", "=0", num)
-        _put(ws, f"P{r}", f"=MAX(0,{hi})", num)
+        # Beschriftungshöhe: negative Stufe → Unterkante (Etikett unter dem Balken, P2-12), sonst Oberkante
+        _put(ws, f"P{r}", f"=IF(C{r}<0,{lo},MAX(0,{hi}))", num)
         sign = f'IF(C{r}<0,"−","")' if total else f'IF(C{r}<0,"−","+")'
         _put(ws, f"Q{r}", f'={sign}&FIXED(ABS(C{r})/1000,1)&" T€"')
         for j, c in enumerate("RSTU"):
             _put(ws, f"{c}{r}", f"=P{r}" if j == i else "=0", num)
+        for k, c in enumerate("VWX"):       # Verbindung Stufe k → k+1 auf Höhe „Ende“ der Stufe k
+            if i in (k, k + 1):             # übrige Zellen bleiben LEER → Lücke im Diagramm (kein #NV)
+                _put(ws, f"{c}{r}", f"=H{WF_HEAD + 1 + k}", num)
+    for c, t in zip("VWX", ("Verb. 1", "Verb. 2", "Verb. 3")):
+        _put(ws, f"{c}{WF_HEAD}", t)
+        ws[f"{c}{WF_HEAD}"].font = K.font(K.T_MICRO, True, K.BLUE)
 
     # ---- AfA-Vergleich: Summe je Variante nach Bedeutung
     if "afa" in _PENDING:
@@ -649,7 +723,8 @@ def helper_blocks(ws):
 
 
 def time_helper_rows(ws):
-    """Zeilen 203/204 der Zeitreihe: Sonder-AfA gesamt, AfA Gutachten (#NV ohne Gutachten)."""
+    """Zeilen 203/204/176 der Zeitreihe: Sonder-AfA gesamt; Restschuld Darlehen I im Jahr der Zinsbindung (#NV sonst)
+    bzw. ohne dieses Jahr (gestapelte Anzeige im Restschuld-Diagramm)."""
     num = K.NUMFMT["num"]
     ws.cell(SONDER_ROW, 2).value = f'=IF(SUM(D{SONDER_ROW}:W{SONDER_ROW})>0,"Sonder-AfA (§ 7b, § 7h/7i)","Sonder-AfA (keine)")'
     K.set_text(ws.cell(SONDER_ROW, 3), "€")
@@ -657,17 +732,16 @@ def time_helper_rows(ws):
         L = K.L(cc)
         ws.cell(SONDER_ROW, cc).value = f"={L}193+{L}194"
         ws.cell(SONDER_ROW, cc).number_format = num
-    gut = _PENDING.get("gut")
-    if gut:
-        K.set_text(ws.cell(GUT_ROW, 2), "AfA Gutachten kumuliert (Diagramm)")
-        K.set_text(ws.cell(GUT_ROW, 3), "€")
-        sh, c1, r1, c2, _ = gut
-        src = [K.L(c) for c in range(_col(c1), _col(c2) + 1)]
-        any_ref = _r(sh, c1, r1, c2, r1)
-        for i, L in enumerate(src):
-            tgt = ws.cell(GUT_ROW, _col("D") + i)
-            tgt.value = f"={_r(sh, L, r1)}"
-            tgt.number_format = num
+    K.set_text(ws.cell(ZB_ROW, 2), "Ende Zinsbindung")
+    K.set_text(ws.cell(ZB_ROW, 3), "€")
+    K.set_text(ws.cell(D1_ROW, 2), "Restschuld Darlehen I ohne Zinsbindungsjahr (Diagramm)")
+    K.set_text(ws.cell(D1_ROW, 3), "€")
+    for cc in range(_col("D"), _col("AQ") + 1):
+        L = K.L(cc)
+        ws.cell(ZB_ROW, cc).value = f"=IF({L}${INDEX_ROW}=Zinsbindung_I,{L}180,0)"
+        ws.cell(D1_ROW, cc).value = f"=IF({L}${INDEX_ROW}=Zinsbindung_I,0,{L}180)"
+        ws.cell(ZB_ROW, cc).number_format = num
+        ws.cell(D1_ROW, cc).number_format = num
 
 
 def more_helper_rows(ws):
@@ -719,10 +793,9 @@ def layout_sheet(ws):
     for c in ws[8]:
         c.value = None if c.column > 1 else c.value
 
-    # ---- Abschnittsköpfe Ebene 1 (core.section) B:P mit Rücksprung „↑ Übersicht“ (P3-03)
+    # ---- Abschnittsköpfe Ebene 1 (core.section) B:P; rechts nur „↑ Übersicht“ (Meta nie inline, P2-10)
     _unmerge_rows(ws, [row for row, *_ in SECTIONS] + [DATA_BAND])
-    for row, title, extra in SECTIONS + [(DATA_BAND, "Diagrammdaten",
-                                          "· Anhang eingeklappt – über [+] am linken Rand öffnen · bitte nicht ändern")]:
+    for row, title, extra in SECTIONS:
         _clear_row_style(ws, row, "Q", "U")
         for c in K.iter_cells(ws, "C", row, LAST_COL, row):
             if not K.is_formula(c.value):
@@ -732,18 +805,43 @@ def layout_sheet(ws):
         K.text_link(top, "↑ Übersicht", SHEET, "A4", size=K.T_MICRO, bold=False, tooltip="Zum Seitenanfang")
         top.alignment = K.align("right", "center", 1)
 
+    # ---- Anhang: kein Band mehr, sondern eine dezente Hinweiszeile (P3-05)
+    for c in K.iter_cells(ws, "B", DATA_BAND, "U", DATA_BAND):
+        if not K.is_formula(c.value):
+            c.value = None
+        c.fill = K.NOFILL
+        c.border = Border(top=K.side("thin", K.LINE2)) if c.column <= _col(LAST_COL) else Border()
+        c.hyperlink = None
+    hint = ws.cell(DATA_BAND, 2)
+    K.set_text(hint, DATA_HINT)
+    hint.font = K.font(K.T_MICRO, False, K.MUTED)
+    hint.alignment = K.align("left", "center", 1)
+    ws.row_dimensions[DATA_BAND].height = K.H_ROW
+
     # ---- Zeilen der Diagrammzone
+    sub_rows = {GRID[k][2] - 1 for k in GRID}
     for r in range(10, DATA_BAND):
         if r in [s[0] for s in SECTIONS]:
             continue
-        ws.row_dimensions[r].height = SPACER_ROWS.get(r, 15)
+        ws.row_dimensions[r].height = SUBHEAD_H if r in sub_rows else SPACER_ROWS.get(r, 15)
 
-    # ---- Diagramme ins Raster
+    # ---- Diagramme ins Raster, darüber je ein Unterabschnitt (Titel links, Horizont · Einheit rechts)
     for ch in ws._charts:
         kind = chart_kind(ws, ch)
         if kind in GRID:
             c1, c2, r1 = GRID[kind]
             _anchor(ch, c1, c2, r1)
+    for kind, (c1, c2, r1) in GRID.items():
+        title, meta = SUBHEADS[kind]
+        row = r1 - 1
+        for c in K.iter_cells(ws, c1, row, c2, row):
+            if not K.is_formula(c.value):
+                c.value = None
+        K.section(ws, row, c1, c2, title, level=2, variant="line", meta=meta, height=SUBHEAD_H)
+        for c in K.iter_cells(ws, c1, row, c2, row):
+            c.alignment = K.align(c.alignment.horizontal or "left", "bottom", 1 if c.column in (_col(c1), _col(c2)) else 0)
+        ws.cell(row, _col(c2)).alignment = K.align("right", "bottom", 1)
+        ws.cell(row, _col(c1)).alignment = K.align("left", "bottom", 1)
 
     # ---- Fußnoten unter Diagrammen mit leeren Reihen (statt Legendeneintrag „(keines)“, P19)
     for coord, text in ((f"{GRID['restschuld'][0]}{GRID['restschuld'][2] + CHART_ROWS}",
@@ -802,7 +900,8 @@ def layout_sheet(ws):
         ws.cell(YEAR_ROW, cc).number_format = "0"
     for cc in range(_col("D"), _col("AQ") + 1):
         ws.cell(201, cc).number_format = K.NUMFMT["pct1"]
-    for r in (MARK_ROW, SONDER_ROW, GUT_ROW, MODEL_ROW, CF_POS, CF_NEG):   # Hilfszeilen einheitlich: 9 pt kursiv grau
+    _body_row(ws, D1_ROW, "AQ", unit=True)
+    for r in (MARK_ROW, SONDER_ROW, ZB_ROW, D1_ROW, MODEL_ROW, CF_POS, CF_NEG):   # Hilfszeilen einheitlich: 9 pt kursiv grau
         K.memo(ws, r, "B", "AQ")
         for cc in range(_col("C"), _col("AQ") + 1):
             ws.cell(r, cc).alignment = K.align("right" if cc > 3 else "left", "center", 1)
@@ -854,7 +953,7 @@ def _mark_row(ws):
         K.set_text(ws.cell(r, 3), "€")
     for cc in range(_col("D"), _col("AQ") + 1):
         c = ws.cell(r, cc)
-        if c.value is None:
+        if c.value is None or (K.is_formula(c.value) and "Haltedauer" in c.value):
             L = K.L(cc)
             c.value = f"=IF({L}${INDEX_ROW}=Haltedauer,{L}179,0)"
         c.number_format = K.NUMFMT["num"]

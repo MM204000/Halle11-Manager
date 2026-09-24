@@ -17,7 +17,6 @@ from openpyxl.chart.axis import ChartLines
 from openpyxl.chart.data_source import StrRef
 from openpyxl.chart.label import DataLabel, DataLabelList
 from openpyxl.chart.layout import Layout, ManualLayout
-from openpyxl.chart.legend import LegendEntry
 from openpyxl.chart.marker import DataPoint, Marker
 from openpyxl.chart.series import SeriesLabel
 from openpyxl.chart.shapes import GraphicalProperties
@@ -25,7 +24,7 @@ from openpyxl.chart.text import RichText
 from openpyxl.drawing.line import LineProperties
 from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, TwoCellAnchor
 from openpyxl.drawing.text import CharacterProperties, Paragraph, ParagraphProperties, RichTextProperties
-from openpyxl.formatting.rule import DataBarRule, FormulaRule
+from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Border, Font
 from openpyxl.worksheet.pagebreak import Break, RowBreak
 
@@ -68,8 +67,8 @@ DOT_COL = "AL"                                     # Punkt auf der Nettovermöge
 MARK_LABEL = "AK62"                                # Beschriftung der Verkaufsmarke (Reihenname)
 N_HINTS = 6
 
-INFLOW, OUTFLOW, TOTAL = C.ACCENT, "B8C3D1", C.NAVY   # Wasserfall-Semantik (P2-10)
-BAR_NEUTRAL = "B8C3D1"                             # Erreichungsbalken: neutral (Status trägt der Chip)
+INFLOW, OUTFLOW, TOTAL = C.ACCENT, "9AA8B8", C.NAVY   # Wasserfall-Semantik: Zufluss · Abfluss · Summe (P2-10)
+BAR_CHAR, BAR_STEPS = "█", 10                      # Erreichungsbalken als Textbalken in Statusfarbe (P1-14)
 MARK_FILL = "CEDDF0"                               # Verkaufsmarke: 9CBBE2 zu 50 % auf Weiß
 WARN_SYM, INFO_SYM = "▲", "•"                      # monochrome Kennzeichnung (ⓘ fehlt in Calibri)
 
@@ -131,12 +130,13 @@ def _header(ws):
     Z. 6 Titel links · Objekt rechts (10 pt fett), Z. 7 Untertitel links · Adresse und „Erstellt für …“ rechts
     (9 pt grau) – wortgleich mit den Schrittseiten. Alle rechten Elemente bündig an der Inhaltskante R."""
     kaufdatum = 'IFERROR(TEXT(DAY(Kaufdatum),"00")&"."&TEXT(MONTH(Kaufdatum),"00")&"."&YEAR(Kaufdatum),"–")'
-    subtitle = ('="Kaufpreis "&FIXED(Kaufpreis,0)&" €  ·  Kauf am "&' + kaufdatum +
-                '&"  ·  Haltedauer "&Haltedauer&" Jahre  ·  "&Bundesland')
+    subtitle = C.minus_text('="Kaufpreis "&FIXED(Kaufpreis,0)&" €  ·  Kauf am "&' + kaufdatum +
+                            '&"  ·  Haltedauer "&Haltedauer&" Jahre  ·  "&Bundesland')
     context = ("=Obj_Name",
                '=Obj_Adresse&IFERROR(IF(Erstellt_fuer="","","  ·  Erstellt für "&Erstellt_fuer),"")')
-    C.page_header(ws, "B", "R", "Auswertung  ·  Gesamtbewertung auf einer Seite", "Dashboard", subtitle,
-                  context=context, context_col="K")
+    # kanonische Brotkrume „DASHBOARD“ (P2-04) · Rücksprung „‹  Start“ rechts in Z. 5 wie auf allen Blättern ohne Unterreiter
+    C.page_header(ws, "B", "R", "Dashboard", "Dashboard", subtitle, context=context, context_col="K",
+                  back=True, back_col="R")
     C.safe_merge(ws, "B", R_H1, "I", R_H1)
     C.safe_merge(ws, "B", R_SUB, "I", R_SUB)
     for r in (R_H1, R_SUB):
@@ -148,9 +148,11 @@ def _header(ws):
 
 
 def _link_row(ws):
-    """Sprungleiste (P42, Button-Regel P13): Zurück = Ghost-Link ohne Fläche (5B6068), Vorwärts = einheitliche
-    Sekundär-Buttons, Sprung zu einer Eingabe = gelber Eingabe-Chip „KAUF ALS · Privat ▾“ (Auswahl auf Start D23)."""
-    C.btn(ws, "B", R_LINKS, "C", "‹  Schritt 12: Ergebnis", "S12 Ergebnis", kind="back",
+    """Sprungleiste (P1-03): sechs gleich breite Plätze im Kachelraster. Zurück und die Sprünge sind Sekundär-Buttons
+    (weiß, Rahmen 1D4F8A, 10 pt fett) – dieselbe Form, nur die Pfeilrichtung unterscheidet sie. Rechts der Kontext-Chip
+    (P1-04, C.btn kind='chip': E7EEF7, Rahmen 4A86C8, 9 pt fett 1D4F8A) „Kauf als: Privat · ändern  ›“ – kein Eingabe-Gelb,
+    kein ▾, denn die Auswahl selbst liegt auf Start D23."""
+    C.btn(ws, "B", R_LINKS, "C", "‹  Schritt 12: Ergebnis", "S12 Ergebnis", kind="secondary",
           tooltip="Zurück zum letzten Schritt des Leitfadens", set_row=False)
     items = [("Cockpit  ›", "Cockpit", "Detailkennzahlen und Prüfhinweise"),
              ("Diagramme  ›", "Diagramme", "Alle Auswertungen als Diagramm"),
@@ -159,9 +161,9 @@ def _link_row(ws):
     for (a, b), (text, target, tip) in zip(PAIRS[1:5], items):
         C.btn(ws, a, R_LINKS, b, text, target, kind="secondary", tooltip=tip, set_row=False)
     a, b = PAIRS[5]
-    chip = C.btn(ws, a, R_LINKS, b, "KAUF ALS", "Start", kind="input", target_cell="D23",
-                 tooltip="Kauf als Privatperson oder Gesellschaft – Auswahl auf der Startseite ändern", set_row=False)
-    chip.value = f'="KAUF ALS  ·  "&{C.RECHTSFORM_SHORT}&"  ▾"'
+    chip = C.btn(ws, a, R_LINKS, b, "Kauf als", "Start", kind="chip", target_cell="D23",
+                 tooltip="Auswahl auf der Startseite ändern", set_row=False, size=C.T_SMALL)
+    chip.value = f'="Kauf als: "&{C.RECHTSFORM_SHORT}&"  ·  ändern  ›"'
     chip.data_type = "f"
     C.set_height(ws, R_LINKS, C.H_BTN)
 
@@ -208,7 +210,7 @@ def _verdict(ws, rows):
     # Begründung rechts: feine Trennlinie links (LINE2) statt zweiter Fläche
     C.safe_merge(ws, "K", r1, "R", r2)
     ex = ws[f"K{r1}"]
-    ex.value = ('="–  DSCR (Jahr 1) "&FIXED(DSCR_J1,2)&"×"&IF(DSCR_J1<Ampel_DSCR_gruen," statt mindestens "," bei Ziel ")'
+    ex.value = C.minus_text('="–  DSCR (Jahr 1) "&FIXED(DSCR_J1,2)&"×"&IF(DSCR_J1<Ampel_DSCR_gruen," statt mindestens "," bei Ziel ")'
                 '&FIXED(Ampel_DSCR_gruen,2)&"×"'
                 '&CHAR(10)&"–  IRR n. St. "&FIXED(EK_IRR*100,1)&" % über "&Haltedauer&" Jahre (Ziel "'
                 '&FIXED(Ampel_IRR_gruen*100,1)&" %)"'
@@ -297,9 +299,12 @@ def _check_table(ws):
         s.font = C.font(C.T_MICRO, True, C.MUTED)
         s.alignment = C.align("left", "center", 1)
         q = ws[f"I{r}"]
-        q.value = (f"=IF(E{r}>=0,1,0)" if key == "CF" else
-                   f"=IF({gruen}>0,MIN(MAX(0,E{r}/{gruen}),1),IF(E{r}>={gruen},1,0))")
-        q.number_format = C.NUMFMT["hidden"]
+        # Erfüllungsgrad (reine Anzeige): voll = „erfüllt“. Cashflow: Jahr 1 ≥ 0, aber Jahr 2 negativ → 60 % („prüfen“)
+        grad = (f"IF(E{r}<0,0,IF({C.CF_YEAR2}<0,0.6,1))" if key == "CF" else
+                f"IF({gruen}>0,MIN(MAX(0,E{r}/{gruen}),1),IF(E{r}>={gruen},1,0))")
+        q.value = f'=REPT("{BAR_CHAR}",ROUND({grad}*{BAR_STEPS},0))'
+        q.number_format = "General"
+        q.font = C.font(C.T_MICRO, False, C.MUTED2)      # 10 × █ bei 8 pt ≈ 78 px < 96 px Spalte
         q.alignment = C.align("left", "center", 0)
         C.hairline(ws, r, "B", "I")
     last = R_CHECK + len(checks) - 1
@@ -307,11 +312,9 @@ def _check_table(ws):
     C.status_cf(ws, f"H{R_CHECK}:H{last}", [(f'$H{R_CHECK}="kritisch"', "red"), (f'$H{R_CHECK}="prüfen"', "amber"),
                                             (f'$H{R_CHECK}="erfüllt"', "green")])
     C.neg_red(ws, f"E{rows['CF']}")
-    # Erreichung: neutraler Balken (keine zweite Statusfarbe neben dem Chip), voll = Ziel erreicht,
-    # 88 % der Zellbreite → rechts bleibt Luft zur Tabellenkante
-    ws.conditional_formatting.add(f"I{R_CHECK}:I{last}", DataBarRule(
-        start_type="num", start_value=0, end_type="num", end_value=1, color=BAR_NEUTRAL,
-        showValue=False, minLength=0, maxLength=88))
+    # Erreichung (P1-14): Textbalken in der Statusfarbe der Zeile – ein voller Balken steht nie neben „prüfen“
+    C.status_cf(ws, f"I{R_CHECK}:I{last}", [(f'$H{R_CHECK}="kritisch"', "red"), (f'$H{R_CHECK}="prüfen"', "amber"),
+                                            (f'$H{R_CHECK}="erfüllt"', "green")], bold=False)
     # Fußnote: Legende + Link zu den Schwellen
     C.set_height(ws, R_CHECK_NOTE, 20)
     C.safe_merge(ws, "B", R_CHECK_NOTE, "F", R_CHECK_NOTE)
@@ -374,6 +377,17 @@ def _legend_meta(ws, row, unit):
     c.alignment = C.align("right", "center", 1)
 
 
+def _line_legend(ws, row):
+    """Linienlegende „— Immobilienwert  – – Restschuld  — Nettovermögen · T€ · Jahresende“ rechts im Abschnittskopf
+    (P3-04) – gleiche Bauart wie die Wasserfall-Legende (8 pt, Symbol in Serienfarbe, Einheit in 1D4F8A)."""
+    c = ws[f"R{row}"]
+    c.value = C.rich([("— ", C.T_MICRO, True, C.ACCENT), ("Immobilienwert   ", C.T_MICRO, False, C.MUTED),
+                      ("– – ", C.T_MICRO, True, "8A94A6"), ("Restschuld   ", C.T_MICRO, False, C.MUTED),
+                      ("— ", C.T_MICRO, True, C.NAVY), ("Nettovermögen", C.T_MICRO, False, C.MUTED),
+                      ("   ·   T€ · jeweils Jahresende", C.T_MICRO, False, C.BLUE)])
+    c.alignment = C.align("right", "center", 1)
+
+
 def _waterfall(ws):
     """Cashflow Jahr 1 als flacher Wasserfall aus gestapelten Säulen (2D laut Nutzerentscheidung).
 
@@ -382,8 +396,10 @@ def _waterfall(ws):
     deshalb in zwei Reihen, von denen je nach Vorzeichen genau eine belegt ist.
     Excel stapelt positive und negative Werte getrennt. Jede Säule [unten, oben] wird in einen positiven Teil
     (unsichtbare Basis + sichtbares Stück) und einen negativen Teil zerlegt; so bleibt sie auch beim Kreuzen der
-    Nulllinie ein zusammenhängender Balken. Direkt über jeder Säule liegt ein unsichtbarer Träger, dessen
-    Beschriftung den Betrag zeigt (Reihenname = Zellbezug, gebietsschema-sicher per FIXED)."""
+    Nulllinie ein zusammenhängender Balken. An jeder Säule liegt ein unsichtbarer Träger (als letzte Reihen gestapelt),
+    dessen Beschriftung den Betrag zeigt (Reihenname = Zellbezug, gebietsschema-sicher per FIXED): Zuflüsse und
+    positive Summen ÜBER dem Balken, Abflüsse und negative Summen UNTER dem Balken (P2-12) – nie auf der Nulllinie.
+    Liegt ein Abfluss ganz im Plus (bzw. ein Zufluss ganz im Minus), bleibt die Beschriftung an der freien Kante."""
     C.section(ws, R_BAND1, "K", "R", "Cashflow Jahr 1")
     _legend_meta(ws, R_BAND1, "€ je Monat")
     # (Kategorie, Formel, verkettet, Farbe, Summe?, Vorzeichenfarbe?)
@@ -411,7 +427,7 @@ def _waterfall(ws):
         lo = f"MIN({K['start']}{r},{K['end']}{r})"
         hi = f"MAX({K['start']}{r},{K['end']}{r})"
         ws[f"{K['base_p']}{r}"] = f"=IF({hi}>=0,MAX({lo},0),0)"
-        ws[f"{K['base_n']}{r}"] = f"=IF({hi}>=0,0,IF({hi}+{h}>=0,{hi},{hi}+{h}))"
+        ws[f"{K['base_n']}{r}"] = f"=IF({hi}>=0,0,{hi})"
         vp = f"IF({hi}>=0,{hi}-MAX({lo},0),0)"
         vn = f"IF({hi}>=0,MIN({lo},0),{lo}-{hi})"
         if i == tax:   # Zahlung (Wert < 0) → Abfluss-Reihe, Erstattung → Zufluss-Reihe
@@ -426,7 +442,9 @@ def _waterfall(ws):
             ws[f"{alt_cols[i]}{alt_row_p}"] = 0
             ws[f"{alt_cols[i]}{alt_row_n}"] = 0
         for j, cc in enumerate(W_CARRIERS):
-            ws[f"{cc}{r}"] = f"=IF({hi}+{h}>=0,{h},-{h})" if i == j else 0
+            # Träger oben (+h, positiver Stapel) oder unten (−h, negativer Stapel unter dem Balken)
+            ws[f"{cc}{r}"] = (f"=IF({lo}>=0,{h},IF({hi}<0,-{h},IF({K['val']}{r}>=0,{h},-{h})))"
+                              if i == j else 0)
         ws[f"{K['label']}{r}"] = (f'=IF({K["val"]}{r}>=0.5,"+",IF({K["val"]}{r}<=-0.5,"−",""))'
                                   f'&FIXED(ABS({K["val"]}{r}),0)')
     ws[W_HEAD] = f"=MAX(1,0.16*(MAX({se},0)-MIN({se},0)))"
@@ -440,9 +458,11 @@ def _waterfall(ws):
     bar.gapWidth = 60
     bar.legend = None
     bar.visible_cells_only = False               # Daten liegen in ausgeblendeten Spalten
-    # Reihenfolge: positiver Stapel base_p → vis_p → alt_p → Träger; negativer Stapel base_n → Träger → vis_n → alt_n
-    refs = [("base_p", K["base_p"]), ("base_n", K["base_n"]), ("vis_p", K["vis_p"]), ("alt_p", alt_row_p)]
-    refs += [("car", cc) for cc in W_CARRIERS] + [("vis_n", K["vis_n"]), ("alt_n", alt_row_n)]
+    # Reihenfolge: positiver Stapel base_p → vis_p → alt_p → Träger (über dem Balken);
+    # negativer Stapel base_n → vis_n → alt_n → Träger (unter dem Balken)
+    refs = [("base_p", K["base_p"]), ("base_n", K["base_n"]), ("vis_p", K["vis_p"]), ("alt_p", alt_row_p),
+            ("vis_n", K["vis_n"]), ("alt_n", alt_row_n)]
+    refs += [("car", cc) for cc in W_CARRIERS]
     for role, src in refs:
         if role in ("alt_p", "alt_n"):
             ref = Reference(ws, min_col=C.col("V"), max_col=C.col("AB"), min_row=src, max_row=src)
@@ -480,7 +500,8 @@ def _waterfall(ws):
             car += 1
     bar.y_axis.delete = False
     bar.y_axis.numFmt = C.typo_minus('#,##0" €";-#,##0" €";0" €"')
-    bar.y_axis.majorUnit = 500                   # ruhiges Raster (P2-08); Grenzen automatisch (Werte variieren)
+    # Grenzen und Intervall automatisch: Die Träger reichen 16 % der Spannweite über/unter die Balken, damit
+    # endet die Achse knapp über dem größten Wert (kein leeres Band, P2-12)
     bar.y_axis.majorTickMark = "none"
     bar.y_axis.majorGridlines = ChartLines(spPr=GraphicalProperties(ln=LineProperties(solidFill=C.LINE, w=6350)))
     bar.y_axis.graphicalProperties = GraphicalProperties(ln=LineProperties(noFill=True))
@@ -512,9 +533,8 @@ def _wealth_chart(ws, wb):
     „Verkauf 2037 / Nettovermögen / 197 T€“ steht damit frei über dem Kreuzungspunkt, ein navy Punkt markiert den Wert
     auf der Nettovermögenslinie. Nicht-Verkaufsjahre sind #NV (kein Punkt, keine Beschriftung)."""
     sale_year = "INDEX(Projektion!$D$10:$AQ$10,Haltedauer)"
-    C.section(ws, R_BAND2, "B", "R", "Vermögensentwicklung",
-              meta=f'="Verkauf nach "&Haltedauer&" J. ("&{sale_year}&")   ·   T€ · jeweils Jahresende · 40 Jahre"')
-    ws[f"R{R_BAND2}"].data_type = "f"
+    C.section(ws, R_BAND2, "B", "R", "Vermögensentwicklung")
+    _line_legend(ws, R_BAND2)
     for r in range(R_CHART2[0], R_CHART2[1] + 1):
         C.set_height(ws, r, 20)
     C.set_text(ws[f"{MARK_COL}{MARK_ROW - 1}"], "Verkaufsmarke (Diagramm Vermögensentwicklung)")
@@ -565,12 +585,9 @@ def _wealth_chart(ws, wb):
     mk.dLbls.spPr = GraphicalProperties(solidFill=C.WHITE)
     mk.dLbls.spPr.line = LineProperties(solidFill=C.TINT, w=6350)
     mark.set_categories(Reference(P, min_col=4, max_col=43, min_row=10))
-    mark.legend.position = "b"
-    mark.legend.txPr = _txpr(C.T_MICRO, C.MUTED)
-    mark.legend.legendEntry = [LegendEntry(idx=0, delete=True), LegendEntry(idx=4, delete=True)]
-    mark.legend.layout = Layout(manualLayout=ManualLayout(xMode="edge", yMode="edge", x=0.045, y=0.915, w=0.42, h=0.08))
+    mark.legend = None                             # Legende steht als Text im Abschnittskopf (P3-04, wie „Cashflow Jahr 1“)
     mark.plot_area.layout = Layout(manualLayout=ManualLayout(layoutTarget="inner", xMode="edge", yMode="edge",
-                                                             x=0.055, y=0.05, w=0.93, h=0.76))
+                                                             x=0.055, y=0.05, w=0.93, h=0.84))
     # Kategorien direkt aus Projektion (Zeile 10, Kalenderjahre). Beschriftet wird jedes 5. Jahr (in Excel wirksam).
     line.set_categories(Reference(P, min_col=4, max_col=43, min_row=10))
     ax = mark
@@ -584,7 +601,8 @@ def _wealth_chart(ws, wb):
     ax.x_axis.delete = False
     ax.x_axis.tickLblSkip = 5
     ax.x_axis.tickMarkSkip = 5
-    ax.x_axis.majorTickMark = "out"
+    ax.x_axis.majorTickMark = "none"               # Kategorieachsen ohne Teilstriche (P3-04)
+    ax.x_axis.minorTickMark = "none"
     ax.x_axis.numFmt = "0"
     ax.x_axis.txPr = _txpr(C.T_MICRO, C.MUTED, rot=0)
     ax.x_axis.graphicalProperties = GraphicalProperties(ln=LineProperties(solidFill=C.MUTED2, w=9525))
@@ -646,7 +664,7 @@ def _timeline(ws):
         ws.cell(r, 2).alignment = C.align("left", "bottom", 1)
         for kind, label, sheet, prow, sign, fmt, neg_red in items:
             r += 1
-            C.set_height(ws, r, C.H_ROW if kind != "davon" else C.H_TILE_SUB)
+            C.set_height(ws, r, C.H_ROW)            # eine Höhe je Tabelle, davon-Zeilen nie höher (P3-16)
             C.safe_merge(ws, "B", r, "D", r)
             lab = ws[f"B{r}"]
             C.set_text(lab, label)
@@ -710,13 +728,15 @@ def _hints(ws, band_row):
         C.safe_merge(ws, "B", r, "R", r)
         c = ws[f"B{r}"]
         pick = f'IFERROR(INDEX(Cockpit!$AB$50:$AB$74,MATCH(SMALL({key_rng},{k + 1}),{key_rng},0)),"")'
+        # typografisches Minus vor Beträgen („(−18.397 €)“), Bindestriche in Wörtern („10-Jahres-Frist“) bleiben
+        pick = f'SUBSTITUTE(SUBSTITUTE({pick},"(-","({C.MINUS}")," -"," {C.MINUS}")'
         mono = (f'IF(LEFT({pick},1)="⚠","{WARN_SYM}  "&TRIM(MID({pick},2,999)),'
                 f'IF(LEFT({pick},1)="ℹ","{INFO_SYM}  "&TRIM(MID({pick},2,999)),{pick}))')
         if k == 0:
             c.value = f'=IF({total}=0,"Keine Prüfhinweise – alle Plausibilitätsprüfungen ohne Befund.",{mono})'
         elif k == N_HINTS - 1:
-            c.value = (f'=IF({total}>{N_HINTS},"›  "&({total}-{N_HINTS - 1})&" weitere Hinweise im Cockpit",'
-                       f'{mono})')
+            c.value = (f'=IF({total}>{N_HINTS},"+ "&({total}-{N_HINTS - 1})&" weitere Hinweise – Eingaben im Leitfaden '
+                       f'(S01–S12) prüfen",{mono})')
         else:
             c.value = "=" + mono
         c.font = C.font(C.T_SMALL, False, C.INK2)

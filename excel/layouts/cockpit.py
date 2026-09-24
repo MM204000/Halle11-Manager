@@ -40,13 +40,15 @@ NBSP = " "
 # Zeilentypen: "row" Datenzeile · "sub" Unterposition (Label und Wert 9 pt grau) · "sum" Zwischensumme (Stufe 1) ·
 # "result" Blockergebnis (Stufe 2) · "memo" nachrichtlich · "l2" Unterabschnitt.
 # fmt: Schlüssel aus core.NUMFMT oder ein Formatstring; label None = Beschriftung unverändert lassen.
+# Kaufpreis je m² ohne Nachkommastellen, Einheit im Format wie Miete je m² (P2-07: € je m² immer „€/m²“)
+EUR_M2_0 = '#,##0" €/m²";"' + C.MINUS + '"#,##0" €/m²";"–"'
 UPPER = {
     "B": [
         (14, "row", "Objektart", None),
-        (15, "row", "Wohn-/Nutzfläche", "qm"),
+        (15, "row", "Wohn-/Nutzfläche", "m2"),
         (16, "row", "Baujahr", "year"),
         (17, "row", "Kaufpreis", "eur"),
-        (18, "sub", "Kaufpreis je m² (Immobilie)", "eur"),
+        (18, "sub", "Kaufpreis je m² (Immobilie)", EUR_M2_0),
         (19, "row", "+ Kaufnebenkosten", "eur"),
         (20, "sub", "Kaufnebenkostenquote", "pct1"),
         (21, "row", "+ Finanzierungsnebenkosten", "eur"),
@@ -142,15 +144,17 @@ LOWER = {
         (43, "row", "+ Kumulierter Cashflow n. St. bis Verkauf", "eur"),
         (44, "row", "– Eingesetztes Eigenkapital", "eur"),
         (45, "sum", "= Gesamtertrag nach Steuern", "eur"),
-        (46, "row", "Eigenkapital-Multiple", "mult2"),
+        (46, "row", C.KPI_LABELS.get("MULT", "Eigenkapital-Multiplikator"), "mult2"),
         (47, "result", "= Eigenkapitalrendite p. a. (IRR n. St.)", "pct1"),
     ],
 }
 # Anzeigeformeln (nicht referenziert): Trennzeichen „ · “ statt „|“, Rechtsform kurz (P1-19, P2-06)
 DISPLAY_FORMULAS = {
-    "K15": '=FIXED(Darlehen_I,0)&" € · "&IF(Darlehen_II=0,"kein Darlehen II",FIXED(Darlehen_II,0)&" €")',
-    "G26": '=FIXED(Mietsteigerung*100,1)&" % · "&FIXED(Kostensteigerung*100,1)&" % · "&FIXED(Wertsteigerung*100,1)&" %"',
-    "G27": '=FIXED(Mietausfall_Pct*100,1)&" % · "&Leerstand_Monate&" Monate"',
+    # Textverkettungen mit Zahlen: typografisches Minus über C.minus_text (Runde 4, P2-07)
+    "K15": C.minus_text('=FIXED(Darlehen_I,0)&" € · "&IF(Darlehen_II=0,"kein Darlehen II",FIXED(Darlehen_II,0)&" €")'),
+    "G26": C.minus_text('=FIXED(Mietsteigerung*100,1)&" % · "&FIXED(Kostensteigerung*100,1)&" % · "'
+                        '&FIXED(Wertsteigerung*100,1)&" %"'),
+    "G27": C.minus_text('=FIXED(Mietausfall_Pct*100,1)&" % · "&Leerstand_Monate&IF(Leerstand_Monate=1," Monat"," Monate")'),
     "G35": "=" + RECHTSFORM_SHORT,
     # Lückenfüller der oberen Karten F/J und der Cashflow-Karte (leere Zellen der Vorlage, reine Anzeige)
     "G28": "=EKR_Tile",
@@ -190,7 +194,9 @@ CHART_ROW = 16                            # Rasterhöhe der Diagrammzeilen (core
 # Soll-Anker (0-basiert: from col/row → to col/row, Offsets 0) in Diagramm-Reihenfolge.
 ANCHORS = {SHEET: [(1, CHART_TOP - 1, 4, CHART_BOTTOM), (5, CHART_TOP - 1, 8, CHART_BOTTOM),
                    (9, CHART_TOP - 1, 12, CHART_BOTTOM)]}
-FOOTER_ROW = 75
+NAV_ROW = 75                              # Zurück / Weiter (Reihenfolge der Reiterleiste: Dashboard → Cockpit → Diagramme)
+FOOTER_ROW = 77
+ROW_AUSBLICK = 24
 GAP_SECTION = C.H_ROW                     # Weißraum zwischen den großen Abschnitten (Karten, Hinweise, Diagramme)
 
 
@@ -286,11 +292,11 @@ def header(ws):
     for c in iter_cells(ws, "C", 5, "L", 7):
         c.value = None
         c.hyperlink = None
-    set_height(ws, 4, 15)
     date = 'TEXT(DAY(Kaufdatum),"00")&"."&TEXT(MONTH(Kaufdatum),"00")&"."&YEAR(Kaufdatum)'
     subtitle = (f'=Obj_Name&"  ·  "&Obj_Adresse&"  ·  Kauf am "&{date}&"  ·  Haltedauer "&Haltedauer&" Jahre  ·  "'
                 f'&{RECHTSFORM_SHORT}')
-    C.page_header(ws, FIRST, LAST, "Ergebnis  ·  Übersicht auf einer Seite", "Cockpit", subtitle=subtitle)
+    # P2-04: kanonische Brotkrume „COCKPIT“ (C.CRUMBS, einteilig ohne Link); Kopfhöhen 12/18/30/21,75 (C.H_HDR)
+    C.page_header(ws, FIRST, LAST, "Cockpit", "Cockpit", subtitle=subtitle)
     ws["B6"].alignment = align("left", "bottom")
     safe_merge(ws, "B", 7, "J", 7)
     # rechts: Gesamtbewertung wie auf dem Dashboard (P41, C.status_banner) – Label Z. 5, Banner Z. 6 (F3F7FC,
@@ -299,13 +305,13 @@ def header(ws):
     cap = ws["K5"]
     set_text(cap, "GESAMTBEWERTUNG")
     cap.font = font(C.T_LABEL, True, BLUE)
-    cap.alignment = align("left", "bottom")
+    cap.alignment = align("right", "bottom")      # P3-02: rechte Kopfgruppe K5:K7 bündig an der Inhaltskante L
     safe_merge(ws, "K", 6, "L", 6)
     pill = ws["K6"]
     pill.value = f"={_verdict_ref()}"
     pill.number_format = "General"
-    pill.font = font(T_BODY, True, NAVY)
-    pill.alignment = align("left", "center", 1)
+    pill.font = font(C.T_H3, True, NAVY)          # P3-02: Gesamturteil als wichtigste Aussage 12,5 pt fett
+    pill.alignment = align("right", "center", 1)
     pill.hyperlink = Hyperlink(ref="K6", location=C.link_loc(SHEET, C.link_row(SHEET, 49)),
                                tooltip="Zu den Prüfhinweisen und der steuerlichen Einordnung")
     v = "$K$6"
@@ -464,6 +470,10 @@ def blocks(ws):
     _block(ws, LOWER["J"], "J", "K", "L")
     _card_bottom(ws, 47)
     set_height(ws, 48, GAP_SECTION)
+    # P3-02: „AUSBLICK FOLGEJAHR“ folgt direkt auf die Memo-Zeile – etwas Luft darüber (Titel unten ausgerichtet);
+    # die Summenzeilen F45/J45 bleiben vertikal zentriert
+    set_height(ws, 45, ROW_AUSBLICK)
+    ws["B45"].alignment = align("left", "bottom", 1)
 
     for ref, formula in DISPLAY_FORMULAS.items():
         ws[ref].value = formula
@@ -478,22 +488,39 @@ def semantics(ws):
 
 
 # --------------------------------------------------------------------------------------------- Prüfhinweise
-# Anzeigeformeln B50:B55 (nicht referenziert): farbige Emoji der Hinweistexte → monochrome Zeichen (P2-14);
-# die DSCR-Schwelle wird wie überall als „Ziel ≥ 1,20×“ zitiert (P21). ▲ = Warnung, ⓘ = Information.
+# Anzeigeformeln B50:B55 (nicht referenziert): farbige Emoji der Hinweistexte → monochrome Zeichen wie auf dem
+# Dashboard (P2-14, dashboard.WARN_SYM/INFO_SYM): „⚠“ → „▲“, „ℹ“ → „•“ (ⓘ fehlt in Calibri). Typografisches Minus vor
+# Beträgen („(−18.397 €)“, „ −“), Bindestriche in Wörtern bleiben. DSCR-Schwelle wie überall „Ziel ≥ 1,20×“ (P21).
+WARN_SYM, INFO_SYM = "▲", "•"
 _HINT_PICK = 'INDEX($AB$50:$AB$74,SMALL($AC$50:$AC$74,{k}))'
-_HINT_TEXT = ('SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE({pick},"(-","(−"),"⚠","▲",1),"ℹ","ⓘ",1),'
-              '" – Banken erwarten meist ≥ 1,1 bis 1,2","× – "&' + C.threshold_text("DSCR") + ')')
-HINT_FORMULA = '=IFERROR(' + _HINT_TEXT + ',"")'
+_HINT_SRC = ('SUBSTITUTE(SUBSTITUTE(SUBSTITUTE({pick},"(-","(' + C.MINUS + '")," -"," ' + C.MINUS + '"),'
+             '" – Banken erwarten meist ≥ 1,1 bis 1,2","× – "&' + C.threshold_text("DSCR") + ')')
+_HINT_TEXT = ('IF(LEFT({src},1)="⚠","' + WARN_SYM + '  "&TRIM(MID({src},2,999)),'
+              'IF(LEFT({src},1)="ℹ","' + INFO_SYM + '  "&TRIM(MID({src},2,999)),{src}))')
 _N_HINT = "COUNT($AC$50:$AC$74)"
-# letzter Platz: bei mehr als sechs aktiven Hinweisen Sammelzeile statt Abschneiden
-HINT_LAST = ('=IF(' + _N_HINT + '>{n},"+  "&(' + _N_HINT + '-{m})&" weitere Hinweise – Eingaben im Leitfaden '
-             '(S01–S12) prüfen",IFERROR(' + _HINT_TEXT + ',""))')
+
+
+def _hint_text(k):
+    src = _HINT_SRC.replace("{pick}", _HINT_PICK.format(k=k))
+    return "IFERROR(" + _HINT_TEXT.replace("{src}", src) + ',"")'
+
+
+def hint_formula(k, n):
+    """Hinweisplatz k (1…n): erster Platz meldet „keine Hinweise“, letzter Platz wird bei Überlauf zur Sammelzeile."""
+    if k == 1:
+        return (f'=IF({_N_HINT}=0,"Keine Prüfhinweise – alle Plausibilitätsprüfungen ohne Befund.",'
+                f'{_hint_text(k)})')
+    if k == n:
+        return (f'=IF({_N_HINT}>{n},"+ "&({_N_HINT}-{n - 1})&" weitere Hinweise – Eingaben im Leitfaden '
+                f'(S01–S12) prüfen",{_hint_text(k)})')
+    return "=" + _hint_text(k)
 
 
 def hints(ws):
-    """Prüfhinweise B49:L56 (P2-14, P32, P41): Zähler rechts im Kopf („1 Warnung“ rot fett · „3 Hinweise“ grau,
-    direkt vor „↑ Übersicht“), Hinweiszeilen ohne Signalfläche: F3F7FC mit linker 3-px-Kante (Warnung rot,
-    Information Akzent), Warnungstext rot, Information 3A3F45; feine Abschlusslinie unter dem letzten Hinweis."""
+    """Prüfhinweise B49:L55 (P2-14, P32, P41, P3-02): Zähler rechts im Kopf („1 Warnung“ rot fett · „3 Hinweise“ grau,
+    direkt vor „↑ Übersicht“). Die sechs Plätze bilden EINE geschlossene Box (F3F7FC, weiße Fugen, Abschlusslinie
+    unter Z. 55) – freie Plätze lesen sich als Teil der Box, nicht als Loch. Gefüllte Zeilen erhalten per bedingter
+    Formatierung die linke 3-px-Kante (Warnung rot mit roter Schrift, Information Akzent)."""
     _unmerge_rows(ws, 49, 57)
     for c in iter_cells(ws, "C", 49, "L", 49):
         c.value = None
@@ -509,38 +536,31 @@ def hints(ws):
     k49.font = font(C.T_LABEL, False, MUTED)
     k49.alignment = align("left", "center")
     _up_link(ws["L49"])
+    top, bot = HINT_ROWS.start, HINT_ROWS.stop - 1
+    white, close = side("thin", WHITE), side("thin", C.LINE_SUB)
     for k, r in enumerate(HINT_ROWS, start=1):
-        last = r == HINT_ROWS.stop - 1
-        pick = _HINT_PICK.format(k=k)
-        ws[f"B{r}"].value = (HINT_LAST.replace("{pick}", pick).format(n=len(HINT_ROWS), m=len(HINT_ROWS) - 1)
-                             if last else HINT_FORMULA.replace("{pick}", pick))
+        ws[f"B{r}"].value = hint_formula(k, len(HINT_ROWS))
         safe_merge(ws, "B", r, "L", r)
         c = ws[f"B{r}"]
         c.font = font(T_BODY, False, INK2)
         c.alignment = align("left", "center", 1)
-        for cc in iter_cells(ws, "B", r, "L", r):
-            cc.border = Border()
-            cc.fill = NOFILL
+        for cc in iter_cells(ws, "B", r, "L", r):      # statische Box: Fläche + Fuge bzw. Abschlusslinie,
+            cc.border = Border(left=side("thick", C.MIST) if cc.column == col("B") else None,   # ruhige Kante
+                               bottom=close if r == bot else white)
+            cc.fill = fill(TINT_XL)
         set_height(ws, r, C.H_ROW)
-    top, bot = HINT_ROWS.start, HINT_ROWS.stop - 1
-    white, close = side("thin", WHITE), side("thin", C.LINE_SUB)
-    warn, info = f'LEFT($B{top},1)="▲"', f'$B{top}<>""'
-    last = f'$B{top + 1}=""'                       # letzter gefüllter Hinweis → feine Abschlusslinie (P32)
-    # Jede Regel ist vollständig (Excel und LibreOffice wenden je Zelle die erste zutreffende Regel an):
-    # Ankerzelle B (gilt für den ganzen Verbund B:L) – Kante links in Statusfarbe, Schrift, Fläche F3F7FC
+    warn, info = f'LEFT($B{top},1)="{WARN_SYM}"', f'$B{top}<>""'
+    last = f'ROW($B{top})={bot}'
+    # Ankerzelle B (gilt für den ganzen Verbund): linke Kante in Statusfarbe; Unterkante wie die Box
     anchors = f"B{top}:B{bot}"
     for cond, fg, edge in ((warn, RED, RED), (info, INK2, ACCENT)):
         C.cf_rule(ws, anchors, f"AND({cond},{last})", font_=Font(color=fg), fill_=fill(TINT_XL),
                   border=Border(left=side("thick", edge), bottom=close))
         C.cf_rule(ws, anchors, cond, font_=Font(color=fg), fill_=fill(TINT_XL),
                   border=Border(left=side("thick", edge), bottom=white))
-    # übrige Zellen des Verbunds: Fläche und Fuge bzw. Abschlusslinie
-    rest = f"C{top}:L{bot}"
-    C.cf_rule(ws, rest, f"AND({info},{last})", fill_=fill(TINT_XL), border=Border(bottom=close))
-    C.cf_rule(ws, rest, info, fill_=fill(TINT_XL), border=Border(bottom=white))
     ws["B56"].value = None
     ws["B56"].hyperlink = None
-    set_height(ws, 56, 6)            # Abschlusszeile (P32): Abstand zum Kopf „Diagramme“ ≈ Blockabstand
+    set_height(ws, 56, GAP_SECTION)  # P3-02: Blockabstand vor „Diagramme“ = Standardabstand (Z. 31/48)
 
 
 def text_formats(ws):
@@ -569,11 +589,24 @@ def charts(ws):
         a.to.col, a.to.colOff, a.to.row, a.to.rowOff = c2, 0, r2, 0
     for r in range(CHART_TOP, CHART_BOTTOM + 1):
         set_height(ws, r, CHART_ROW)
-    set_height(ws, CHART_BOTTOM + 1, C.H_GAP)
 
 
 def page_footer(ws):
-    _unmerge_rows(ws, FOOTER_ROW, FOOTER_ROW + 1)
+    """Fuß wie auf den übrigen Auswertungsblättern: Leerzeile · Zurück (sekundär, unter Karte 1) · Weiter (primär,
+    unter Karte 3, bündig an der Inhaltskante) · Leerzeile · Seitenfuß."""
+    _unmerge_rows(ws, CHART_BOTTOM + 1, FOOTER_ROW + 3)
+    for c in iter_cells(ws, "A", CHART_BOTTOM + 1, "M", FOOTER_ROW + 3):
+        if not is_formula(c.value):
+            c.value = None
+        c.hyperlink = None
+        c.border = Border()
+        c.fill = NOFILL
+    set_height(ws, NAV_ROW - 1, GAP_SECTION)      # Luft zwischen Diagrammlegenden und Buttons
+    C.btn_row(ws, NAV_ROW, [dict(c1="B", c2="D", text="‹  Zurück: Dashboard", target="Dashboard", kind="secondary",
+                                 tooltip="Zurück: Dashboard"),
+                            dict(c1="J", c2="L", text="Weiter: Diagramme  ›", target="Diagramme", kind="primary",
+                                 tooltip="Weiter: Diagramme")])
+    set_height(ws, NAV_ROW + 1, C.H_GAP)
     C.footer(ws, FOOTER_ROW, FIRST, LAST)
 
 

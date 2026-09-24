@@ -117,29 +117,50 @@ def _header(ws, eyebrow, title, subtitle, last):
             c.border = Border()
             c.hyperlink = None
     C.page_header(ws, "B", C.L(last), eyebrow, title, subtitle, context=OBJ_CONTEXT)
-    ws.row_dimensions[4].height = 10
+    for r, h in C.H_HDR.items():  # feste Kopfschablone 12 · 18 · 30 · 21,75 pt (P2-03) – wie auf allen Blättern
+        ws.row_dimensions[r].height = h
     e = ws["B5"]
     e.hyperlink = Hyperlink(ref="B5", location=C.link_loc("Start"), display=e.value,
                             tooltip="Zur Startseite – alle Bereiche")
 
 
+def _meta_cell(ws, row, c1, c2, title_px, text, stop=None):
+    """Meta rechtsbündig im Band (P2-10: 8 pt 1D4F8A, nie inline) – in einem Verbund von der ersten Spalte hinter dem
+    Titel bis `c2`, damit auch lange Quellenangaben einzeilig und ohne Überlauf stehen."""
+    ci1, ci2 = C.col(c1), C.col(c2)
+    start = ci1 + 1
+    while start < ci2 and C.span_px(ws, c1, C.L(start - 1)) < title_px + 24:
+        start += 1
+    if start < ci2:
+        C.safe_merge(ws, C.L(start), row, C.L(ci2), row)
+    m = ws.cell(row, start)
+    C.set_text(m, _typo(text))
+    m.font = font(T_MICRO, False, BLUE)
+    m.alignment = align("right", "center", 1)
+    return m
+
+
 def _section(ws, row, c1, c2, title, extra=None, num=None, up=False):
-    """Abschnittskopf Ebene 1 (core.section) – Nummer in Akzentfarbe, Zusatz 9 pt grau, „↑ Übersicht“ rechts."""
+    """Abschnittskopf Ebene 1 (core.section) – Band trägt nur Titel und Meta (P2-10): Nummer in Akzentfarbe,
+    Meta rechtsbündig 8 pt 1D4F8A; mit up=True steht rechts daneben „↑ Übersicht“ (Zell-Link, eigene Spalte)."""
     _clear_row(ws, row, c1, c2)
     C.section(ws, row, c1, c2, title, level=1, meta="↑ Übersicht" if up else None)
     parts = []
     if num:
         parts += [(num, T_H3, True, ACCENT), ("   ", T_H3, True, NAVY)]
     parts.append((title, T_H3, True, NAVY))
-    if extra:
-        parts.append(("   " + _typo(extra), T_SMALL, False, MUTED))
     first = ws.cell(row, C.col(c1))
     first.value = C.rich(parts)
+    title_px = sum(C.text_width(t, T_H3, True) for t, *_ in parts) + 14
     if up:
         cell = ws.cell(row, C.col(c2))
         C.text_link(cell, "↑ Übersicht", ws.title, C.link_target(ws.title), size=C.T_LABEL, bold=False,
                     tooltip="Zum Seitenanfang mit der Sprungleiste")
         cell.alignment = align("right", "center", 1)
+        if extra:
+            _meta_cell(ws, row, c1, C.L(C.col(c2) - 1), title_px, extra + "   ·")
+    elif extra:
+        _meta_cell(ws, row, c1, c2, title_px, extra)
     return first
 
 
@@ -178,7 +199,7 @@ EIN_RULE_ABOVE = (33, 44, 54, 90, 135)
 # Summenhierarchie (Runde 3, P12): je Abschnitt GENAU EINE Endsumme ('final'), Zwischensummen 'sub'
 # (ohne Fläche, Oberlinie D5DEEA), Kennzahlen nach der Endsumme nachrichtlich ('memo', 9 pt kursiv) –
 # so steht die Doppellinie nie mitten im Abschnitt als scheinbares Ende.
-EIN_SUB = (56, 58, 112, 113)
+EIN_SUB = (58, 112, 113)                    # P2-06: 56 (Gebäudeanteil) ist eine Kennzahl, keine Summe → regulär
 EIN_SUB_NOTOP = (113,)                      # zweite Zwischensumme direkt unter der ersten
 EIN_RESULT = (36, 46, 59, 71, 92, 114, 138)
 EIN_MEMO = (37, 72, 73, 93, 115, 116, 117, 139)
@@ -245,7 +266,7 @@ EIN_HINTS = {
     131: "5 % p. a. für 4 Jahre; Bauantrag 1.1.2023 – 30.9.2029, EH 40 + QNG, Baukosten ≤ 5.200 €/m²",
     132: "Sanierungsgebiet / Baudenkmal: 9 % p. a. (Jahre 1–8), 7 % p. a. (Jahre 9–12) auf bescheinigte Kosten",
 }
-EIN_HEAD = {"B": ("POSITION", "left"), "C": ("WERT", "right"), "E": ("EINHEIT", "left"),
+EIN_HEAD = {"B": ("POSITION", "left"), "C": ("WERT", "right"),
             "F": ("QUELLE", "left"), "G": ("HINWEIS / STEUERLICHE EINORDNUNG", "left")}
 
 
@@ -343,12 +364,14 @@ def eingaben(wb):
     # ---- Spalten (P04/Befund „rechte Kante“): Inhalt A:L = 1 368 px = rechte Kante der Kopfleiste; die Randspalte M
     #      liegt dahinter (Kopfleiste endet an L). Wertspalte C:D 350 px, damit Auswahltexte links einzeilig stehen (P28).
     _ungroup_cols(ws)
-    _widths_px(ws, (("B", 300), ("C", 175), ("D", 175), ("E", 88), ("F", 56),
+    # P1-13 (Runde 4): Wertachse = rechte Kante von C (112 px, so breit wie ein Eingabefeld); D ist eine 8-px-Fuge,
+    # E trägt die Einheit direkt hinter der Zahl. Auswahl-/Texte stehen linksbündig über C:E (438 px, 10 pt einzeilig).
+    _widths_px(ws, (("B", 300), ("C", 112), ("D", 8), ("E", 318), ("F", 56),
                     ("G", 90), ("H", 90), ("I", 90), ("J", 90), ("K", 90), ("L", 93)))
     _width(ws, "M", 3)
 
     # ---- Seitenkopf (P04): Objekt / „Erstellt für“ rechts an der Inhaltskante
-    _header(ws, "Eingaben  ›  Alle Annahmen", "Eingaben",
+    _header(ws, "Eingaben", "Eingaben",
             "Alle Annahmen auf einen Blick – geändert wird im Leitfaden; direkt editierbar sind nur die "
             "Profi-Felder für Darlehen II.", L_)
     # Legende rechts neben der Sprungleiste (Zeile 8, Formen von navigation.py) – bündig an der Inhaltskante
@@ -371,7 +394,6 @@ def eingaben(wb):
         end = (band_rows[i + 1] - 2) if i + 1 < len(band_rows) else EIN_LAST
         _clear_row(ws, head, 2, L_)
         C.section(ws, head, "B", "L", None, level=2, labels=EIN_HEAD)
-        C.safe_merge(ws, "C", head, "D", head)
         C.safe_merge(ws, "G", head, "L", head)
         for r in range(head + 1, end + 1):
             _data_row(ws, wb, steps, r, L_)
@@ -396,11 +418,15 @@ def eingaben(wb):
     for r in EIN_MEMO:
         C.sum_row(ws, r, "B", "L", "memo")
 
-    # ---- Profi-Felder (Darlehen II): Eingabezellen über C:D
+    # ---- Profi-Felder (Darlehen II): Eingabeoptik NUR auf der Wertzelle C (112 px wie die Eingabefelder der Mappe);
+    #      gemeinsame 1-px-Kanten E6CB77 trennen die acht Felder (P1-13), D/E bleiben weiß
     for r in EIN_INPUTS:
-        for c in (ws.cell(r, 3), ws.cell(r, 4)):
-            C.input_style(c, "required")
-        ws.cell(r, 3).alignment = align("right", "center", 1)
+        c = ws.cell(r, 3)
+        c.font = font(T_BODY, True, BLUE)
+        C.input_style(c, "required")
+        c.alignment = align("right", "center", 1)
+        for cc in (4, 5):
+            ws.cell(r, cc).fill = NOFILL
 
     # Datenüberprüfungen der Profi-Felder melden Fehler (Logik unverändert, nur Meldung aktiv)
     for dv in ws.data_validations.dataValidation:
@@ -456,24 +482,24 @@ def _data_row(ws, wb, steps, r, last):
     sub = r in EIN_DAVON or r in EIN_DERIVED
     b.font = font(T_BODY, False, INK2 if sub else INK)
     b.alignment = align("left", "center", 2 if sub else 1, wrap=True)
-    # Wert (C:D verbunden) – eine rechte Kante für Zahlen UND Texte
-    if ws.cell(r, 4).value is None:
-        C.safe_merge(ws, "C", r, "D", r)
     col_c = cval.font.color.rgb[-6:] if (cval.font.color is not None and isinstance(cval.font.color.rgb, str)) else INK
     linked = col_c.upper() == BLUE
     entry = r in EIN_INPUTS
     fmt = cval.number_format
     is_text = (fmt in (None, "General")) and not isinstance(cval.value, (int, float)) and r != 16
     cval.number_format = _ein_fmt(r, fmt, entry)
-    # Texte links, Zahlen rechts (P28). Alle Text-/Auswahlwerte einheitlich 9 pt (eine Größe je Werttyp) –
-    # so passt auch die längste Auswahloption der meisten Felder einzeilig; Zahlen bleiben 10 pt.
+    # P1-13: alle Werte 10 pt. Zahlen rechtsbündig an der Wertachse (rechte Kante C, Einzug 1), Einheit direkt dahinter;
+    # Text-/Auswahlwerte linksbündig mit Einzug 1 über C:E – dort steht nie eine Einheit, also ragt kein Wert hinein.
     opts = _CHOICES.get(cval.value[1:], []) if (is_text and C.is_formula(cval.value)) else []
     longest = max(opts, key=lambda t: C.text_width(t)) if opts else None
-    cval.font = font(T_SMALL if is_text else T_BODY, False, BLUE if linked else INK)
+    if is_text and ws.cell(r, 4).value is None and (e.value is None or r in EIN_UNIT_CLEAR):
+        e.value = None
+        C.safe_merge(ws, "C", r, "E", r)
+    cval.font = font(T_BODY, False, BLUE if linked else INK)
     cval.alignment = align("left" if is_text else "right", "center", 1, wrap=is_text)
-    # Einheit
+    # Einheit: 9 pt grau, ohne Einzug direkt hinter der Zahl (C-Einzug + 8-px-Fuge D)
     e.font = font(T_SMALL, False, MUTED)
-    e.alignment = align("left", "center", 1)
+    e.alignment = align("left", "center", 0)
     # Quelle-Link: feldgenau (P1-08), Beschriftung nach dem echten Zielblatt
     if link and link in steps:
         sheet = steps[link]
@@ -501,13 +527,19 @@ def _data_row(ws, wb, steps, r, last):
 
 
 # ================================================================================================ Konfiguration
-KON_BANDS = {  # Zeile → (Titel, Zusatz mit Rechtsgrundlage/Quelle)
-    8: ("Grunderwerbsteuer nach Bundesland", "§ 11 GrEStG · Landesgesetze, Übersicht z. B. finanz-tools.de (Stand 2026)"),
-    27: ("Einkommensteuertarif 2026", "§ 32a EStG"),
-    43: ("Körperschaftsteuersatz nach Kalenderjahr",
-         "§ 23 KStG · ab 2028 −1 %-Punkt p. a. bis 10 % (2032) · zzgl. Soli 5,5 %"),
-    56: ("Konstanten und Schwellenwerte", None),
-    74: ("Ampel-Schwellenwerte", "Cockpit, Dashboard, Leitfaden und Sensitivität"),
+KON_BANDS = {  # Zeile → (Titel, Meta rechts: Rechtsgrundlage/Quelle) – Ebene 1 gruppiert, Ebene 2 benennt die Tabelle (P2-10)
+    8: ("Grunderwerbsteuer und Einkommensteuer", "§ 11 GrEStG, Landesgesetze · § 32a EStG · Stand 2026"),
+    43: ("Körperschaftsteuer und Konstanten",
+         "§ 23 KStG: ab 2028 −1 %-Punkt p. a. bis 10 % (2032), zzgl. Soli 5,5 %"),
+    74: ("Ampel-Schwellenwerte", "wirken auf Cockpit, Dashboard, Leitfaden und Sensitivität"),
+}
+# Tabellenköpfe Ebene 2 (EEF3FA, Unterlinie 4A86C8) – jede Tabelle hat genau einen, erste Spalte benennt die Zeilen
+KON_HEADS = {
+    9: {"B": ("Grunderwerbsteuer · Bundesland", "left"), "C": ("Steuersatz", "right"), "D": ("Gültig seit", "center")},
+    27: {"B": ("Einkommensteuertarif 2026 · Position", "left"), "C": ("Wert", "right"), "E": ("Hinweis", "left")},
+    44: {"B": ("Körperschaftsteuer · Kalenderjahr", "left"), "C": ("Steuersatz", "right")},
+    56: {"B": ("Konstanten und Schwellenwerte · Position", "left"), "C": ("Wert", "right"), "E": ("Hinweis", "left")},
+    75: {"B": ("Kennzahl", "left"), "C": ("Grün ab", "right"), "D": ("Gelb ab", "right"), "E": ("Hinweis", "left")},
 }
 KON_TABLES = [(10, 25), (28, 40), (45, 54), (57, 72), (76, 80)]
 KON_GAPS = (26, 41, 55, 73)
@@ -568,8 +600,7 @@ def konfiguration(wb):
                       ("   ·   Änderungen wirken auf alle Blätter – Reihenfolge der Auswahllisten nicht ändern",
                        T_BODY, False, MUTED)])
     w.font = font(T_BODY, False, MUTED)
-    w.alignment = align("left", "top")
-    ws.row_dimensions[7].height = 22
+    w.alignment = align("left", "center")
 
     # Quellen wandern in die Abschnittsköpfe (Zusatz), die Fußnotenzeilen werden Abstandszeilen
     for a in ("E9", "E10", "B26", "B41", "E45"):  # E45: KSt-Hinweis steht jetzt im Abschnittskopf (P29)
@@ -630,18 +661,17 @@ def konfiguration(wb):
             g.fill = NOFILL
             g.border = Border()
 
-    # ---- Abschnittsköpfe Ebene 1 (P1-12) und Tabellenköpfe Ebene 2
+    # ---- Abschnittsköpfe Ebene 1 (P1-12) und Tabellenköpfe Ebene 2 (P2-10: Spaltenköpfe nie im Band)
     for r, (title, extra) in KON_BANDS.items():
         _section(ws, r, "B", "E", title, extra)
-    _section(ws, 8, "G", "G", "Auswahllisten", "Dropdown-Quellen · Reihenfolge nicht ändern")
-    ws.row_dimensions[9].height = C.H_HEAD
-    for r, labels in ((9, {"B": ("BUNDESLAND", "left"), "C": ("STEUERSATZ", "right"), "D": ("GÜLTIG SEIT", "center")}),
-                      (44, {"B": ("KALENDERJAHR", "left"), "C": ("STEUERSATZ", "right")}),
-                      (75, {"B": ("KENNZAHL", "left"), "C": ("GRÜN AB", "right"), "D": ("GELB AB", "right"),
-                            "E": ("HINWEIS", "left")})):
+    _section(ws, 8, "G", "G", "Auswahllisten für die Dropdown-Felder")
+    for r, labels in KON_HEADS.items():
+        _unmerge_row(ws, r, 2, 5)
         for c in C.iter_cells(ws, 2, r, 5, r):
             c.value = None
+            c.hyperlink = None
         C.section(ws, r, "B", "E", None, level=2, labels=labels)
+        ws.row_dimensions[r].height = C.H_HEAD
     ws["D9"].alignment = align("center", "center")
 
     # ---- Abstandszeilen: je eine Zeile (18 pt, weil rechts Listeneinträge darin stehen) vor jedem Abschnitt
@@ -655,13 +685,6 @@ def konfiguration(wb):
     ws.row_dimensions[42].height = C.H_GAP
     for r in (26, 27, 41):  # Listeneinträge in Sonderzeilen mittig (Befund Auswahllisten)
         ws.cell(r, 7).alignment = align("left", "center", 1)
-    # Tabellen ohne eigene Kopfzeile (ESt-Tarif, Konstanten): Spaltenlabels im Abschnittskopf (P29)
-    for r in (27, 56):
-        for coord, text, h in ((f"C{r}", "WERT", "right"), (f"E{r}", "HINWEIS", "left")):
-            c = ws[coord]
-            C.set_text(c, text)
-            c.font = font(C.T_LABEL, True, BLUE)
-            c.alignment = align(h, "center", 1)
     # Nullkonvention (P38): Anzeigeformat mit „–“ für die Tarif-/Baukostengrenzen
     for coord in ("C28", "C29", "C30", "C31", "C61", "C62"):
         ws[coord].number_format = NUMFMT["eur"]
@@ -670,34 +693,38 @@ def konfiguration(wb):
 
 
 # ================================================================================================ Hinweise
-# Redaktionell gestraffte Annahmetexte: klar ein- oder zweizeilig über C:E (keine Grenzfälle, P27)
+# Redaktionell gestraffte Annahmetexte: klar ein- oder zweizeilig über C:D (keine Grenzfälle, P27)
 HIN_TEXT = {
     31: "Konstanter Grenzsteuersatz (Privat) bzw. KSt-Staffel + Soli (+ GewSt) – keine vollständige "
         "Veranlagungsrechnung, keine Progressionswirkung des Objekts auf das übrige Einkommen.",
     33: "Zuführungen zur WEG-Erhaltungsrücklage und zur eigenen Instandhaltungsrücklage sind Liquiditätsabflüsse, "
         "aber nicht sofort steuerwirksam; Verausgabungen der WEG sind nicht separat modelliert.",
 }
-HIN_TOPICS = {29: "Zeitraster", 30: "Finanzierung", 31: "Steuersatz", 32: "AfA-Kombination", 33: "Rücklagen",
-              34: "GmbH", 35: "Prognose", 36: "Haftung"}
+# Thema (B) · Vereinfachung (C:D) · Einordnung (E, Kurzkategorie – P3-12: vierspaltiges Raster läuft weiter)
+HIN_TOPICS = {29: ("Zeitraster", "Vereinfachung"), 30: ("Finanzierung", "Vereinfachung"),
+              31: ("Steuersatz", "Vereinfachung"), 32: ("AfA-Kombination", "konservativ"),
+              33: ("Rücklagen", "Vereinfachung"), 34: ("GmbH", "nicht abgebildet"),
+              35: ("Prognose", "Annahme"), 36: ("Haftung", "Rechtshinweis")}
+HIN_WIDTHS = (("B", 210), ("C", 586), ("D", 313), ("E", 228))     # A:E = 1 368 px; E ≈ 32 Zeichen (P3-12), C/D so, dass keine Zeile an einer Umbruchgrenze liegt
 
 
 def hinweise(wb):
     ws = wb["Hinweise"]
     last = 5
     _ungroup_cols(ws)
-    # A:E = 1 368 px; C/D/E so gewählt, dass kein Eintrag knapp an einer Umbruchgrenze liegt (gleichmäßige Luft)
-    _widths_px(ws, (("B", 210), ("C", 550), ("D", 382), ("E", 195)))
+    _widths_px(ws, HIN_WIDTHS)
     _header(ws, "Anhang  ›  Hinweise", "Hinweise",
             "Steuerliche Regelungen und Modellannahmen · Rechtsstand September 2026 (Investitionssofortprogramm "
             "2025, JStG 2024) · keine Steuerberatung im Einzelfall", last)
 
-    # ---- Teil 1: Tabelle mit Spaltenkopf; Zeilenhöhe = Zeilen × 12,5 + 8 pt, Text oben (P27, core.fit_row metric)
-    _section(ws, 8, "B", "E", "Steuerliche Regelungen und ihre Umsetzung im Tool", "17 Themen · Kurzfassung")
+    # ---- EIN Band, zwei Tabellen mit je einem Tabellenkopf (P2-10: Spaltenköpfe nie im Band)
+    _section(ws, 8, "B", "E", "Steuerliche Regelungen und Modellannahmen", "17 Regelungen · 8 Annahmen · Kurzfassung")
     _clear_row(ws, 9, 2, last)
     C.section(ws, 9, "B", "E", None, level=2,
               labels={"B": ("THEMA", "left"), "C": ("REGELUNG (KURZFASSUNG)", "left"),
                       "D": ("UMSETZUNG IM TOOL", "left"), "E": ("FUNDSTELLE", "left")})
-    spec = {2: (T_BODY, True, NAVY), 3: (T_BODY, False, INK), 4: (T_BODY, False, INK), 5: (T_SMALL, False, MUTED)}
+    # Thema 9 pt fett 0B2A4A · Text 10 pt · Fundstelle 8 pt grau (P3-12); Höhe = Zeilen × 12,5 + 8 pt (fit_row metric)
+    spec = {2: (T_SMALL, True, NAVY), 3: (T_BODY, False, INK), 4: (T_BODY, False, INK), 5: (T_MICRO, False, MUTED)}
     for r in range(10, 27):
         for cc, (sz, bd, colr) in spec.items():
             c = ws.cell(r, cc)
@@ -709,30 +736,33 @@ def hinweise(wb):
             c.alignment = align("left", "top", 1, wrap=True)
         C.fit_row(ws, r, "B", "E", metric=True)
     _clear_row(ws, 27, 2, last, values=False)
-    ws.row_dimensions[27].height = C.H_GAP
+    ws.row_dimensions[27].height = C.H_ROW
 
-    # ---- Teil 2: Thema | Annahme – Text über C:E (volle Breite), Spaltenlabel im Abschnittskopf (P29)
-    _section(ws, 28, "B", "E", "Modellannahmen")
-    lab = ws["C28"]
-    C.set_text(lab, "VEREINFACHUNG IM MODELL")
-    lab.font = font(C.T_LABEL, True, BLUE)
-    lab.alignment = align("left", "center", 1)
+    # ---- Modellannahmen: Kopfzeile wie Z. 9 (THEMA · VEREINFACHUNG · EINORDNUNG), Text nur über C:D
+    _clear_row(ws, 28, 2, last)
+    C.section(ws, 28, "B", "E", None, level=2,
+              labels={"B": ("MODELLANNAHME", "left"), "C": ("VEREINFACHUNG IM MODELL", "left"),
+                      "E": ("EINORDNUNG", "left")})
     for r in range(29, 37):
         text = re.sub(r"^\s*[•●]\s*", "", _plain(ws.cell(r, 2).value))
-        topic = HIN_TOPICS.get(r, "")
+        topic, kind = HIN_TOPICS.get(r, ("", ""))
         if topic and text.lower().startswith(topic.lower() + ":"):  # Stichwort nicht wiederholen („GmbH: …“)
             text = text[len(topic) + 1:].lstrip()
             text = text[:1].upper() + text[1:]
         text = HIN_TEXT.get(r, text)
         _clear_row(ws, r, 2, last)
         C.set_text(ws.cell(r, 2), topic)
-        ws.cell(r, 2).font = font(T_BODY, True, NAVY)
+        ws.cell(r, 2).font = font(T_SMALL, True, NAVY)
         ws.cell(r, 2).alignment = align("left", "top", 1, wrap=True)
-        C.safe_merge(ws, "C", r, "E", r)
+        C.safe_merge(ws, "C", r, "D", r)
         t = ws.cell(r, 3)
         C.set_text(t, _typo(text))
         t.font = font(T_BODY, False, INK)
         t.alignment = align("left", "top", 1, wrap=True)
+        k = ws.cell(r, 5)
+        C.set_text(k, kind)
+        k.font = font(T_MICRO, False, MUTED)
+        k.alignment = align("left", "top", 1, wrap=True)
         for c in C.iter_cells(ws, 2, r, last, r):
             c.border = Border(bottom=side("hair", LINE2))
         C.fit_row(ws, r, "B", "E", metric=True)
