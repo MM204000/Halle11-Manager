@@ -33,7 +33,7 @@ GREEN_BG, AMBER_BG, RED_BG = "EAF5EF", "FDF3E7", "FBECEB"
 INPUT_BG, INPUT_LINE, INPUT_FG = "FFF5D6", "E6CB77", BLUE
 INACTIVE_BG, INACTIVE_FG = "F3F4F6", MUTED2
 
-SANS, DISPLAY = "Aptos", "Aptos Display"
+SANS, DISPLAY = "Calibri", "Calibri"
 
 # =============================================================================== Typo-Skala und Zeilenraster
 # 8 · 9 · 10 · 12,5 · 16 · 20 · 22 (Hero 30, Schrittnummer 14). Keine Zellschrift unter 8 pt.
@@ -192,7 +192,7 @@ def span_px(ws, c1, c2):
 
 
 def text_px(text, size=T_BODY, bold=False):
-    """Näherung der Laufweite von Aptos (px bei 96 dpi)."""
+    """Näherung der Laufweite von Calibri (px bei 96 dpi)."""
     if text is None:
         return 0
     s = str(text)
@@ -200,7 +200,7 @@ def text_px(text, size=T_BODY, bold=False):
     narrow = sum(1 for ch in s if ch in "iljtfrI.,:;!'|() ·")
     wide = sum(1 for ch in s if ch in "MWmw@%€ÄÖÜ")
     caps = sum(1 for ch in s if ch.isupper())
-    units = len(s) * 0.52 - narrow * 0.22 + wide * 0.25 + caps * 0.08
+    units = len(s) * 0.49 - narrow * 0.22 + wide * 0.25 + caps * 0.08
     return units * em * (1.07 if bold else 1.0)
 
 

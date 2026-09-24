@@ -219,7 +219,7 @@ SPEC = {
 
 # ============================================================================ Messen
 def nlines(text, width_px, size=C.T_BODY, bold=False, indent=1):
-    """Zeilenzahl bei Wortumbruch (Aptos-Näherung aus core.text_px, 5 % Reserve)."""
+    """Zeilenzahl bei Wortumbruch (Calibri-Näherung aus core.text_px, 5 % Reserve)."""
     if text is None or text == "":
         return 1
     usable = width_px - 6 - 9 * indent

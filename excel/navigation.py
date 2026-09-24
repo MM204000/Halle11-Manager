@@ -146,7 +146,7 @@ TAB_IDLE, TAB_TXT = "1A3F66", MIST        # Reiter auf Navy
 STEP_NEXT_BG, STEP_NEXT_TXT = "F3F5F8", "5B6573"   # kommende Schritte (5,4 : 1)
 TAB_W, TAB_GAP, GROUP_GAP, TAB_H = 88, 4, 12, 28
 INS = 25400                                # Innenabstand links/rechts (2 pt)
-FONT = "Aptos"
+FONT = "Calibri"
 # Leisten als an Zellen verankerte Gruppe (Standard). NAV_GROUPED=0: jede Form einzeln an Zellen verankert
 # (in Excel identisch; nur Vorschau-Renderer mit abweichender Spaltenmetrik zeigen dann Verzerrungen).
 GROUPED = os.environ.get("NAV_GROUPED", "1") != "0"
@@ -159,7 +159,7 @@ CT_DRAWING = "application/vnd.openxmlformats-officedocument.drawing+xml"
 
 
 def text_px(text, size, bold=False):
-    """Laufweite (px) in Aptos – Näherung wie core.text_px."""
+    """Laufweite (px) in Calibri – Näherung wie core.text_px."""
     s = str(text)
     em = size * 96 / 72
     narrow = sum(1 for ch in s if ch in "iljtfrI.,:;!'|() ·")

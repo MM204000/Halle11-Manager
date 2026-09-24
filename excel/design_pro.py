@@ -66,7 +66,7 @@ HEAD_TINT = "EEF3FA"
 LINE, LINE2, HEAD_BG = "E6E8EB", "D5D9DE", "F3F4F5"
 ON_DARK = "FFFFFF"
 RED, AMB, GRN = "B42318", "B54708", "1F7A4D"
-SANS, DISPLAY = "Aptos", "Aptos Display"
+SANS, DISPLAY = "Calibri", "Calibri"
 
 TAB_GROUP = {"Cockpit": "aus", "Diagramme": "aus", "Eingaben": "inp", "Steuern": "ber", "Projektion": "ber",
              "Finanzierung": "ber", "AfA-Vergleich": "ber", "Sensitivität": "ber", "Bankgespräch": "bank",
@@ -418,7 +418,7 @@ def sheet_title(ws):
 
 # ============================================================================ Abschnittsüberschriften
 def section_rules(ws):
-    """Unterstrich unter Abschnittsüberschriften (Aptos Display 13) über die Blockbreite."""
+    """Unterstrich unter Abschnittsüberschriften (Calibri 13) über die Blockbreite."""
     merged = {}
     for mr in ws.merged_cells.ranges:
         merged[(mr.min_row, mr.min_col)] = mr
@@ -512,7 +512,7 @@ def design_workbook(src, tmp):
         ws.oddFooter.right.text = "Seite &P von &N"
         for part in (ws.oddFooter.left, ws.oddFooter.right):
             part.size = 8
-            part.font = "Aptos,Regular"
+            part.font = "Calibri,Regular"
             part.color = MUTED2
 
     # ---- globale Regeln (früh) → Blatt-Layouts → globale Regeln (final) → Dashboard → Druck
@@ -539,7 +539,7 @@ def design_workbook(src, tmp):
         for sel in w.sheet_view.selection:
             sel.activeCell = anchor
             sel.sqref = anchor
-    # Standardschrift Calibri 11 → Excel-Ziffernbreite 7 px; alle Zellen tragen ihre eigene Aptos-Schrift
+    # Standardschrift Calibri 11 → Excel-Ziffernbreite 7 px; alle Zellen tragen ihre eigene Calibri-Schrift
     wb._named_styles["Normal"].font = Font(name="Calibri", sz=11)
     wb.properties.title = "Immobilien-Kalkulation"
     wb.properties.creator = "MM Holding GmbH"

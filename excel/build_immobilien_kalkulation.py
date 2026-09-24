@@ -25,7 +25,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.hyperlink import Hyperlink
 
 # --------------------------------------------------------------------------- Design-Tokens
-FONT = "Aptos"
+FONT = "Calibri"
 TEAL, TEAL_L, TEAL_XL, SUM_BG = "0E4A4F", "E6F0F0", "F2F6F6", "F1F7F7"
 INK, MUTED, MUTED2 = "1A1D21", "5B6068", "7A8088"
 LINE, LINE2, NAV_BG = "EDEEF0", "DADCDF", "F4F5F6"

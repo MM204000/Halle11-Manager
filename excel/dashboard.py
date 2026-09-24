@@ -589,7 +589,7 @@ def _page(ws, last_row):
     ws.oddFooter.right.text = "Seite &P von &N"
     for part in (ws.oddFooter.left, ws.oddFooter.right):
         part.size = 8
-        part.font = "Aptos,Regular"
+        part.font = "Calibri,Regular"
         part.color = C.MUTED
     ws.freeze_panes = "A4"
     ws.protection.sheet = True

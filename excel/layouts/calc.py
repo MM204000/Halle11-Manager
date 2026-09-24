@@ -64,7 +64,7 @@ def _width(ws, letter, w):
 
 
 def _rich(parts):
-    """parts: [(text, size, bold, color, italic)] → CellRichText (Aptos)."""
+    """parts: [(text, size, bold, color, italic)] → CellRichText (Calibri)."""
     blocks = []
     for text, size, bold, color, italic in parts:
         blocks.append(TextBlock(InlineFont(rFont=SANS, sz=size, b=bold, i=italic, color=color), text))
