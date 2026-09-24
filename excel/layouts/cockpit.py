@@ -8,6 +8,12 @@ Runde 2 – durchgängig auf die zentralen Bausteine aus core.py umgestellt (COR
 Weitere Planpunkte: P2-14 (Prüfhinweise ohne Emoji, Semantik über Farbe/Kante), P3-02 (Unterzeilen 9 pt grau,
 Abstände, Drill-down-Links je Blockkopf), P3-03 („↑ Übersicht“), P3-08 (Steuerwirkungs-Konvention).
 
+Runde 3: P07 (Steuerwirkung C42:D42 in Cash-Sicht per Format), P11/P20 (C.tile ohne eigene Statustexte, kanonischer
+KPI-Satz GI · EK · CF | BMR · DSCR · IRR, IRR-Label mit Haltedauer), P15 (Negativ-Rot über sum_row + neg_red),
+P21 (DSCR-Schwelle „Ziel ≥ 1,20×“ im Prüfhinweis), P32 (Zähler, Abschlusslinie, Z. 56 = 6 pt), P37 (Dachzeile
+„Ergebnis · Übersicht auf einer Seite“), P41 (Gesamtbewertung und Hinweise ohne Signalfläche), P16 („@“ → Standard),
+Weißraum: die Lücken F28:L30 und B45:D47 tragen jetzt Kennzahlen (Anzeigeformeln in leeren Zellen).
+
 Rechenlogik bleibt unberührt: Es ändern sich nur Stile, Zahlenformate, Zeilenhöhen, Verbünde, statische
 Beschriftungen und nicht referenzierte Anzeigeformeln (B5/B6, B42, B49:B55, C9/G9/K9, K15, G26, G27, G35 …).
 Die benannten Zellen (u. a. J9 = CF_nSt_Monat_J1) bleiben, wo sie sind. Die Spalten N:X (alter Zeitverlauf,
@@ -373,7 +379,9 @@ def _block(ws, rows, lab, val, edge, merge_values=True):
         _label(cell, text, kind)
         v = _value(ws, r, val, edge, fmt, kind, merge=merge_values and val != edge)
         if kind in ("sum", "result"):
-            C.sum_row(ws, r, lab, edge, "sub" if kind == "sum" else "result")
+            # Negativ-Rot nur für Beträge; Quoten (IRR) tragen ihren Status als Schriftfarbe (AMPEL)
+            C.sum_row(ws, r, lab, edge, "sub" if kind == "sum" else "result",
+                      neg=False if fmt in ("pct1", "pct2") else None)
             cell.alignment = align("left", "center", 1)
             for c in iter_cells(ws, val, r, edge, r):
                 c.alignment = align("right", "center", 1)

@@ -85,12 +85,6 @@ def _fmt_sub(formula, old, new):
     return formula.replace(old, new) if isinstance(formula, str) else formula
 
 
-def _link(ws, coord, text, target, h="right", size=C.T_SMALL, v="center"):
-    cell = ws[coord]
-    C.text_link(cell, text, target, size=size, bold=True)
-    cell.alignment = C.align(h, v, 0)
-
-
 def _text_formula_general(ws):
     """Formelzellen mit Textformat „@“ auf Standard (sonst zeigt Excel nach F2 + Enter die Formel als Text)."""
     for row in ws.iter_rows():
@@ -423,13 +417,47 @@ def _form_common(ws, first, last, comment_rows):
 
 
 def _linked(ws, coords):
-    """Verknüpfte Werte einheitlich (P3-09): 1D4F8A normal, ohne Eingabe-/Akzentrahmen, Haarlinie wie die Zeile."""
+    """P31: überschreibbare Verknüpfungen als eigene Eingabe-Variante – 1D4F8A normal auf FFF5D6, Rahmen gestrichelt
+    E6CB77 (Legende im Seitenkopf rechts: „gestrichelt = aus der Kalkulation, überschreibbar“)."""
+    dash = C.side("dashed", C.INPUT_LINE)
     for coord in coords:
         cell = ws[coord]
         cell.font = C.font(C.T_BODY, False, C.BLUE)
-        cell.fill = C.NOFILL
-        cell.border = Border(bottom=C.side("hair", C.LINE))
+        cell.fill = C.fill(C.INPUT_BG)
+        cell.border = Border(left=dash, right=dash, top=dash, bottom=dash)
         cell.alignment = C.align("right", "center", 1)
+
+
+def _comment_inputs(ws, rows, bands=()):
+    """P31: entsperrte Kommentar-/Nachweiszellen (Spalte E) als dezente Eingabe – FFF9EA, Unterkante E6CB77,
+    9 pt kursiv 5B6068. Spaltenköpfe und Bänder bleiben unberührt."""
+    for r in rows:
+        e = ws.cell(r, 5)
+        if r in bands or e.protection.locked is not False:
+            continue
+        if isinstance(e.value, str) and (e.value.isupper() or C.is_formula(e.value)):
+            continue
+        e.fill = C.fill(C.NOTE_BG)
+        e.border = Border(bottom=C.side("thin", C.INPUT_LINE))
+        e.font = C.font(C.T_SMALL, False, C.MUTED, italic=True)
+        e.alignment = C.align("left", "center", 1)
+
+
+def _form_header(ws):
+    """P04: Kopf rechts an der Inhaltskante M – Z. 6 „Erstellt für …“, Z. 7 Legende der Eingabe-Arten.
+    (Z. 5 rechts: Unterreiter, navigation.py.)"""
+    for coord in ("E6", "E7"):
+        cell = ws[coord]
+        cell.value = None
+        cell.hyperlink = None
+    _made_for(ws["M6"])
+    lg = ws["M7"]
+    lg.value = C.rich([("■ ", C.T_LABEL, True, C.INPUT_LINE), ("Eingabe", C.T_LABEL, False, C.MUTED),
+                       ("   ·   ", C.T_LABEL, False, C.MUTED),
+                       ("┅ ", C.T_LABEL, True, C.INPUT_LINE),
+                       ("gestrichelt = aus der Kalkulation, überschreibbar", C.T_LABEL, False, C.MUTED)])
+    lg.font = C.font(C.T_LABEL, False, C.MUTED)
+    lg.alignment = C.align("right", "center")
 
 
 def _gaps(ws, rows):
@@ -456,7 +484,7 @@ def _tile_pair(ws, row, left, right):
 def household(ws):
     for coord, text in HH_LABELS.items():
         C.set_text(ws[coord], text)
-    _form_common(ws, 8, 47, range(18, 48))
+    bands = _form_common(ws, 8, 47, range(18, 48))
 
     # Persönliche Angaben: alle Felder über C:E (volle Breite), Kinder als Zahl, „Beschäftigt seit“ als echtes Datum
     _unmerge(ws, 9, 14, "C", "E")
@@ -487,9 +515,21 @@ def household(ws):
         dv.add(ref)
 
     _linked(ws, HH_LINKED)
+    _comment_inputs(ws, range(18, 48), bands)
+    # Nullwerte je Zeile einheitlich (Befund): Eingabe links „0 €“ → Jahreswert rechts ebenfalls „0 €“
+    for r in list(range(18, 27)) + list(range(31, 43)):
+        ws[f"D{r}"].number_format = C.NUMFMT["eur_in"]
+        ws[f"C{r}"].number_format = C.NUMFMT["eur_in"]
     for r in (27, 43):
         C.sum_row(ws, r, "B", "E", "sub")
     _gaps(ws, (15, 28, 44))
+    # P29: Spaltenköpfe im Ergebnisband, „Überschuss“ statt „Überschuss pro Monat“
+    for coord, text in (("C45", "PRO MONAT"), ("D45", "PRO JAHR")):
+        cell = ws[coord]
+        C.set_text(cell, text)
+        cell.font = C.font(C.T_LABEL, True, C.BLUE)
+        cell.alignment = C.align("right", "center", 1)
+    C.set_text(ws["B46"], "Überschuss")
 
     # Ergebnis: EINE Statusregel auf Basis der Überschussquote C47 (< 0 rot · < 5 % amber · sonst grün), P1-10
     C.set_text(ws["E46"], "Banken erwarten > 0 nach neuem Kapitaldienst")
@@ -501,8 +541,8 @@ def household(ws):
              ("ISNUMBER($C$47)", "green")]
     C.status_cf(ws, "C46:D46", conds)
     C.status_cf(ws, "C47", conds)
-    words = {"red": "Unterdeckung", "amber": "knapp · Ziel ≥ 5 %", "green": "solide"}
-    C.status_pill(ws, ws["E47"], conditions=conds, style="chip", words=words, h="left")
+    C.status_pill(ws, ws["E47"], conditions=conds, style="chip", h="left", suffix='"Ziel ≥ 5 %"')
+    C.neg_red(ws, "C46:D46")
 
     # Rechte Spalte: Abschnitt + Diagramm (Oberkante bündig mit Z. 8), darunter die Ergebnis-Kacheln
     _side_section(ws, 8, "Ausgabenstruktur")
@@ -510,18 +550,21 @@ def household(ws):
         _anchor(ch, "G", 9, "M", 27)
     _side_section(ws, 29, "Ergebnis der Haushaltsrechnung")
     _tile_pair(ws, 30,
-               dict(label="Überschuss pro Monat", value="=C46", fmt=C.NUMFMT["eur"],
-                    sub='="p. a. "&FIXED(D46,0)&" € · nach neuem Kapitaldienst"', status=None),
-               dict(label="Überschussquote", value="=C47", fmt=C.NUMFMT["pct1"], sub="vom Einkommen · Ziel ≥ 5 %", status_col="M",
-                    conditions=conds, words={"red": "negativ", "amber": "knapp", "green": "solide"}))
-    _subnav(ws, "E", ("Vermögensaufstellung", VA), ("Bankgespräch", BANK))
+               dict(label="Überschuss pro Monat", value="=C46", fmt=C.NUMFMT["eur"], sub='="p. a. "&FIXED(D46,0)&" €"',
+                    status_col="I", conditions=conds),
+               dict(label="Überschussquote", value="=C47", fmt=C.NUMFMT["pct1"], sub="Ziel ≥ 5 % vom Einkommen",
+                    status_col="M", conditions=conds))
+    _form_header(ws)
+    _nav_row(ws, 49, ("C", "D", "‹  Zurück: Bankgespräch", BANK),
+             ("E", "E", "Weiter: Vermögensaufstellung  ›", VA), ("B", "E"))
+    _text_formula_general(ws)
     C.cf_close(ws)
 
 
 def assets(ws):
     for coord, text in VA_LABELS.items():
         C.set_text(ws[coord], text)
-    _form_common(ws, 8, 34, range(10, 35))
+    bands = _form_common(ws, 8, 34, range(10, 35))
     # Verpfändet? – Auswahlliste ja/nein, „ja“ in Amber (belastete Werte fallen auf)
     dv = DataValidation(type="list", formula1='"ja,nein"', allow_blank=True, showInputMessage=True,
                         showErrorMessage=True)
@@ -536,14 +579,16 @@ def assets(ws):
     ws["D9"].alignment = C.align("center", "center")
 
     _linked(ws, VA_LINKED)
+    _comment_inputs(ws, range(10, 35), bands)
     for r in (19, 29):
         C.sum_row(ws, r, "B", "E", "sub")
-    # P1-14: Summenband geschlossen – die Monatsrate wird nicht summiert, „–“ in NEUTRAL_DASH
+    # P12: Summenzeile mit EINER Schrift – „–“ in D29 im Stil von C29 (fett 0B2A4A), die Monatsrate wird nicht summiert
     d29 = ws["D29"]
     if d29.value is None:
         d29.value = "–"
-    d29.font = C.font(C.T_BODY, False, C.NEUTRAL_DASH)
+    d29.font = C.font(C.T_BODY, True, C.NAVY)
     d29.alignment = C.align("right", "center", 1)
+    C.neg_red(ws, "C34")
     _gaps(ws, (20, 30))
 
     # Rechte Spalte: Abschnitt + Diagramm, darunter Kennzahl-Kacheln (P2-17) als Anzeige-Verweise
@@ -556,9 +601,11 @@ def assets(ws):
                dict(label="Nettovermögen", value="=C32", fmt=C.NUMFMT["eur"],
                     sub="Vermögenswerte − Verbindlichkeiten", status=None),
                dict(label="Liquide Mittel nach EK-Einsatz", value="=C34", fmt=C.NUMFMT["eur"],
-                    sub='="nach Eigenkapital "&FIXED(C33,0)&" €"', conditions=liq,
-                    words={"red": "negativ", "green": "gedeckt"}))
-    _subnav(ws, "E", ("Bankgespräch", BANK), ("Haushaltsrechnung", HH))
+                    sub='="nach Eigenkapital "&FIXED(C33,0)&" €"', conditions=liq))
+    _form_header(ws)
+    _nav_row(ws, 36, ("C", "D", "‹  Zurück: Haushaltsrechnung", HH),
+             ("E", "E", "↺  Zurück zur Übersicht: Bankgespräch", BANK), ("B", "E"))
+    _text_formula_general(ws)
     C.cf_close(ws)
 
 
