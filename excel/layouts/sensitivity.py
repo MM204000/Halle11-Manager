@@ -184,7 +184,7 @@ def apply(wb):
     ws["D15"].number_format = C.NUMFMT["pct2"]
     C.callout(ws, "F", 9, "J", 10, 18, title="Lesehilfe")
     ws["F10"].value = LESEHILFE
-    ws["F10"].alignment = C.align("left", "center", 1, wrap=True)
+    ws["F10"].alignment = C.align("left", "top", 1, wrap=True)
     C.set_height(ws, 9, ROW_H)
     for ref in ("D13",):
         ws.conditional_formatting.add(ref, FormulaRule(formula=["$D$13<0"], stopIfTrue=True,
@@ -248,10 +248,14 @@ def apply(wb):
     ws.conditional_formatting.add("D46:H46", FormulaRule(
         formula=["ABS(D46-Wertsteigerung)<0.00005"], stopIfTrue=True,
         font=Font(color=C.WHITE, bold=True), fill=C.fill(C.BLUE)))
+    # Basiszelle: Ampelfarbe + Rahmen in EINER Regel (Excel und LibreOffice werten dann identisch aus)
     nb = C.side("thin", C.NAVY)
-    ws.conditional_formatting.add("D49:H49", FormulaRule(
-        formula=["ABS(D$46-Wertsteigerung)<0.00005"], font=Font(bold=True, color=C.NAVY),
-        border=Border(left=nb, right=nb, top=nb, bottom=nb)))
+    base = "ABS(D$46-Wertsteigerung)<0.00005"
+    for cond, fg, bg in (("D49<Ampel_IRR_gelb", C.RED, M_RED), ("D49<Ampel_IRR_gruen", C.AMBER, M_AMB),
+                         ("TRUE", C.GREEN, M_GRN)):
+        ws.conditional_formatting.add("D49:H49", FormulaRule(
+            formula=[f"AND({base},ISNUMBER(D49),{cond})"], stopIfTrue=True, font=Font(bold=True, color=fg),
+            fill=C.fill(bg), border=Border(left=nb, right=nb, top=nb, bottom=nb)))
     irr_g = "Ampel_IRR_gruen"
     irr_y = "Ampel_IRR_gelb"
     _status_rules(ws, "D47:H51", "D47", irr_g, irr_y)

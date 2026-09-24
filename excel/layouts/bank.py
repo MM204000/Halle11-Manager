@@ -113,7 +113,7 @@ PCT1 = ("I22", "C36", "C38", "C39", "C41", "F29", "F30")
 def bank(ws):
     # ---- Raster: drei Spalten Beschriftung + Wert, schmale Stege (Druck A4 hoch)
     widths = {"A": 4.5, "B": 27, "C": 18, "D": 1.5, "E": 27, "F": 18, "G": 1.5, "H": 28, "I": 18, "J": 2.5,
-              "K": 44}
+              "K": 48}
     for k, w in widths.items():
         ws.column_dimensions[k].width = w
     ws.sheet_view.showGridLines = False
@@ -254,9 +254,10 @@ def bank(ws):
         cell.border = Border()
         cell.hyperlink = None
     body = "\n\n".join(BANK_BULLETS)
-    need = C.lines_needed(body, C.col_px(ws, "K"), C.T_SMALL) * 12.5 + 14
+    # Kasten endet bündig mit dem oberen Tabellenblock (Z. 30); nur bei sehr langem Text tiefer
+    need = C.lines_needed(body, C.col_px(ws, "K"), C.T_SMALL) * 11.5 + 8
     r, acc = 18, 0
-    while acc < need and r < 40:
+    while (acc < need or r <= 30) and r < 42:
         acc += ws.row_dimensions[r].height or 15
         r += 1
     last = r - 1
@@ -268,7 +269,7 @@ def bank(ws):
     for i, (text, target) in enumerate((("Haushaltsrechnung ausfüllen  ›", HH),
                                         ("Vermögensaufstellung ausfüllen  ›", VA),
                                         ("Alle Diagramme  ›", "Diagramme"))):
-        cell = ws[f"K{last + 2 + i}"]
+        cell = ws[f"K{max(last + 2, 34) + i}"]
         C.text_link(cell, text, target, size=C.T_BODY, bold=True)
         cell.alignment = C.align("left", "center", 1)
 
