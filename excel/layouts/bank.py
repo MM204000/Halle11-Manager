@@ -118,11 +118,11 @@ def _nav_row(ws, row, back, nxt, footer_cols):
     items = [dict(c1=back[0], c2=back[1], text=back[2], target=back[3], kind="secondary",
                   tooltip=f"Zurück zu {back[3]}"),
              dict(c1=nxt[0], c2=nxt[1], text=nxt[2], target=nxt[3], kind="primary", tooltip=f"Weiter zu {nxt[3]}")]
+    _move_footer(ws, row + 2, *footer_cols)
     for it in items:
         _unmerge(ws, row, row, it["c1"], it["c2"])
     out = C.btn_row(ws, row, items)
     C.set_height(ws, row + 1, C.H_GAP)
-    _move_footer(ws, row + 2, *footer_cols)
     return out
 
 

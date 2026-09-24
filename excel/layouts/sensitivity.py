@@ -188,26 +188,8 @@ def _uebersicht(ws, row):
     cell.alignment = C.align("right", "center", 1)
 
 
-def _thresholds(wb, kpi, digits=0, factor=100):
-    """Aktuelle Schwellen (Konfiguration) für die statische Legende, deutsch formatiert: (grün, gelb)."""
-    try:
-        vals = []
-        for suffix in ("gruen", "gelb"):
-            (sheet, ref), = list(wb.defined_names[f"Ampel_{kpi}_{suffix}"].destinations)
-            vals.append(float(wb[sheet][ref.replace("$", "")].value))
-        return tuple(f"{v * factor:.{digits}f}".replace(".", ",") for v in vals)
-    except Exception:
-        return None
-
-
 def _nav_row(ws, row, back, nxt):
     """Leerzeile · Buttons (secondary / primary) · Leerzeile · Seitenfuß (aus global_rules.early hierher verlegt)."""
-    C.set_height(ws, row - 1, C.H_GAP)
-    C.btn_row(ws, row, [dict(c1=back[0], c2=back[1], text=back[2], target=back[3], kind="secondary",
-                             tooltip=f"Zurück zu {back[3]}"),
-                        dict(c1=nxt[0], c2=nxt[1], text=nxt[2], target=nxt[3], kind="primary",
-                             tooltip=f"Weiter zu {nxt[3]}")])
-    C.set_height(ws, row + 1, C.H_GAP)
     old = next((c.row for c in ws._cells.values() if isinstance(c.value, str) and c.value == C.FOOTER_1), None)
     if old is not None and old != row + 2:
         for r in (old, old + 1):
@@ -217,6 +199,12 @@ def _nav_row(ws, row, back, nxt):
                 c.border = Border()
             ws.row_dimensions[r].height = None
     C.footer(ws, row + 2, "C", "M")
+    C.set_height(ws, row - 1, C.H_GAP)
+    C.btn_row(ws, row, [dict(c1=back[0], c2=back[1], text=back[2], target=back[3], kind="secondary",
+                             tooltip=f"Zurück zu {back[3]}"),
+                        dict(c1=nxt[0], c2=nxt[1], text=nxt[2], target=nxt[3], kind="primary",
+                             tooltip=f"Weiter zu {nxt[3]}")])
+    C.set_height(ws, row + 1, C.H_GAP)
 
 
 # =============================================================================== Aufbau
