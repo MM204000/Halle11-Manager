@@ -204,7 +204,7 @@ def _tiles(ws):
         ("CF", "=CF_nSt_Monat_J1", f'="ab Jahr 2: "&FIXED({C.CF_YEAR2},0)&" € / Monat"'),
         ("BMR", "=Bruttomietrendite", '="Faktor "&FIXED(Kaufpreisfaktor,1)&"× · netto "&FIXED(Nettomietrendite*100,1)&" %"'),
         ("DSCR", "=DSCR_J1", '="Bankmaßstab ≥ "&FIXED(Ampel_DSCR_gruen,2)'),
-        ("IRR", "=EK_IRR", '="Verkauf nach "&Haltedauer&" Jahren · Multiple "&FIXED(EK_Multiple,2)&"×"'),
+        ("IRR", "=EK_IRR", '="Exit nach "&Haltedauer&" J. · Multiple "&FIXED(EK_Multiple,2)&"×"'),
     ]
     for (a, b), (key, value, sub) in zip(PAIRS, tiles):
         C.kpi_tile(ws, a, b, R_TILE, R_TILE + 1, R_TILE + 2, value=value, sub=sub, kpi=key, gap_right=False)

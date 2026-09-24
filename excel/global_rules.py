@@ -441,7 +441,7 @@ def page_footer(ws, c1, c2, row=None):
 
 UNIT_TEXT = {"€": None, "%": None, "€/Monat": "pro Monat", "€ p. a.": "pro Jahr", "€/m²": "je m²",
              "€/m² p. a.": "je m² p. a.", "% Darlehen": "vom Darlehen", "% der Miete": "der Miete",
-             "% Verkaufspreis": "vom Verkaufspreis", "fach": None}
+             "% Verkaufspreis": "vom VK-Preis", "fach": "Jahresmieten"}
 
 
 def forms_pre(ws):
@@ -655,9 +655,19 @@ def _rich_runs(c):
             f.rFont = C.SANS
 
 
+def _zero_visible(fmt):
+    """Format ohne „–“-Nullabschnitt: editierbare Felder zeigen 0 (bzw. 0 €, 0 %) statt eines Strichs."""
+    parts = fmt.split(";")
+    if len(parts) == 3 and parts[2].strip('"\\ ') in ("–", "-"):
+        return ";".join(parts[:2])
+    return fmt
+
+
 def normalise(ws):
     for c in ws._cells.values():
         _rich_runs(c)
+        if c.number_format and ";" in c.number_format and _is_input(c):
+            c.number_format = _zero_visible(c.number_format)
         al = c.alignment
         f = c.font
         # 1) kein „An Zellgröße anpassen“; Einzug nur mit links/rechts

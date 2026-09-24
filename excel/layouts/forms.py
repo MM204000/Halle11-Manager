@@ -234,7 +234,7 @@ EIN_LABELS = {
 # Einheit genau einmal (P1-03): nur der Bezug bleibt stehen
 UNIT_MAP = {"€": None, "%": None, "€/Monat": "pro Monat", "€ p. a.": "pro Jahr", "€/m²": "je m²",
             "€/m² p. a.": "je m² p. a.", "% Darlehen": "vom Darlehen", "% der Miete": "der Miete",
-            "% Verkaufspreis": "vom Verkaufspreis", "fach": "Jahresmieten"}
+            "% Verkaufspreis": "vom VK-Preis", "fach": "Jahresmieten"}
 
 
 def _step_sheets(wb):

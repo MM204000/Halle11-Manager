@@ -558,6 +558,8 @@ def design_workbook(src, tmp):
     for w in wb.worksheets:
         w.sheet_view.topLeftCell = "A1"
         anchor = w.freeze_panes or "A1"
+        if w.title == "Start":
+            anchor = "D23"   # Rechtsform-Auswahl: Pfeil und Eingabemeldung sofort sichtbar
         for sel in w.sheet_view.selection:
             sel.activeCell = anchor
             sel.sqref = anchor
