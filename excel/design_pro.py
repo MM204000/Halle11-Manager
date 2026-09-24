@@ -66,6 +66,7 @@ HEAD_TINT = "EEF3FA"
 LINE, LINE2, HEAD_BG = "E6E8EB", "D5D9DE", "F3F4F5"
 ON_DARK = "FFFFFF"
 RED, AMB, GRN = "B42318", "B54708", "1F7A4D"
+RED_BG = "FBECEB"
 SANS, DISPLAY = "Calibri", "Calibri"
 
 TAB_GROUP = {"Cockpit": "aus", "Diagramme": "aus", "Eingaben": "inp", "Steuern": "ber", "Projektion": "ber",
@@ -506,8 +507,13 @@ def design_workbook(src, tmp):
         tile_gaps(ws, tile_rows, tile_label_rows)
         section_rules(ws)
 
-        for ref in ctx["hints"]:
-            ws.conditional_formatting.add(ref, FormulaRule(formula=[f'LEFT({ref},1)="⚠"'], font=Font(color=RED, bold=True)))
+        for ref in ctx["hints"]:  # P2-14: Semantik über Kante/Fläche/Schrift statt Emoji-Farbe
+            ws.conditional_formatting.add(ref, FormulaRule(
+                formula=[f'LEFT({ref},1)="⚠"'], stopIfTrue=True, font=Font(color=RED, bold=True),
+                fill=PatternFill("solid", fgColor=RED_BG, bgColor=RED_BG), border=Border(left=Side("thick", color=RED))))
+            ws.conditional_formatting.add(ref, FormulaRule(
+                formula=[f'OR(LEFT({ref},1)="ℹ",LEFT({ref},1)="ⓘ")'], stopIfTrue=True, font=Font(color=TEAL_MID),
+                fill=PatternFill("solid", fgColor=TEAL_XL, bgColor=TEAL_XL), border=Border(left=Side("thick", color=ACC))))
         for cf in ws.conditional_formatting:
             for rule in cf.rules:
                 d = rule.dxf

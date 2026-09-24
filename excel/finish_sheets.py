@@ -6,6 +6,7 @@ fix(files) erhält das entpackte Paket als dict {pfad: bytes} und ändert es an 
 - Datenüberprüfung: Fehlermeldung an (stop), klare Fehler- und Eingabetexte             P1-07
 - Präsentationsblätter ohne Zeilen-/Spaltenköpfe, Objekte im Blattschutz geschützt      P3-02
 - dxf-Einträge ohne Schriftnamen (Altschriften Fraunces/Inter aus der Vorlage)          P3-06
+- Datenbalken als Vollton ohne Verlauf (x14-Erweiterung, Excel 2010+)                   Wunsch G
 """
 import os
 import posixpath
@@ -123,6 +124,17 @@ def fix_view(name, root):
         sp.set("objects", "1")
 
 
+X14 = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"
+
+
+def fix_databars(root):
+    """Datenbalken: Vollton statt ausbleichendem Verlauf (gradient=0), kein Rahmen – in Excel 2010+ wirksam,
+    ältere Versionen zeigen weiter den klassischen Balken."""
+    for db in root.iter(f"{{{X14}}}dataBar"):
+        db.set("gradient", "0")
+        db.set("border", "0")
+
+
 def fix_styles(files):
     """dxf ohne Schriftnamen: bedingte Formate erben die Zellschrift (Calibri)."""
     p = "xl/styles.xml"
@@ -181,6 +193,7 @@ def fix(files):
             fix_tab_color(name, root)
             fix_validations(name, root)
             fix_view(name, root)
+            fix_databars(root)
             files[p] = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
         except Exception as exc:  # ein Blatt darf den Nachlauf nicht abbrechen
             print(f"WARNUNG finish_sheets {name}: {exc!r}", file=sys.stderr)

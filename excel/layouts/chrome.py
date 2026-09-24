@@ -9,18 +9,13 @@ from openpyxl.styles import Border
 
 from openpyxl.utils import column_index_from_string, get_column_letter
 
-from core import ACCENT, NAVY, NOFILL, col_px, fill
+from core import ACCENT, CONTENT_EDGE, H_GAP, NAV_MIN_PX, NAVY, NOFILL, col_px, fill
 
-# Die Reiterleiste endet am Inhaltsrand der Schritt-Seiten (Ende Spalte I ≈ 1 354 px, navigation.nav_frame).
-# Die Navy-Fläche reicht mindestens bis zur nächsten Spaltengrenze dahinter (Schritt-Seiten: Ende Spalte J).
-NAV_MIN_PX = 1368
+# Die Reiter (Formen, navigation.py) enden auf jedem Blatt bei 1 200 px; die Navy-Fläche der Kopfleiste reicht
+# mindestens bis core.NAV_MIN_PX (1 368 px, hinter dem Inhaltsrand der Schritt-Seiten) bzw. bis zur letzten
+# Inhaltsspalte breiterer Blätter (core.CONTENT_EDGE – einzige Quelle, auch für navigation.py).
 JUMP_ROW_SHEETS = ("Eingaben", "Diagramme")  # Zeile 8 trägt die Sprungleiste (navigation.jump_bar)
-
-
-# Blätter, deren Inhalt breiter ist als die Reiterleiste: die Kopfleiste endet bündig mit dem Inhalt
-# (letzte Inhaltsspalte). Diagramme verlängern die Fläche automatisch bis zu ihrer rechten Kante.
-BAND_TO = {"Steuern": "AQ", "Projektion": "AQ", "Finanzierung": "AQ", "AfA-Vergleich": "Q",
-           "Cockpit": "K", "Diagramme": "P", "Sensitivität": "P", "Konfiguration": "G", "Hinweise": "E"}
+BAND_TO = CONTENT_EDGE                       # Kompatibilität für Altaufrufer
 
 
 def band_end_col(ws):
@@ -29,17 +24,17 @@ def band_end_col(ws):
     - Mindestens alle Spalten, deren rechte Kante innerhalb von NAV_MIN_PX liegt; den Rest bis genau NAV_MIN_PX
       ergänzt navigation.band_extension als Fläche (so endet die Kopfleiste auf jedem Blatt an derselben Kante,
       auch wenn hinter dem Inhalt eine sehr breite Spalte folgt).
-    - Breiter Inhalt (BAND_TO, Diagramme): bis zur letzten Inhaltsspalte – spaltenbasiert, weil die Blatt-Module
+    - Breiter Inhalt (core.CONTENT_EDGE, Diagramme): bis zur letzten Inhaltsspalte – spaltenbasiert, weil die Blatt-Module
       die Spaltenbreiten erst nach diesem Modul setzen.
     Früher reichte die Fläche bis zur Spalte der alten Marke (z. B. Start bis U = 1 914 px bei 731 px Inhalt)."""
-    last = column_index_from_string(BAND_TO[ws.title]) if ws.title in BAND_TO else 1
+    last = column_index_from_string(CONTENT_EDGE[ws.title]) if ws.title in CONTENT_EDGE else 1
     for ch in getattr(ws, "_charts", []):
         to = getattr(ch.anchor, "to", None)
         if to is not None:
             last = max(last, to.col + (1 if to.colOff else 0))
     px, c = 0, 1
     while c < 400:
-        w = 0 if ws.column_dimensions[get_column_letter(c)].hidden else col_px(ws, c)
+        w = col_px(ws, get_column_letter(c))          # ausgeblendete Spalten = 0 px (core.col_px)
         if px + w > NAV_MIN_PX + 6:
             break
         px += w
@@ -79,14 +74,15 @@ def remove_monogram(ws):
 
 
 def stepper_row(ws):
-    """Leitfaden-Seiten: Punktreihe (●○○) entfernen, Zeile 8 als Schritt-Leiste (30 pt), Zeile 9 Abstand."""
+    """Leitfaden-Seiten: Punktreihe (●○○) entfernen, Zeile 8 als Schritt-Leiste (30 pt), Zeile 9 = eine
+    Standard-Fuge (core.H_GAP) bis zum ersten Abschnittskopf."""
     if not re.match(r"S\d\d ", ws.title):
         return
     for c in ws[8]:
         if isinstance(c.value, str) and set(c.value) <= set("●○ "):
             c.value = None
     ws.row_dimensions[8].height = 30
-    ws.row_dimensions[9].height = 10
+    ws.row_dimensions[9].height = H_GAP
 
 
 def jump_row(ws):

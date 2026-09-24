@@ -12,6 +12,13 @@ Exit-Code 1, sobald mindestens ein Verstoß der Schwere „Fehler“ vorliegt (b
 Schriftmetrik: Calibri-Laufweiten über Carlito (metrisch identisch) mit Pillow bei 96 dpi; fehlt die Schrift,
 wird die Näherung core.text_px verwendet.
 
+Komponentensprache (Runde 2, CORE_API.md): Raster = core.ROW_RASTER, Typo-Skala = core.TYPE_SCALE, Button-Arten =
+core.BTN. Statusfarben-Disziplin (P1-10): große Kennzahlen neutral (kpi_statusfarbe), keine Statusflächen über
+Matrizen (status_flaeche), keine Emoji (emoji); kpi_ampel akzeptiert Pill/Chip/Kante/Statusspalte im Umfeld der Zahl.
+Callout-Körper (core.callout_box, Höhe nach Textlänge) sind vom Zeilenraster ausgenommen.
+Selbsttest (python excel/lint_pro.py --selftest) prüft jede Regel und als Gegenprobe, dass core.tile/callout_box/btn
+keinen Befund auslösen.
+
 Bewusste Ausnahmen gehören in AUSNAHMEN (Blatt, Zelle oder Bereich, Regel, Begründung) – nicht in die Module.
 """
 import argparse
@@ -63,11 +70,17 @@ RULES = {
     "druck_bereich":   (FEHLER, "Druckbereich fehlt"),
     "gueltigkeit":     (FEHLER, "Datenüberprüfung ohne Fehlermeldung (showErrorMessage = 0)"),
     "kpi_format":      (FEHLER, "KPI-Zahlenformat weicht von der KPI-Spezifikation (core.KPI) ab"),
-    "kpi_ampel":       (WARNUNG, "KPI mit Ampelregel ohne bedingte Formatierung"),
+    "kpi_ampel":       (WARNUNG, "KPI mit Ampelregel ohne Statusanzeige (Pill/Chip/Kante/Statusspalte in der Nähe)"),
     "link_ziel":       (FEHLER, "Link-Ziel existiert nicht (Blatt/Zelle/Name)"),
     "link_ziel_lage":  (WARNUNG, "Link-Ziel liegt in ausgeblendeter Zeile/Spalte"),
-    "zeilenraster":    (WARNUNG, "Zeilenhöhe außerhalb des Rasters (P1-17)"),
+    "zeilenraster":    (WARNUNG, "Zeilenhöhe außerhalb des Rasters core.ROW_RASTER (P1-17)"),
     "theme_schrift":   (WARNUNG, "Designschriftart (Theme) nicht Calibri/Calibri Light"),
+    # Komponentensprache Runde 2 (CORE_API.md): Typo-Skala, Statusfarben-Disziplin, Buttons
+    "typo_skala":      (FEHLER, "Schriftgröße außerhalb der Typo-Skala core.TYPE_SCALE 8/9/10/12,5/16/20/22/30 pt (P3-11)"),
+    "emoji":           (WARNUNG, "Emoji/Farbsymbol (⚠ ℹ 🟢 …) statt monochromer Zeichen ● ▲ ■ › (Statusfarben-Disziplin)"),
+    "kpi_statusfarbe": (WARNUNG, "Große Kennzahl (≥ 16 pt) in Status-Schriftfarbe grün/amber – Zahl neutral, Status als Pill/Chip/Kante (P1-10)"),
+    "status_flaeche":  (WARNUNG, "Statusfarbe über eine ganze Fläche/Matrix (bedingte Füllung ≥ 3 × 2 Zellen oder grüne/amber Schrift > 12 Zellen)"),
+    "button_hoehe":    (WARNUNG, "Button-Zeile weicht von der Button-Höhe ab (primary/secondary/ghost 25,5 pt, soft/chip 22,5 pt – P1-13)"),
 }
 
 # Bewusste Ausnahmen: (Blatt, Zelle oder Bereich oder "*", Regel) → Begründung
@@ -77,16 +90,29 @@ AUSNAHMEN = {
 }
 
 ALLOWED_FONTS = {"Calibri", "Calibri Light"}
+
+# Statusfarben (Schrift) und Status-Flächen aus core
+STATUS_FONT = {core.GREEN.upper(): "grün", core.AMBER.upper(): "amber", core.RED.upper(): "rot"}
+STATUS_FILL = {x.upper() for x in (core.GREEN_BG, core.AMBER_BG, core.RED_BG, core.GREEN, core.AMBER, core.RED)}
+KPI_BIG_PT = 16                       # ab dieser Größe gilt eine Zahl als „große Kennzahl“ (Kachelwert 20 pt)
+# Emoji / farbige Symbolzeichen (nicht: ● ▲ ■ › ✓ ○ – monochrom und erlaubt)
+EMOJI_RE = re.compile("[\U0001F000-\U0001FAFF\uFE0F\u2139\u26A0\u26A1\u26AA\u26AB\u26D4\u2705\u274C\u274E"
+                      "\u2753-\u2757\u2B50\u2B55\u23F0-\u23FA\u231A\u231B\u2614\u2615]")
+# Button-Arten aus core.BTN: (Fläche, Rahmen, Schrift) → (Art, Höhe)
+BUTTON_KINDS = {}
+for _k, _v in getattr(core, "BTN", {}).items():
+    BUTTON_KINDS[(_v[0].upper(), _v[1].upper(), _v[2].upper())] = (_k, _v[4])
 ERROR_VALUES = ("#DIV/0!", "#N/A", "#NV", "#NAME?", "#NULL!", "#NUM!", "#REF!", "#VALUE!", "#WERT!", "#BEZUG!",
                 "#ZAHL!", "#NAME", "#GETTING_DATA", "Err:", "#SPILL!", "#CALC!")
 MUTED2 = core.MUTED2.upper()
 SEPARATORS = " \u00a0·|–—/•›‹"     # reine Trennzeichen-Läufe dürfen 8A9099 sein (Rich-Text-Trenner)
 
-# Zeilenraster (pt): Tokens aus core + Umbruchhöhen fit_row_height (n × 13 + 8) und Hinweise (n × 13 + 10)
-RASTER = {core.H_BAND, core.H_BAND_B, core.H_BAND_B + 2, core.H_HEAD, core.H_ROW, core.H_ROW2, core.H_ROW3,
-          core.H_STEP_ROW, core.H_STEP_ROW2, core.H_TILE_LABEL, core.H_TILE_VALUE, core.H_TILE_SUB, core.H_BUTTON,
-          14, 16, 22, 30}
-RASTER |= {n * 13 + 8 for n in range(1, 12)} | {n * 13 + 10 for n in range(1, 12)}
+# Zeilenraster (pt): EINE Quelle – core.ROW_RASTER (Tokens inkl. H_PILL + Umbruchhöhen n × 13 + 8 / n × 13 + 10)
+RASTER = set(getattr(core, "ROW_RASTER", ())) or (
+    {core.H_BAND, core.H_BAND_B, core.H_BAND_B + 2, core.H_HEAD, core.H_ROW, core.H_ROW2, core.H_ROW3,
+     core.H_STEP_ROW, core.H_STEP_ROW2, core.H_TILE_LABEL, core.H_TILE_VALUE, core.H_TILE_SUB, core.H_BUTTON, 14, 16, 22, 30}
+    | {n * 13 + 8 for n in range(1, 12)} | {n * 13 + 10 for n in range(1, 12)})
+TYPE_SCALE = set(getattr(core, "TYPE_SCALE", (8, 9, 10, 12.5, 16, 20, 22, 30)))
 SPACER_MAX = 12            # Abstands-/Fugenzeilen bis 12 pt sind frei
 CHROME_ROWS = {1, 2, 3, 4, 5, 6, 7, 8}   # Kopfleiste, Seitenkopf, Schritt-Leiste: eigene Höhen je Modul
 
@@ -564,6 +590,7 @@ class Linter:
         for ws, wv in self.sheets():
             self.check_cells(ws, wv)
             self.check_rows(ws, wv)
+            self.check_status_cf(ws, wv)
             self.check_print(ws)
             self.check_validation(ws)
             self.check_links(ws)
@@ -646,6 +673,16 @@ class Linter:
                 sizes = [ru[1] for ru in runs if ru[0].strip()]
                 if sizes and min(sizes) < 8:
                     self.add(title, ref, "schrift_min", f"{min(sizes):g} pt")
+                off = sorted({sz for sz in sizes if sz >= 8 and sz not in TYPE_SCALE})
+                if off and self.in_print(ws, col, r):
+                    self.add(title, ref, "typo_skala", f"{', '.join(f'{x:g}' for x in off)} pt: „{short(text, 32)}“")
+                emo = EMOJI_RE.findall(text)
+                if emo:
+                    self.add(title, ref, "emoji", f"„{''.join(dict.fromkeys(emo))}“ in „{short(text, 40)}“")
+                if kind == "num" and sizes and max(sizes) >= KPI_BIG_PT:
+                    colr = STATUS_FONT.get(rgb_of(f.color) if f is not None else None)
+                    if colr:
+                        self.add(title, ref, "kpi_statusfarbe", f"{max(sizes):g} pt „{short(text, 24)}“ fest in {colr}")
                 small_grey = [ru[1] for ru in runs if ru[0].strip(SEPARATORS) and ru[5] == MUTED2 and ru[1] <= 9]
                 if small_grey:
                     self.add(title, ref, "grau_klein", f"{max(small_grey):g} pt in 8A9099")
@@ -759,8 +796,9 @@ class Linter:
                     rows_with_content.add(c.row)
         anchors, _ = self.merges(ws)
         multi = {r for (c, r), (c2, r2) in anchors.items() if r2 > r}
+        free = self.callout_rows(ws, anchors) | self.button_rows(ws, anchors, geo)
         for r in sorted(rows_with_content):
-            if r in CHROME_ROWS or geo.row_hidden(r) or r in multi or not self.in_print(ws, 1, r):
+            if r in CHROME_ROWS or geo.row_hidden(r) or r in multi or r in free or not self.in_print(ws, 1, r):
                 continue
             d = ws.row_dimensions.get(r)
             h = d.height if d is not None else None
@@ -769,6 +807,95 @@ class Linter:
             # LibreOffice rastet Höhen beim Speichern auf ganze Pixel ab (20 → 19,5 pt, 22 → 21,75 pt)
             if not any(-0.3 <= x - h <= 0.76 for x in RASTER):
                 self.add(ws.title, f"{r}:{r}", "zeilenraster", f"Zeile {r}: {h:g} pt")
+
+    @staticmethod
+    def callout_rows(ws, anchors):
+        """Letzte Zeile von Callout-Körpern (core.callout_box): verbundene F3F7FC-Bereiche mit oben ausgerichtetem
+        9-pt-Umbruch. Ihre Höhe folgt der Textlänge (auf ganze Pixel) und liegt bewusst außerhalb des Rasters;
+        ob der Text hineinpasst, prüft weiterhin umbruch_hoehe."""
+        out = set()
+        for (c, r), (c2, r2) in anchors.items():
+            cell = ws.cell(r, c)
+            al, f, fl = cell.alignment, cell.font, cell.fill
+            if not (al.wrap_text and al.vertical == "top" and f is not None and float(f.sz or 11) == core.T_SMALL):
+                continue
+            if fl is None or fl.fill_type != "solid" or rgb_of(fl.fgColor) != core.TINT_XL.upper():
+                continue
+            out.add(r2)          # nur die letzte Körperzeile wächst mit dem Text (fit="auto")
+        return out
+
+    def button_rows(self, ws, anchors, geo):
+        """Button-Zellen (core.btn) erkennen, Höhe gegen die Art prüfen; liefert die Zeilen (für zeilenraster frei)."""
+        out = set()
+        if not BUTTON_KINDS:
+            return out
+        _, inner = self.merges(ws)
+        for row in ws.iter_rows():
+            for c in row:
+                if c.hyperlink is None or is_empty(c.value) or (c.column, c.row) in inner:
+                    continue
+                fl, f, bd = c.fill, c.font, c.border
+                if fl is None or fl.fill_type != "solid" or bd is None or bd.top is None or not bd.top.style:
+                    continue
+                kind = BUTTON_KINDS.get((rgb_of(fl.fgColor), rgb_of(bd.top.color),
+                                         rgb_of(f.color) if f is not None else None))
+                if not kind or geo.row_hidden(c.row) or not self.in_print(ws, c.column, c.row):
+                    continue
+                out.add(c.row)
+                h = geo.row_pt(c.row)
+                if abs(h - kind[1]) > 0.76:
+                    self.add(ws.title, c.coordinate, "button_hoehe",
+                             f"{kind[0]}-Button „{short(str(c.value), 28)}“ in {h:g}-pt-Zeile (soll {kind[1]:g} pt)")
+        return out
+
+    # ------------------------------------------------------------------ Statusfarben-Disziplin (bedingte Formate)
+    def check_status_cf(self, ws, wv):
+        """P1-10: keine Statusflächen über Matrizen, große Kennzahlen nicht per Regel grün/amber einfärben."""
+        geo = self.g(ws)
+        dxf_color = {}
+        for cf in ws.conditional_formatting:
+            cells = [(c, r) for rg in cf.sqref.ranges for r in range(rg.min_row, rg.max_row + 1)
+                     for c in range(rg.min_col, rg.max_col + 1)]
+            cells = [(c, r) for c, r in cells if not geo.row_hidden(r) and not geo.col_hidden(c)]
+            if not cells:
+                continue
+            ref = str(cf.sqref).split(" ")[0]
+            nrows = len({r for _, r in cells})
+            ncols = len({c for c, _ in cells})
+            fills, fonts = [], []
+            for rule in cf.rules:
+                d = rule.dxf
+                if d is None:
+                    continue
+                fc = rgb_of(d.font.color) if d.font is not None and d.font.color is not None else None
+                fl = None
+                if d.fill is not None:
+                    fl = rgb_of(d.fill.bgColor) or rgb_of(d.fill.fgColor)
+                form = short((rule.formula or [""])[0], 36)
+                if fl in STATUS_FILL and nrows >= 3 and ncols >= 2:
+                    fills.append(form)
+                elif fc in STATUS_FONT and STATUS_FONT[fc] != "rot" and len(cells) > 12:
+                    fonts.append(STATUS_FONT[fc])
+                if fc in STATUS_FONT and STATUS_FONT[fc] != "rot":
+                    for c, r in cells:
+                        dxf_color.setdefault((c, r), STATUS_FONT[fc])
+            if fills:
+                self.add(ws.title, ref, "status_flaeche",
+                         f"bedingte Statusfüllung über {ncols} × {nrows} Zellen ({len(fills)} {'Regel' if len(fills) == 1 else 'Regeln'}, z. B. {fills[0]})")
+            elif fonts:
+                self.add(ws.title, ref, "status_flaeche",
+                         f"Schrift {'/'.join(dict.fromkeys(fonts))} über {len(cells)} Zellen – Status als Pill/Spalte zeigen")
+        _, inner = self.merges(ws)
+        for (c, r), colr in sorted(dxf_color.items(), key=lambda x: (x[0][1], x[0][0])):
+            if (c, r) in inner:
+                continue
+            cell = ws.cell(r, c)
+            if is_empty(cell.value) or float(cell.font.sz or 11) < KPI_BIG_PT:
+                continue
+            v = wv.cell(r, c).value if cell.data_type == "f" else cell.value
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                self.add(ws.title, cell.coordinate, "kpi_statusfarbe",
+                         f"{float(cell.font.sz):g}-pt-Kennzahl per Regel {colr} gefärbt")
 
     # ------------------------------------------------------------------ Druck, Gültigkeit, Links
     def check_print(self, ws):
@@ -866,6 +993,11 @@ class Linter:
                     tf = rpr.get("typeface")
                     if tf and not tf.startswith("+") and tf not in ALLOWED_FONTS:
                         self.add(title, ref, "schriftart", f"{label}: „{tf}“")
+            if chart is None:
+                txt = "".join(t.text or "" for t in el.iter("{%s}t" % NS["a"]))
+                emo = EMOJI_RE.findall(txt)
+                if emo:
+                    self.add(title, ref, "emoji", f"{label}: „{''.join(dict.fromkeys(emo))}“ in „{short(txt, 40)}“")
             # Form-Links
             for hl in el.iter("{%s}hlinkClick" % NS["a"]):
                 tgt = rels.get(hl.get(R_ID))
@@ -1007,8 +1139,25 @@ class Linter:
             if spec.get("rule") in ("ampel", "cf") and sh not in KPI_CALC_SHEETS:
                 if sh not in cf_cache:
                     cf_cache[sh] = self.cf_ranges(ws)
-                if not any(a <= c <= b and rr1 <= r <= rr2 for a, rr1, b, rr2 in cf_cache[sh]):
-                    self.add(sh, cell.coordinate, "kpi_ampel", f"{spec['label']} ({via}) ohne Ampel")
+                if not self.has_status(ws, c, r, cf_cache[sh]):
+                    self.add(sh, cell.coordinate, "kpi_ampel", f"{spec['label']} ({via}) ohne Statusanzeige")
+
+    STATUS_BOX = (-1, 4, -1, 2)      # Spalten c-1…c+4, Zeilen r-1…r+2: Kachel (Label/Wert/Kontext) bzw. Tabellenzeile
+
+    def has_status(self, ws, c, r, ranges):
+        """Status sichtbar? Neue Sprache (P1-10): die Zahl bleibt neutral, der Status sitzt als Pill/Chip in der
+        Kontextzeile, als Kante (bedingter Rahmen) oder in einer Statusspalte derselben Zeile. Akzeptiert wird jede
+        bedingte Formatierung oder Statusformel („●“) im Umfeld der Kennzahl."""
+        dc1, dc2, dr1, dr2 = self.STATUS_BOX
+        x1, x2, y1, y2 = c + dc1, c + dc2, r + dr1, r + dr2
+        if any(a <= x2 and b >= x1 and rr1 <= y2 and rr2 >= y1 for a, rr1, b, rr2 in ranges):
+            return True
+        for rr in range(max(1, y1), y2 + 1):
+            for cc in range(max(1, x1), x2 + 1):
+                v = ws.cell(rr, cc).value
+                if isinstance(v, str) and ("●" in v or "STATUS" in v.upper()):
+                    return True
+        return False
 
 
 # =============================================================================== Text-Hilfen
@@ -1156,15 +1305,41 @@ def selftest():
     ch.add_data(Reference(ws, min_col=1, min_row=12, max_row=19))
     ws.add_chart(ch, "A13")
     ws.freeze_panes = "B3"
+    ws["F1"], ws["F1"].font = "Elf", Font(name="Calibri", sz=11)                      # typo_skala
+    ws["F2"] = "⚠ Achtung"                                                            # emoji
+    ws["F3"], ws["F3"].font = 0.061, Font(name="Calibri", sz=20, color=core.GREEN)   # kpi_statusfarbe (fest)
+    for rr in range(20, 24):                                                          # status_flaeche
+        for cc in (8, 9):
+            ws.cell(rr, cc, 1)
+    core.status_cf(ws, "H20:I23", [("H20<0", "red"), ("ISNUMBER(H20)", "green")], font_color=False, fill_bg=True)
+    core.btn(ws, "K", 30, "L", "Weiter  ›", "T", kind="primary")                    # button_hoehe
+    ws.row_dimensions[30].height = 30
+    # Gegenprobe: neue Bausteine dürfen keine Befunde auslösen (Kachel mit Chip, Callout mit Texthöhe)
+    ok = wb.create_sheet("OK")
+    for c in "BCDEFGH":
+        ok.column_dimensions[c].width = 14
+    core.tile(ok, "B", "C", 10, 11, 12, kpi="BMR", value=0.043, sub="Ziel ≥ 5,0 %")
+    ok["B11"].font = Font(name="Calibri", sz=20, bold=True, color=core.NAVY)
+    core.callout_box(ok, "E", 10, "H", 11, 11, title="Einordnung",
+                     text="Ein Satz, der die Kennzahl einordnet und über zwei Zeilen umbricht, damit die Höhe krumm wird.",
+                     conditions=[("B11<0.05", "amber"), ("ISNUMBER(B11)", "green")])
+    core.btn(ok, "B", 14, "C", "Weiter  ›", "OK", kind="primary")
+    ok.page_setup.paperSize = 9
+    ok.print_area = "A1:M40"
+    assert ok.row_dimensions[11].height not in RASTER, "Gegenprobe braucht eine krumme Callout-Höhe"
     tmp = os.path.join(tempfile.mkdtemp(prefix="lint_selftest_"), "t.xlsx")
     wb.save(tmp)
-    got = {f["rule"] for f in Linter(tmp).run()}
+    found = Linter(tmp).run()
+    got = {f["rule"] for f in found if f["sheet"] == "T"}
     want = {"einzug", "schrumpfen", "schrift_min", "grau_klein", "schriftart", "text_ueberlauf", "zahl_raute",
             "einheit_doppelt", "fehlerwert", "diagramm_verdeckt", "fixierlinie", "druck_papier", "druck_bereich",
-            "gueltigkeit", "link_ziel", "umbruch_hoehe", "zeile_zu_niedrig"}
+            "gueltigkeit", "link_ziel", "umbruch_hoehe", "zeile_zu_niedrig",
+            "typo_skala", "emoji", "kpi_statusfarbe", "status_flaeche", "button_hoehe"}
     missing = want - got
+    false_pos = [f"{f['ref']} {f['rule']}: {f['msg']}" for f in found if f["sheet"] == "OK"]
     print("Selbsttest:", "OK" if not missing else f"FEHLT {sorted(missing)}", f"({len(want)} Regeln)")
-    return 0 if not missing else 1
+    print("Gegenprobe core-Bausteine:", "OK (0 Befunde)" if not false_pos else "FEHLALARM " + " · ".join(false_pos))
+    return 0 if not missing and not false_pos else 1
 
 
 def main():

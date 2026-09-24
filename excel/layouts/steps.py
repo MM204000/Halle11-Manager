@@ -1,121 +1,186 @@
-"""Leitfaden-Seiten S01–S12: Spaltenraster, Zeilenraster, Eingabetabellen, Einheiten, Ergebnis-Panel,
-Einordnung, Eingabezustände, Kacheln (S08/S12), Button-Zeile, Zonen-Layout und Diagrammanker.
+"""Leitfaden-Seiten S01–S12 – Runde 2: EINE Komponentensprache aus core.py.
 
 Nur Darstellung. Die Rechenformeln der Vorlage bleiben unverändert. Angepasst werden ausschließlich
 nicht referenzierte Anzeigeformeln (Einordnungstexte, Textergebnisse, Kachel-Beschriftungen), statische
 Beschriftungen, Stile, Zahlenformate, Zeilenhöhen/Spaltenbreiten, Verbünde, Links und Diagrammanker.
 
-Zonen einer Schrittseite
-  A  ab Z. 10: links die Eingabetabelle (C:F), rechts das Ergebnis dieses Schritts (H:I) mit der Einordnung
-     direkt darunter.
-  B  Diagrammband eine Leerzeile unter der Eingabetabelle (Kopf im L2-Stil, Diagramm genau im Raster).
-  C  zwei Leerzeilen (12 pt) unter dem tiefsten Element die Button-Zeile, eine Leerzeile darunter der Fuß.
+Anatomie einer Schrittseite (festes Zwei-Spalten-Raster)
+  links  C:F  Abschnitt „Eingaben“ (C.section 1) · Tabellenkopf (C.section 2) · Eingabezeilen · ggf. Diagramm
+  rechts H:I  Abschnitt „Ergebnis dieses Schritts“ · Ergebniszeilen mit Summenstufen (C.sum_row)
+              · Einordnungs-Box (C.callout_box, bei Ampel mit Status-Pill „● Urteil · Ist-Wert“ und Statuskante)
+              · „Als Nächstes“ (Vorschau auf den nächsten Schritt) – unten bündig mit der linken Spalte
+  unten       zwei Leerzeilen unter der tieferen Spalte die Button-Reihe (C.btn_row: Zurück · Übersicht ·
+              Weiter), eine Leerzeile darunter der Fuß.
+S08/S12 (Ergebnisseiten, „Fintech“): KPI-Kacheln (C.tile, dunkel, Kontextzeile + Status-Chip), rechts
+Einordnungs-Boxen je Kennzahl, darunter Herleitung und Diagramm.
 """
-import math
 import re
 
-from openpyxl.cell.rich_text import CellRichText, TextBlock
-from openpyxl.cell.text import InlineFont
+from openpyxl.chart import BarChart, Reference, Series
+from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, TwoCellAnchor
 from openpyxl.formatting.formatting import ConditionalFormattingList
-from openpyxl.formatting.rule import FormulaRule
-from openpyxl.styles import Alignment, Border, Font
+from openpyxl.styles import Alignment, Border
 from openpyxl.worksheet.hyperlink import Hyperlink
 
 import core as C
 
 # ============================================================================ Raster und Namen
-GRID = (("C", 33), ("D", 32), ("E", 13), ("F", 52), ("G", 3), ("H", 38), ("I", 16))
+# Schrittseiten: C Position · D Eingabe (einheitlich breit) · E nur Einheit · F Hinweis · G Rinne · H:I Ergebnis
+GRID = (("C", 36), ("D", 37), ("E", 10), ("F", 46), ("G", 3), ("H", 36), ("I", 18))
+# Ergebnisseiten S08/S12: zwei gleich breite Kachelspalten C:D | E:F (Kontext links, Status-Chip rechts)
+GRID_KPI = (("C", 36), ("D", 29), ("E", 34), ("F", 30), ("G", 3), ("H", 36), ("I", 18))
 LONG = ["Objekt", "Kaufpreis & Miete", "Kaufnebenkosten", "Kaufpreisaufteilung", "Maßnahmen & Reserve",
         "Bewirtschaftung", "Finanzierung", "Zwischenergebnis", "Steuern", "Abschreibung", "Prognose & Exit",
         "Ergebnis"]
-GAP = 12                 # Leerzeile zwischen Zonen
-CHART_H = 210            # Diagrammhöhe (pt) im Diagrammband
-ROW1, ROW2, ROW3 = C.H_STEP_ROW, C.H_STEP_ROW2, 44
-LINE_PT = 13             # Zeilenhöhe Fließtext 9 pt in Einordnungskästen
-NBSP = " "
+GAP = C.H_GAP            # genau eine Leerzeile zwischen Komponenten
+CHART_MIN = 180          # Mindesthöhe eines Diagramms (pt)
+PIE_MIN = 150            # Mindesthöhe eines Kreises in der rechten Spalte (pt)
+ROW1, ROW2, ROW3 = C.H_STEP_ROW, C.H_STEP_ROW2, 47
+NBSP = " "
+SIGNED_EFFECT = '-#,##0" €";+#,##0" €";"–"'   # Steuerwirkung aus Sicht des Cashflows: Erstattung +, Zahlung −
 
 UNITS = {"€": None, "%": None, "€/Monat": "pro Monat", "€ p. a.": "pro Jahr", "€/m²": "je m²",
-         "€/m² p. a.": "je m² p. a.", "% Darlehen": "vom Darlehen", "% der Miete": "der Miete",
-         "% Verkaufspreis": "vom Verkaufspreis"}
-
-PX = {}                  # Spaltenbreiten in Excel-Pixeln (nach dem Setzen des Rasters)
+         "€/m² p. a.": "je m² p. a.", "% Darlehen": None, "% der Miete": "der Miete",
+         "% Verkaufspreis": None}
 
 
-def status_ampel(value, green, yellow, target):
-    return (f'=IF({value}>={green},"Grün",IF({value}>={yellow},"Gelb","Rot"))&"  ·  Ziel ≥ "&{target}')
+# ============================================================================ Ampel-Boxen (P1-03)
+def val_text(kpi):
+    """Ist-Wert als Text für die Status-Pill."""
+    return {"BMR": 'FIXED(Bruttomietrendite*100,1)&" %"',
+            "NMR": 'FIXED(S06_NMR*100,1)&" %"',
+            "DSCR": 'FIXED(DSCR_J1,2)&"×"',
+            "IRR": 'FIXED(EK_IRR*100,1)&" %"',
+            "CFV": 'FIXED(CF_vSt_J1/12,0)&" €"'}[kpi]
 
 
-# Ampel-Status für die Einordnung: (KPI-Schlüssel für add_ampel, Wertausdruck, Statusformel)
-STATUS = {
-    "BMR": ("BMR", "Bruttomietrendite",
-            status_ampel("Bruttomietrendite", "Ampel_BMR_gruen", "Ampel_BMR_gelb", 'FIXED(Ampel_BMR_gruen*100,1)&" %"')),
-    "NMR": ("NMR", "S06_NMR",
-            status_ampel("S06_NMR", "Ampel_NMR_gruen", "Ampel_NMR_gelb", 'FIXED(Ampel_NMR_gruen*100,1)&" %"')),
-    "DSCR": ("DSCR", "DSCR_J1",
-             status_ampel("DSCR_J1", "Ampel_DSCR_gruen", "Ampel_DSCR_gelb", "FIXED(Ampel_DSCR_gruen,2)")),
-    "IRR": ("IRR", "EK_IRR",
-            status_ampel("EK_IRR", "Ampel_IRR_gruen", "Ampel_IRR_gelb", 'FIXED(Ampel_IRR_gruen*100,1)&" %"')),
-    "CFV": (None, "CF_vSt_J1", '=IF(CF_vSt_J1<0,"Rot","Grün")&"  ·  Ziel ≥ 0 €"'),
-}
+VALUE_REF = {"BMR": "Bruttomietrendite", "NMR": "S06_NMR", "DSCR": "DSCR_J1", "IRR": "EK_IRR", "CFV": "CF_vSt_J1"}
+
+
+def pill_formula(kpi):
+    """Status-Pill: „●  kritisch · 0,61×“ – Urteil (core.STATUS_WORDS) und Ist-Wert; reine Anzeigeformel."""
+    conds = C.status_conditions(kpi, VALUE_REF[kpi])
+    expr = '""'
+    for cond, lvl in reversed(conds):
+        expr = f'IF({cond},"{C.STATUS_DOT}  {C.STATUS_WORDS[lvl]} · "&{val_text(kpi)},{expr})'
+    return "=" + expr, conds
+
+
+# Texte der Ampel-Boxen: ein Satz zum Urteil mit Zielwert, danach die Einordnung (reine Anzeigeformeln)
+TEXT_BMR = ('=IF(Bruttomietrendite<Ampel_BMR_gelb,"Unter "&FIXED(Ampel_BMR_gelb*100,1)&" % trägt sich das Objekt '
+            'aus der Miete allein meist nicht – bei üblicher Finanzierung wird der Cashflow vor Steuern negativ. Es '
+            'rechnet sich dann nur über Tilgung, Wertentwicklung und Steuereffekte.",IF(Bruttomietrendite<'
+            'Ampel_BMR_gruen,"Ausbaufähig: Solide ist eine Bruttomietrendite ab "&FIXED(Ampel_BMR_gruen*100,1)&" %, '
+            'zwischen "&FIXED(Ampel_BMR_gelb*100,1)&" und "&FIXED(Ampel_BMR_gruen*100,1)&" % trägt sich die '
+            'Finanzierung meist nur mit mehr Eigenkapital. Ob der Cashflow reicht, zeigen die Schritte 6 bis 10.",'
+            '"Solide: Das Ziel von "&FIXED(Ampel_BMR_gruen*100,1)&" % ist erreicht. Ob der Cashflow nach '
+            'Kapitaldienst und Steuern positiv ist, entscheidet sich in den Schritten 6 bis 10."))')
+TEXT_NMR_PREFIX = ('IF(S06_NMR<Ampel_NMR_gruen,"Die Nettomietrendite liegt unter dem Ziel von "&'
+                   'FIXED(Ampel_NMR_gruen*100,1)&" %.","Die Nettomietrendite erreicht das Ziel von "&'
+                   'FIXED(Ampel_NMR_gruen*100,1)&" %.")&" "')
+TEXT_DSCR_S07 = ('=IF(NOT(ISNUMBER(DSCR_J1)),"Ohne Darlehen entfällt die Kapitaldienstdeckung.",IF(DSCR_J1>='
+                 'Ampel_DSCR_gruen,"Der Einnahmenüberschuss deckt die Rate an die Bank mit Reserve – Banken '
+                 'erwarten mindestens "&FIXED(Ampel_DSCR_gruen,2)&"×.",IF(DSCR_J1>=Ampel_DSCR_gelb,"Knapp: Banken '
+                 'erwarten meist mindestens "&FIXED(Ampel_DSCR_gruen,2)&"× – mehr Eigenkapital oder Sicherheiten '
+                 'einplanen.","Der Einnahmenüberschuss deckt nur "&FIXED(DSCR_J1*100,0)&" % der Rate. Banken '
+                 'erwarten mindestens "&FIXED(Ampel_DSCR_gruen,2)&"× – den Rest tragen Sie aus Ihrem Einkommen.")))')
+TEXT_DSCR_S08 = ('="Banken erwarten meist eine Kapitaldienstdeckung von mindestens "&FIXED(Ampel_DSCR_gruen,2)&'
+                 '"× (Einnahmenüberschuss ÷ Rate). Darunter trägt der Investor einen Teil der Rate aus seinem '
+                 'Einkommen."')
+TEXT_CFV_S08 = ('=IF(CF_vSt_J1>=0,"Die Miete deckt Bewirtschaftung, Zinsen und Tilgung: Es bleiben "&'
+                'FIXED(CF_vSt_J1/12,0)&" € pro Monat vor Steuern für Rücklagen oder Sondertilgungen.","Es fehlen "&'
+                'FIXED(-CF_vSt_J1/12,0)&" € pro Monat, die aus anderen Einkünften zugeschossen werden. Ob sich das '
+                'Objekt trotzdem lohnt, zeigen Steuereffekt (Schritte 9–10) und Wertentwicklung (Schritt 11).")')
+TEXT_IRR_S12 = ('=IFERROR(IF(EK_IRR>=Ampel_IRR_gruen,"Über "&Haltedauer&" Jahre verzinst sich das Eigenkapital mit "&'
+                'FIXED(EK_IRR*100,1)&" % p. a. nach Steuern – das Ziel von "&FIXED(Ampel_IRR_gruen*100,1)&" % ist '
+                'erreicht.",IF(EK_IRR>=Ampel_IRR_gelb,"Über "&Haltedauer&" Jahre verzinst sich das Eigenkapital mit "&'
+                'FIXED(EK_IRR*100,1)&" % p. a. nach Steuern – solide, aber unter dem Ziel von "&'
+                'FIXED(Ampel_IRR_gruen*100,1)&" %. Hebel: Kaufpreis, Miete, Finanzierung und Haltedauer.","Über "&'
+                'Haltedauer&" Jahre verzinst sich das Eigenkapital nur mit "&FIXED(EK_IRR*100,1)&" % p. a. nach '
+                'Steuern – unter der Mindestschwelle von "&FIXED(Ampel_IRR_gelb*100,1)&" %. Kaufpreis, Miete und '
+                'Finanzierung prüfen.")),"Die Eigenkapitalrendite lässt sich mit diesen Annahmen nicht berechnen.")')
 
 # ============================================================================ Blatt-Spezifikation
 # results: Zeile → (Rolle, Beschriftung|None, Formel|None, Format|None)
-#   Rollen: n normal · s Unterposition · i Zwischensumme · f Endergebnis · m nachrichtlich · t Textwert
+#   Rollen: n normal · s Unterposition · i Zwischensumme (sum_row sub) · f Blockergebnis (sum_row result)
+#           · m nachrichtlich · t Textwert
+# callout: head = Kopfzeile, src = Zelle mit dem Einordnungstext (wird nach head+1 verschoben), title, kpi
 SPEC = {
     1: dict(
         inputs=range(12, 20), text=(12, 13, 14, 19),
-        results={11: ("n", None, None, None), 12: ("n", None, None, None), 13: ("n", None, None, None),
+        labels={16: "Grundstücksfläche bzw. -anteil", 17: "Baujahr (Fertigstellung)",
+                18: "Kaufdatum (Nutzen und Lasten)"},
+        hints={14: "Gewerbe: keine § 7b-Sonder-AfA, keine degressive AfA",
+               15: "Basis für Miete/m², Rücklage und § 7b-Grenzen",
+               16: "ETW: Miteigentumsanteil × Fläche (Teilungserklärung)",
+               17: "steuert den AfA-Satz und die Prüfung von § 7b",
+               18: "Jahr 1 = die ersten 12 Monate ab Kauf"},
+        results={11: ("n", None, None, C.NUMFMT["pct1"]), 12: ("n", None, None, C.NUMFMT["pct1"]),
+                 13: ("n", None, None, None),
                  14: ("n", None, '=IF(Wohngebaeude=1,"Ja","Nein (Gewerbe)")', None)},
-        callout=dict(head=16, src="H17", max_chars=235),
-        info=(21, "Gelb hinterlegte Felder sind Eingaben mit Beispielwerten – einfach überschreiben. "
-                  "Die Rechtsform (Privat oder GmbH) wählen Sie auf der Startseite."),
+        callout=dict(head=16, src="H17", title="AfA nach Baujahr"),
+        info=(21, "Alle gelben Felder enthalten Beispielwerte – einfach überschreiben. Die Rechtsform wählen Sie "
+                  "auf der Startseite  ›"),
         nav=24, foot=26),
     2: dict(
         inputs=range(12, 18), indent2=(13, 15),
-        labels={13: "davon bewegliche Gegenstände (Küche, Möbel)"},
-        hints={13: "gesondert im Kaufvertrag ausgewiesen: grunderwerbsteuerfrei (§ 2 GrEStG) und linear "
-                   "abschreibbar"},
+        labels={13: "davon bewegliche Gegenstände", 15: "davon Anteil Erhaltungsrücklage",
+                17: "Umlagefähige Betriebskosten"},
+        hints={12: "inkl. beweglicher Gegenstände und Rücklagenanteil",
+               13: "Küche, Möbel · grunderwerbsteuerfrei (§ 2 GrEStG)",
+               14: "Küche i. d. R. 10 Jahre, Möbel 8–13 (AfA-Tabelle)",
+               15: "nicht abschreibbar, aber grunderwerbsteuerpflichtig",
+               16: "Soll-Miete lt. Mietvertrag bzw. Marktmiete",
+               17: "Vorauszahlung des Mieters · Durchlaufposten"},
         results={11: ("n", "Kaufpreis ohne Inventar/Rücklage", None, None),
                  12: ("n", None, None, None), 13: ("n", None, None, None),
                  14: ("n", "Kaufpreisfaktor", "=Kaufpreisfaktor", C.NUMFMT["mult1"]),
                  15: ("f", "= Bruttomietrendite", None, C.NUMFMT["pct1"]),
                  16: ("m", "nachrichtlich: Warmmiete pro Monat", "=Miete_Monat+NK_umlagefaehig", C.NUMFMT["eur"])},
-        ampel={"I15": "BMR"},
-        callout=dict(head=18, src="H19", max_chars=240, status="BMR"),
+        callout=dict(head=18, src="H19", title="Bruttomietrendite", kpi="BMR", text=TEXT_BMR),
         nav=26, foot=28),
     3: dict(
         inputs=range(12, 17), optional=(12,),
         labels={12: "Grunderwerbsteuer abweichend", 16: "Sonstige Erwerbsnebenkosten"},
         hints={12: "optional · leer = Satz des Bundeslands (siehe Ergebnis)",
-               16: "Gutachten, Fahrtkosten, Übersetzungen – Anschaffungsnebenkosten, sofern objektbezogen"},
+               16: "Gutachten, Fahrten – sofern objektbezogen"},
         results={11: ("n", None, None, None), 12: ("n", None, None, None), 13: ("n", None, None, None),
                  14: ("n", None, None, None), 15: ("n", None, None, None), 16: ("i", None, None, None),
                  17: ("s", None, None, C.NUMFMT["pct1"]), 18: ("f", None, None, None)},
-        callout=dict(head=20, src="H21", max_chars=245),
-        charts=[dict(side="L", title="Zusammensetzung der Kaufnebenkosten", unit="Anteile in %")],
+        callout=dict(head=20, src="H21", title="Steuerliche Behandlung"),
+        charts=[dict(side="L", title="Zusammensetzung der Kaufnebenkosten", unit="Anteile in %", pie=True)],
         nav=44, foot=46, hide=(60, 66)),
     4: dict(
         inputs=range(12, 16), text=(12,),
         inactive={14: "KPA_Idx<>2", 15: "KPA_Idx<>3"},
-        hints={14: "nur Methode „Bodenanteil in %“", 15: "nur Methode „Gebäudewert“ (ohne bewegliche Gegenstände)"},
+        labels={15: "Gebäudewert (Gutachten / Vertrag)"},
+        hints={12: "Standard: BMF-Arbeitshilfe · Gutachten möglich",
+               13: "lt. Gutachterausschuss / BORIS (Methode 1)",
+               14: "nur Methode „Bodenanteil in %“",
+               15: "nur Methode „Gebäudewert“ (ohne Inventar)"},
         results={11: ("n", None, None, None), 12: ("n", None, None, None),
                  13: ("n", None, None, C.NUMFMT["pct1"]),
                  14: ("n", "AK Grund und Boden (inkl. NK)", None, None),
                  15: ("f", "= AfA-Basis Gebäude (inkl. NK)", None, None),
                  16: ("m", "nachrichtlich: bewegliche Gegenstände", None, None)},
-        callout=dict(head=18, src="H19", max_chars=305),
-        charts=[dict(side="L", title="Kaufpreisaufteilung", unit="Anteile in %")],
+        callout=dict(head=18, src="H19", title="Gebäudeanteil und AfA"),
+        charts=[dict(side="L", title="Aufteilung der Anschaffungskosten", unit="inkl. NK und Inventar · in %", pie=True)],
         nav=43, foot=45),
     5: dict(
         inputs=range(12, 20), text=(16,),
         inactive={17: "OR(Rechtsform_Idx>=2,Wohngebaeude=0)"},
         labels={12: "Renovierung Jahr 1 (brutto)", 13: "Renovierung Jahr 2 (brutto)",
                 14: "Renovierung Jahr 3 (brutto)", 15: f"Sonderumlagen der WEG (Jahr{NBSP}1)",
-                17: "Verteilung Erhaltungsaufwand",
-                19: "Einmalige Liquiditätsreserve"},
-        hints={15: "Instandsetzungs-Umlagen: Erhaltungsaufwand, zählen zur 15 %-Grenze",
-               17: f"§{NBSP}82b EStDV · 1 = Sofortabzug, 2–5 = Verteilung (nur Privat, Wohngebäude)",
-               19: "z. B. Mieterwechsel · nicht steuerrelevant, erhöht nur das Eigenkapital"},
+                16: "Steuerliche Behandlung", 17: "Verteilung Erhaltungsaufwand",
+                18: "Wertsteigernder Anteil", 19: "Einmalige Liquiditätsreserve"},
+        hints={12: "Teil des anfänglichen Kapitalbedarfs",
+               13: "aus laufendem Cashflow / Eigenkapital",
+               14: f"Jahre 1–3 zählen für die 15{NBSP}%-Grenze",
+               15: f"Erhaltungsaufwand · zählt zur 15{NBSP}%-Grenze",
+               16: f"§{NBSP}6 Abs. 1 Nr. 1a EStG · über 15{NBSP}% → AfA",
+               17: f"§{NBSP}82b EStDV · 1 = sofort, 2–5 = verteilt (Privat)",
+               18: "Anteil der Maßnahmen, der den Objektwert erhöht",
+               19: "z. B. Mieterwechsel · erhöht nur das Eigenkapital"},
         units={17: "Jahr(e)"},
         results={11: ("n", "Maßnahmen Jahre 1–3 (netto)", None, None),
                  12: ("n", None, None, None),
@@ -123,77 +188,80 @@ SPEC = {
                       '=IF(HK_Flag=1,"Aktiviert (AfA)",IF(Verteilung_eff>1,"Verteilt (§ 82b)","Sofortabzug"))', None),
                  14: ("n", "Maßnahmen + Sonderumlage Jahr 1", None, None),
                  15: ("i", None, None, None), 16: ("f", None, None, None)},
-        callout=dict(head=18, src="H19", max_chars=300),
-        charts=[dict(side="L", title="Zusammensetzung der Gesamtinvestition", unit="Anteile in %")],
+        callout=dict(head=18, src="H19", title=f"Die 15{NBSP}%-Grenze"),
+        charts=[dict(side="L", title="Zusammensetzung der Gesamtinvestition", unit="Anteile in %", pie=True)],
         nav=44, foot=46),
     6: dict(
         inputs=range(12, 20), indent2=(13, 14),
-        labels={13: "davon nicht umlagefähig",
-                14: "davon Zuführung zur Erhaltungsrücklage", 19: "Sonstige Werbungskosten"},
+        labels={13: "davon nicht umlagefähig", 14: "davon Erhaltungsrücklage", 15: "Miet-/SE-Verwaltung",
+                18: "Leerstand zu Beginn", 19: "Sonstige Werbungskosten"},
         hints={13: "Verwaltung WEG, Rücklage, Sonstiges – trägt der Eigentümer",
-               14: "in „nicht umlagefähig“ enthalten · steuerlich erst bei Verausgabung durch die WEG abziehbar "
-                   "(BFH IX R 19/24)",
+               14: "Teil von „nicht umlagefähig“ · Abzug erst bei Verausgabung",
+               16: "kalkulatorisch, Faustwert 8–15 €/m² · nicht steuerwirksam",
+               18: "Renovierung / Neuvermietung · mindert die Miete Jahr 1",
                19: "Steuerberatung, Kontoführung, Fahrten"},
         results={11: ("n", "Nettokaltmiete Ist (nach Ausfall)", None, None),
                  12: ("n", "– Bewirtschaftung inkl. Rücklagen", None, None),
                  13: ("s", "in % der Nettokaltmiete", None, C.NUMFMT["pct1"]),
                  14: ("i", "= Einnahmenüberschuss (NOI)", None, None),
                  15: ("f", "= Nettomietrendite", None, C.NUMFMT["pct1"])},
-        ampel={"I15": "NMR"}, band_right="Jahr 1 · pro Monat",
-        callout=dict(head=17, src="H18", max_chars=275, status="NMR"),
-        charts=[dict(side="L", title="Bewirtschaftungskosten Jahr 1", unit="€ p. a. · Anteile")],
+        band_right="Jahr 1 · pro Monat",
+        callout=dict(head=17, src="H18", title="Nettomietrendite", kpi="NMR", prefix=TEXT_NMR_PREFIX),
+        charts=[dict(side="L", title="Bewirtschaftungskosten Jahr 1", unit="€ p. a. · Anteile", pie=True)],
         nav=41, foot=43, hide=(60, 66)),
     7: dict(
         inputs=range(12, 22), note=22,
-        labels={16: "Darlehen I – Anschlusszins nach Zinsbindung"},
-        hints={16: "Annahme · Zinsänderungsrisiko; die Annuität bleibt konstant"},
+        labels={16: "Darlehen I – Anschlusszins", 19: "Grundschuldbestellung",
+                20: "Bearbeitungs- und Vermittlungsgebühr"},
+        hints={16: "nach der Zinsbindung · Annahme, die Annuität bleibt",
+               19: "Notar + Grundbuch, ca. 0,4–0,6 % des Darlehens",
+               20: "Bank, Wertermittlung · sofort abziehbar",
+               21: "bis 5 % bei ≥ 5 Jahren Zinsbindung sofort abziehbar"},
         results={11: ("n", None, None, None), 12: ("n", None, None, None), 13: ("i", None, None, None),
                  14: ("n", "Eigenkapitalquote", "=EK_Quote", C.NUMFMT["pct1"]),
                  15: ("n", "Beleihungsauslauf", "=Beleihung", C.NUMFMT["pct1"]),
                  16: ("n", "Restschuld nach Zinsbindung", None, None),
                  17: ("n", None, None, None),
                  18: ("f", "= Rate an die Bank / Monat", "=Kapitaldienst_Monat_J1", C.NUMFMT["eur"])},
-        callout=dict(head=20, src="H20", body=21, max_chars=265, status="DSCR"),
-        charts=[dict(side="L", title="Restschuld am Jahresende", unit="T€ · Darlehen I und II", chart_col=7),
+        callout=dict(head=20, src="H20", body=21, title="Kapitaldienstdeckung (DSCR)", kpi="DSCR",
+                     text=TEXT_DSCR_S07, second=dict(title="Zinsänderungsrisiko")),
+        charts=[dict(side="L", title="Restschuld am Jahresende", unit="T€ · Jahresende · Jahre 1–35", chart_col=7),
                 dict(side="R", title="Finanzierungsstruktur", unit="Anteile in %", chart_col=2)],
-        nav=44, foot=46),
+        chart_min=165, nav=44, foot=46),
     9: dict(
         inputs=range(12, 19), text=(12, 13, 16, 17), linked=12, optional=(15,),
         inactive={13: "Rechtsform_Idx>=2", 14: "Rechtsform_Idx>=2", 15: "Rechtsform_Idx>=2",
                   16: "Rechtsform_Idx>=2", 17: "Rechtsform_Idx>=2", 18: "Rechtsform_Idx=1"},
-        labels={13: "Veranlagung", 14: "Zu versteuerndes Einkommen ohne dieses Objekt",
-                15: "Grenzsteuersatz manuell", 16: "Solidaritätszuschlag berücksichtigen",
+        labels={13: "Veranlagung", 14: "Einkommen ohne dieses Objekt (zvE)",
+                15: "Grenzsteuersatz manuell", 16: "Solidaritätszuschlag",
                 17: "Kirchensteuer", 18: "Gewerbesteuer-Hebesatz"},
-        hints={12: "Rechtsform auf der Startseite ändern  ›", 13: "nur Privatperson",
-               14: "nur Privatperson · Basis für den Grenzsteuersatz nach Tarif 2026",
-               15: "nur Privatperson · optional, leer = automatisch nach Tarif 2026 (z. B. 42 % oder 45 %)",
-               16: "nur Privatperson · „Nein“, wenn die ESt unter der Freigrenze bleibt (2026: 20.350 € / "
-                   "40.700 €)",
-               17: "nur Privatperson · der Sonderausgabenabzug der KiSt ist in der Belastung berücksichtigt",
-               18: "nur GmbH ohne erweiterte Kürzung · z. B. 400 % → Eingabe 400 %"},
+        hints={13: "nur Privatperson",
+               14: "nur Privatperson · Basis für den Grenzsteuersatz",
+               15: "nur Privat · optional, leer = nach Tarif 2026",
+               16: "nur Privat · „Nein“ bei ESt unter der Freigrenze",
+               17: "nur Privat · Sonderausgabenabzug berücksichtigt",
+               18: "nur GmbH ohne erweiterte Kürzung · z. B. 400 %"},
         results={11: ("n", None, None, None),
                  12: ("n", "Grenzbelastung inkl. Soli / KiSt", None, None),
                  13: ("n", "Steuersatz GmbH Jahr 1", None, None),
                  14: ("i", None, None, None), 15: ("n", None, None, None),
-                 16: ("f", '="= Steuer"&IF(I16<0,"erstattung","zahlung")&" Jahr 1"', None,
-                      '#,##0" €";#,##0" €";"–"')},
+                 16: ("f", "= Steuerwirkung Jahr 1", None, C.NUMFMT["tax_effect"])},
         band_right="Jahr 1",
-        callout=dict(head=18, src="H19", max_chars=310),
+        callout=dict(head=18, src="H19", title="Besteuerung nach Rechtsform"),
+        charts=[dict(side="L", title="Steuerliches Ergebnis und Steuer", unit="Jahre 1–20 · € p. a.", new=True)],
         nav=27, foot=29),
     10: dict(
         inputs=range(12, 18), text=(12, 14, 15, 16),
         inactive={13: "AfA_Idx<>6", 14: "AfA_Idx<>5", 17: 'Denkmal<>"Ja"'},
-        labels={13: "Restnutzungsdauer lt. Gutachten", 14: "Degressiv: Auto-Wechsel zur linearen AfA",
-                15: f"Sonder-AfA §{NBSP}7b (Mietwohnungsneubau)",
-                16: f"Erhöhte Absetzungen §{NBSP}7h / §{NBSP}7i EStG"},
-        hints={13: "nur Methode Gutachten · kürzere Nutzungsdauer per Sachverständigengutachten (BFH IX R 25/19)",
-               14: f"nur degressive AfA · Wechsel zur linearen Restwert-AfA, sobald vorteilhaft (§{NBSP}7 Abs. 5a "
-                   "S. 4 EStG)",
-               15: "5 % p. a. für 4 Jahre zusätzlich; Bauantrag 1.1.2023 – 30.9.2029, EH 40 + QNG, "
-                   "AK ≤ 5.200 €/m²",
-               16: "Sanierungsgebiet / Baudenkmal: 9 % p. a. (Jahre 1–8) und 7 % p. a. (Jahre 9–12) auf die "
-                   "bescheinigten Kosten",
-               17: f"nur bei §{NBSP}7h / §{NBSP}7i · lt. Bescheinigung der Denkmal- bzw. Gemeindebehörde"},
+        labels={13: "Restnutzungsdauer lt. Gutachten", 14: "Degressiv: Wechsel zur linearen AfA",
+                15: f"Sonder-AfA §{NBSP}7b (Neubau)", 16: f"Erhöhte AfA §{NBSP}7h / §{NBSP}7i EStG",
+                17: f"Begünstigte Kosten §{NBSP}7h / 7i"},
+        hints={12: "degressiv nur bei Baubeginn 10/2023 – 09/2029",
+               13: "nur Methode Gutachten · kürzere Restnutzungsdauer",
+               14: f"nur degressive AfA · Wechsel, sobald vorteilhaft",
+               15: "5 % p. a. für 4 Jahre · EH 40 + QNG, Baukostengrenze",
+               16: "Sanierungsgebiet / Denkmal: 9 % (J. 1–8), 7 % (J. 9–12)",
+               17: "im Kaufpreis enthalten · lt. Bescheinigung"},
         results={11: ("n", "Angewendete AfA-Methode",
                       '=IF(Methode_eff=5,"Degressiv 5 %",IF(Methode_eff=6,"Gutachten (RND)","Linear "&'
                       'FIXED(CHOOSE(Methode_eff,AfA_Satz_auto,0.02,0.025,0.03)*100,1)&" %"))', None),
@@ -202,64 +270,145 @@ SPEC = {
                  15: ("n", None, None, None), 16: ("f", None, None, None),
                  17: ("m", f"Steuereffekt ggü. Standard-AfA (10{NBSP}J.)", None, None)},
         band_right="Jahr 1",
-        callout=dict(head=19, src="H20", max_chars=310),
-        charts=[dict(side="L", title="Abschreibungen nach Komponenten", unit="Jahre 1–15 · € p. a.")],
+        callout=dict(head=19, src="H20", title="Wahl der Abschreibung"),
+        charts=[dict(side="L", title="Abschreibungen nach Komponenten", unit="Jahre 1–20 · € p. a.")],
         nav=45, foot=47),
     11: dict(
         inputs=range(12, 19), text=(18,), optional=(17,),
         inactive={18: "Rechtsform_Idx>=2"},
         labels={16: "Verkaufskosten", 17: "Verkaufspreis manuell"},
         units={16: None},
-        hints={16: "vom Verkaufspreis · Makler, Notar, Löschung der Grundschuld", 17: "optional · leer = Wertentwicklung lt. Prognose"},
+        hints={12: "Prognose · Mietpreisbremse und Kappungsgrenze",
+               15: "Privat: Verkauf nach über 10 Jahren steuerfrei",
+               16: "vom Verkaufspreis · Makler, Notar, Löschung",
+               17: "optional · leer = Wertentwicklung lt. Prognose",
+               18: "GmbH: immer Verlustvortrag (§ 10d EStG)"},
         results={11: ("n", "Verkaufspreis bei Exit", None, None),
                  12: ("n", None, None, None),
                  13: ("n", "Verkauf steuerpflichtig?", '=IF(Exit_steuerpflichtig=1,"Ja","Nein")', None),
                  14: ("n", None, None, None),
                  15: ("i", "= Nettoerlös nach Steuer und Ablösung", None, None),
-                 16: ("i", None, None, None),
+                 16: ("n", "Gesamtertrag nach Steuern", None, None),
                  17: ("f", "= Eigenkapitalrendite (IRR n. St.)", None, C.NUMFMT["pct1"])},
-        ampel={"I17": "IRR"}, band_right="Verkauf",
-        callout=dict(head=19, src="H20", max_chars=240, status="IRR"),
+        band_right="Verkauf",
+        callout=dict(head=19, src="H20", title="Verkauf und Steuern"),
         charts=[dict(side="L", title="Immobilienwert, Restschuld und Nettovermögen", unit="T€ · Jahresende")],
         nav=45, foot=47),
 }
+TEMPLATE_CF = ["I15", "E15", "D23", "I17", "C12", "C15"]   # Ampel-Regeln der Vorlage (werden neu gesetzt)
 
 
 # ============================================================================ Messen
-def nlines(text, width_px, size=C.T_BODY, bold=False, indent=1):
-    """Zeilenzahl bei Wortumbruch (Calibri-Näherung aus core.text_px, 5 % Reserve)."""
-    if text is None or text == "":
-        return 1
-    usable = width_px - 6 - 9 * indent
-    total = 0
-    for para in str(text).split("\n"):
-        line, n = 0.0, 1
-        for word in para.split(" "):
-            w = C.text_px(word, size, bold) * 0.96  # text_px liegt gemessen 5–13 % über Calibri
-            sp = C.text_px(" ", size, bold)
-            if line and line + sp + w > usable:
-                n += 1
-                line = w
-            else:
-                line = line + (sp if line else 0) + w
-        total += n
-    return total
+def lines(text, width_px, size=C.T_BODY, bold=False, indent=1):
+    return C.lines_needed_metric(text, width_px, size, bold, indent) if text not in (None, "") else 1
 
 
-def px(*cols):
-    return sum(PX[c] for c in cols)
+def _split_args(inner):
+    """Argumente einer Funktion auf oberster Ebene trennen (Anführungszeichen und Klammern beachten)."""
+    args, depth, cur, q = [], 0, "", False
+    for ch in inner:
+        if ch == '"':
+            q = not q
+        if not q:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            elif ch == "," and depth == 0:
+                args.append(cur)
+                cur = ""
+                continue
+        cur += ch
+    args.append(cur)
+    return args
 
 
-def est_lines(chars, width_px=None, size=C.T_SMALL):
-    """Zeilenzahl eines Fließtexts mit höchstens `chars` Zeichen (Calibri-Mittelwert aus core.text_px,
-    dazu 4 % Reserve für den Wortumbruch)."""
-    width_px = width_px or px("H", "I")
-    avg = C.text_px("Die Maßnahmen bleiben unter der Grenze – Sofortabzug ist möglich.", size) / 66
-    return max(1, math.ceil(chars * avg * 1.04 / (width_px - 6 - 9)))
+def _concat_parts(expr):
+    """Operanden einer &-Verkettung auf oberster Ebene."""
+    parts, depth, cur, q = [], 0, "", False
+    for ch in expr:
+        if ch == '"':
+            q = not q
+        if not q:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            elif ch == "&" and depth == 0:
+                parts.append(cur)
+                cur = ""
+                continue
+        cur += ch
+    parts.append(cur)
+    return [p.strip() for p in parts]
 
 
-def height_for(lines):
-    return ROW1 if lines <= 1 else (ROW2 if lines == 2 else ROW3)
+def variants(expr, ref_chars=7):
+    """Mögliche Anzeigetexte einer Textformel (je IF-Zweig), Bezüge/Funktionen als `ref_chars` Platzhalter."""
+    expr = expr.strip()
+    if expr.startswith("="):
+        expr = expr[1:].strip()
+    parts = _concat_parts(expr)
+    if len(parts) > 1:
+        out = [""]
+        for p in parts:
+            vs = variants(p, ref_chars)
+            out = [a + b for a in out for b in vs][:64]
+        return out
+    m = re.fullmatch(r"(IFERROR|IF)\((.*)\)", expr, re.S)
+    if m:
+        args = _split_args(m.group(2))
+        branches = args[1:] if m.group(1) == "IF" else args[:2]
+        out = []
+        for b in branches:
+            out += variants(b, ref_chars)
+        return out or [""]
+    if expr.startswith('"') and expr.endswith('"'):
+        return [expr[1:-1].replace('""', '"')]
+    if re.fullmatch(r"CHAR\(10\)", expr):
+        return ["\n"]
+    return ["0" * ref_chars]
+
+
+def text_bound(value):
+    """Längster Anzeigetext (in Zeilen gemessen wird später) – statisch oder je Formelzweig."""
+    if value is None:
+        return ""
+    if not isinstance(value, str) or not C.is_formula(value):
+        return str(value)
+    vs = variants(value)
+    return max(vs, key=len) if vs else ""
+
+
+def row_height(n):
+    return ROW1 if n <= 1 else (ROW2 if n == 2 else ROW3)
+
+
+def body_need(text, width_px, size=C.T_SMALL, extra=0.0):
+    """Höhe (pt) eines oben ausgerichteten Fließtexts: Zeilen × Zeilenpitch + 8 pt Innenraum."""
+    n = lines(text, width_px, size, False, 1)
+    return C.px_pt(n * C.line_pt(size) + 8 + extra), n
+
+
+def lit(text, size=200):
+    """Excel-Textliteral (Stücke < 255 Zeichen, mit & verbunden)."""
+    parts = [text[i:i + size] for i in range(0, len(text), size)] or [""]
+    return "&".join('"' + p.replace('"', '""') + '"' for p in parts)
+
+
+def stack(heights, start, need, fill_max=None):
+    """Zeilen ab `start` belegen, bis `need` pt erreicht sind. Gesetzte Zeilen zählen mit ihrer Höhe;
+    die erste freie Zeile erhält genau den Rest (mind. 12 pt). Liefert die letzte belegte Zeile."""
+    r, acc = start, 0.0
+    while True:
+        if r in heights:
+            acc += heights[r]
+            if acc >= need - 1:
+                return r
+        else:
+            heights[r] = max(C.px_pt(need - acc), 12 if fill_max is None else min(fill_max, 12))
+            return r
+        r += 1
 
 
 # ============================================================================ Hilfen
@@ -304,54 +453,6 @@ def drop_cf(ws, coords):
     ws.conditional_formatting = new
 
 
-def tint(ws, ref, key):
-    """Ampel-Tönung (nur Füllung) für Einordnungskästen – dieselben Schwellen wie der Leitwert."""
-    if key == "CFV":
-        rules = [("CF_vSt_J1<0", C.RED_BG), ("ISNUMBER(CF_vSt_J1)", C.GREEN_BG)]
-    else:
-        kpi, v, _ = STATUS[key]
-        spec = C.KPI[kpi]
-        rules = [(f"AND(ISNUMBER({v}),{v}<{spec['yellow']})", C.RED_BG),
-                 (f"AND(ISNUMBER({v}),{v}<{spec['green']})", C.AMBER_BG),
-                 (f"ISNUMBER({v})", C.GREEN_BG)]
-    for formula, bg in rules:
-        ws.conditional_formatting.add(ref, FormulaRule(formula=[formula], fill=C.fill(bg), stopIfTrue=True))
-
-
-def status_cell(ws, cell, key):
-    """Statuszeile rechts im Kopf der Einordnung (ohne Wertung, in Ampelfarbe)."""
-    kpi, v, formula = STATUS[key]
-    cell.value = formula
-    cell.font = C.font(C.T_MICRO, True, C.MUTED)
-    cell.alignment = C.align("right", "center", 1)
-    if kpi:  # mit Tönung, sonst überdeckt die Schriftregel (stopIfTrue) die Kasten-Tönung
-        C.add_ampel(ws, cell.coordinate, kpi, value_ref=v, with_fill=True)
-    else:
-        ws.conditional_formatting.add(cell.coordinate, FormulaRule(formula=[f"{v}<0"], font=Font(color=C.RED, bold=True),
-                                                                   fill=C.fill(C.RED_BG), stopIfTrue=True))
-        ws.conditional_formatting.add(cell.coordinate, FormulaRule(formula=[f"ISNUMBER({v})"],
-                                                                   font=Font(color=C.GREEN, bold=True),
-                                                                   fill=C.fill(C.GREEN_BG), stopIfTrue=True))
-
-
-def callout_box(ws, c1, head_row, c2, r1, r2, title, status=None, head=True):
-    """Einordnung nach core.callout. head=False: nur der Körper (Kopf ist ein L1-Band, S08/S12)."""
-    if head:
-        C.callout(ws, c1, head_row, c2, r1, r2, title=title)
-    else:
-        for r in range(r1, r2 + 1):
-            for c in C.iter_cells(ws, c1, r, c2, r):
-                c.border = Border(left=C.side("thick", C.ACCENT) if c.column == C.col(c1) else None)
-                c.fill = C.fill(C.TINT_XL)
-        C.safe_merge(ws, c1, r1, c2, r2)
-    b = ws.cell(r1, C.col(c1))
-    b.font = C.font(C.T_SMALL, False, C.INK2)
-    b.alignment = C.align("left", "center", 1, wrap=True)
-    if status:
-        status_cell(ws, ws.cell(head_row, C.col(c2)), status)
-        tint(ws, C.rng(c1, head_row if head else r1, c2, r2), status)
-
-
 def move_formula(ws, src, dst):
     """Nicht referenzierte Anzeigeformel an eine neue Zelle setzen (Formeltext bleibt gleich)."""
     if src == dst:
@@ -362,55 +463,40 @@ def move_formula(ws, src, dst):
     return v
 
 
-def l2_head(ws, row, c1, c2, title, unit=None, height=C.H_HEAD):
-    C.subhead_l2(ws, row, c1, c2, title, height=height)
-    if unit:
-        u = ws.cell(row, C.col(c2))
-        C.set_text(u, unit)
-        u.font = C.font(C.T_MICRO, False, C.BLUE)
-        u.alignment = C.align("right", "center", 1)
-
-
-def l2_head_inline(ws, row, c1, c2, title, unit, height=C.H_HEAD):
-    """L2-Kopf für schmale Panels: Einheit direkt hinter dem Titel (grau), damit nichts abgeschnitten wird."""
-    C.subhead_l2(ws, row, c1, c2, None, height=height)
-    cell = ws.cell(row, C.col(c1))
-    cell.value = CellRichText([TextBlock(InlineFont(rFont=C.SANS, sz=C.T_SMALL, b=True, color=C.BLUE), title),
-                               TextBlock(InlineFont(rFont=C.SANS, sz=C.T_MICRO, color=C.MUTED), f"  ·  {unit}")])
-    for c in C.iter_cells(ws, C.col(c1) + 1, row, c2, row):
-        c.value = None
+def head2(ws, row, c1, c2, title, unit=None):
+    """Ebene-2-Kopf (Unterabschnitt, Linie) für Diagramm- und Tabellenblöcke: 8 pt Versalien, Einheit rechts."""
+    C.section(ws, row, c1, c2, title, level=2, variant="line", meta=unit)
 
 
 def set_anchor(chart, c1, r1, c2, r2):
     """Diagramm genau in C1:R1 … C2:R2 (Zellgrenzen, ohne Versatz)."""
     a = chart.anchor
+    if not hasattr(a, "_from") or not hasattr(a, "to"):
+        chart.anchor = a = TwoCellAnchor(_from=AnchorMarker(), to=AnchorMarker())
     a._from.col, a._from.colOff, a._from.row, a._from.rowOff = C.col(c1) - 1, 0, r1 - 1, 0
     a.to.col, a.to.colOff, a.to.row, a.to.rowOff = C.col(c2), 0, r2, 0
 
 
-def rich_link(cell, word, rest, target_sheet, target_cell=None, tooltip=None):
+def rich_link(cell, word, rest, target_sheet, tooltip=None):
     """Listen-Link: Link-Wort fett Blau, Beschreibung grau, Pfeil am Ende."""
-    blue = InlineFont(rFont=C.SANS, sz=C.T_BODY, b=True, color=C.BLUE)
-    grey = InlineFont(rFont=C.SANS, sz=C.T_BODY, color=C.MUTED)
-    cell.value = CellRichText([TextBlock(blue, word), TextBlock(grey, f" – {rest}"), TextBlock(blue, "  ›")])
+    cell.value = C.rich([(word, C.T_BODY, True, C.BLUE), (f" – {rest}", C.T_BODY, False, C.MUTED),
+                         ("  ›", C.T_BODY, True, C.BLUE)])
     cell.font = C.font(C.T_BODY, True, C.BLUE)
     cell.alignment = C.align("left", "center", 1)
-    loc = f"'{target_sheet}'!{target_cell or C.link_target(target_sheet)}"
-    cell.hyperlink = Hyperlink(ref=cell.coordinate, location=loc, display=f"{word} – {rest}", tooltip=tooltip)
+    cell.hyperlink = Hyperlink(ref=cell.coordinate, location=C.link_loc(target_sheet), display=f"{word} – {rest}",
+                               tooltip=tooltip)
 
 
-def row_line(ws, row, c1, c2):
+def row_line(ws, row, c1, c2, color=C.LINE):
     for c in C.iter_cells(ws, c1, row, c2, row):
         b = c.border
-        c.border = Border(left=b.left, right=b.right, top=b.top, bottom=C.side("hair", C.LINE))
+        c.border = Border(left=b.left, right=b.right, top=b.top, bottom=C.side("hair", color))
 
 
 # ============================================================================ Bausteine der Seite
-def grid(ws):
-    for letter, w in GRID:
+def grid(ws, spec=GRID):
+    for letter, w in spec:
         ws.column_dimensions[letter].width = w
-    for letter, _ in GRID:
-        PX[letter] = C.col_px(ws, letter)
 
 
 def header(ws, n):
@@ -423,8 +509,43 @@ def header(ws, n):
     C.safe_merge(ws, "H", 7, "I", 7)
 
 
+def box(ws, heights, head, title, kpi=None, text=None, body=None, fixed_end=None):
+    """Einordnungs-Box (core.callout_box) mit Zeilenbedarf nach Textlänge. Liefert die letzte Zeile."""
+    body = body or head + 1
+    cell = ws.cell(body, 8)
+    if text is not None:
+        cell.value = text
+    heights[head] = max(heights.get(head, 0), C.H_CALLOUT_HEAD)
+    need, _ = max((body_need(t, C.span_px(ws, "H", "I")) for t in variants(cell.value)), key=lambda x: x[0]) \
+        if C.is_formula(cell.value) else body_need(text_bound(cell.value), C.span_px(ws, "H", "I"))
+    end = fixed_end or stack(heights, body, need)
+    pill, conds = pill_formula(kpi) if kpi else (False, None)
+    C.callout_box(ws, "H", head, "I", body, end, title=title, conditions=conds, pill=pill, fit=None)
+    return end
+
+
+def next_card(ws, heights, head, n, names):
+    """„Als Nächstes“: Vorschau auf den nächsten Schritt (Name fett + Kurzbeschreibung), Link auf das Blatt."""
+    nxt = names[n + 1]
+    desc = ws.parent[nxt]["C7"].value
+    desc = desc if isinstance(desc, str) and not C.is_formula(desc) else ""
+    head2(ws, head, "H", "I", "Als Nächstes", f"Schritt {n + 1:02d} / 12")
+    heights[head] = max(heights.get(head, 0), C.H_HEAD)
+    body = head + 1
+    for c in C.iter_cells(ws, "H", body, "I", body):
+        c.fill, c.border = C.NOFILL, Border()
+    C.safe_merge(ws, "H", body, "I", body)
+    cell = ws.cell(body, 8)
+    cell.value = C.rich([(LONG[n], C.T_BODY, True, C.NAVY), (f"  ·  {desc}", C.T_SMALL, False, C.MUTED)])
+    cell.font = C.font(C.T_SMALL, False, C.MUTED)
+    cell.alignment = C.align("left", "top", 1, wrap=True)
+    n_l = lines(f"{LONG[n]}  ·  {desc}", C.span_px(ws, "H", "I") * 0.95, C.T_SMALL, False, 1)
+    need = C.grid_height(n_l * C.line_pt(C.T_BODY) + 5)
+    return body, need
+
+
 def nav_and_footer(ws, n, row, names):
-    """Button-Zeile (Zurück sekundär · Übersicht als Textlink · Weiter primär) und Fuß."""
+    """Button-Reihe (Zurück sekundär · Übersicht sekundär · Weiter primär) und Fuß."""
     set_h = ws.row_dimensions
     set_h[row - 2].height = GAP
     set_h[row - 1].height = GAP
@@ -440,19 +561,20 @@ def nav_and_footer(ws, n, row, names):
         next_sheet = names[n + 1]
         next_text = f"Weiter: {LONG[n]}  ›"
         next_tip = f"Weiter zu Schritt {n + 1:02d} · {LONG[n]}"
-    C.button(ws, "C", row, "C", prev_text, prev_sheet, kind="secondary", tooltip=prev_tip)
-    if n != 1:
-        C.button(ws, "E", row, "F", "Übersicht: Leitfaden  ›", "Leitfaden", kind="link",
-                 tooltip="Alle zwölf Schritte im Überblick")
-        lk = ws.cell(row, 5)
-        lk.font = C.font(C.T_BODY, True, C.BLUE)
-        lk.alignment = C.align("center", "center")
-    C.button(ws, "H", row, "I", next_text, next_sheet, kind="primary", tooltip=next_tip)
-    set_h[row].height = C.H_BUTTON
+    for c in C.iter_cells(ws, "C", row, "I", row):
+        c.value, c.hyperlink = None, None
+    res = C.btn_row(ws, row, [
+        dict(c1="C", c2="C", text=prev_text, target=prev_sheet, kind="secondary", tooltip=prev_tip),
+        dict(c1="E", c2="F", text="Übersicht: Leitfaden", target="Leitfaden", kind="secondary",
+             tooltip="Alle zwölf Schritte im Überblick"),
+        dict(c1="H", c2="I", text=next_text, target=next_sheet, kind="primary", tooltip=next_tip)])
+    for text, w, ok in res:
+        if not ok:
+            print(f"  steps: {ws.title} Button „{text}“ knapp ({w} px)")
     set_h[row + 1].height = GAP
     C.footer(ws, row + 2, "C", "I")
     for c in C.iter_cells(ws, "C", row + 2, "I", row + 2):
-        c.border = Border(top=C.side("hair", C.LINE))
+        c.border = Border(top=C.side("hair", C.LINE2))
     return row + 4
 
 
@@ -467,13 +589,14 @@ def clear_rows_after(ws, first, last):
         ws.row_dimensions[r].height = None
 
 
-def style_input_table(ws, n, sp):
-    """Kopfzeile Z. 11 und Eingabezeilen: Beschriftung, Eingabe, Einheit, Hinweis; gibt Zeilenbedarf zurück."""
+def style_input_table(ws, sp):
+    """Kopfzeile Z. 11 und Eingabezeilen: Beschriftung, Eingabe (nur Spalte D), Einheit (nur E), Hinweis.
+    Liefert den Zeilenbedarf je Zeile (Anzahl Textzeilen)."""
     need = {}
-    numeric_head = n != 1
-    C.table_head(ws, 11, "C", "F", {"C": ("POSITION", "left"), "D": ("EINGABE", "right" if numeric_head else "left"),
-                                    "E": ("EINHEIT", "left"), "F": ("HINWEIS", "left")})
+    C.section(ws, 11, "C", "F", None, level=2, labels={"C": ("Position", "left"), "D": ("Eingabe", "right"),
+                                                          "E": ("Einheit", "left"), "F": ("Hinweis", "left")})
     text_rows = set(sp.get("text", ()))
+    wc, wd, wf = C.span_px(ws, "C", "C"), C.span_px(ws, "D", "D"), C.span_px(ws, "F", "F")
     for r in sp["inputs"]:
         lab, inp, unit, hint = (ws.cell(r, k) for k in (3, 4, 5, 6))
         if r in sp.get("labels", {}):
@@ -483,8 +606,7 @@ def style_input_table(ws, n, sp):
         if r in sp.get("units", {}):
             C.set_text(unit, sp["units"][r])
         elif isinstance(unit.value, str) and unit.value.strip() in UNITS:
-            new = UNITS[unit.value.strip()]
-            unit.value = new
+            unit.value = UNITS[unit.value.strip()]
         ind = 2 if r in sp.get("indent2", ()) else 1
         lab.font = C.font(C.T_BODY, False, C.INK)
         lab.alignment = C.align("left", "center", ind, wrap=True)
@@ -492,37 +614,30 @@ def style_input_table(ws, n, sp):
         unit.alignment = C.align("left", "center", 1)
         hint.font = C.font(C.T_SMALL, False, C.MUTED)
         hint.alignment = C.align("left", "center", 1, wrap=True)
-        # Eingabezustand
         state = "linked" if r == sp.get("linked") else ("optional" if r in sp.get("optional", ()) else "required")
         is_text = r in text_rows
-        span = ("D", "E") if (is_text and unit.value in (None, "")) else ("D",)
         C.input_style(inp, state)
         inp.font = C.font(C.T_BODY, state != "linked", C.INPUT_FG)
-        if len(span) == 2:
-            C.input_style(ws.cell(r, 5), state)
-            C.safe_merge(ws, "D", r, "E", r)
         inp.alignment = C.align("left", "center", 1, wrap=True) if is_text else C.align("right", "center", 1)
-        for c in (lab, hint) + ((unit,) if len(span) == 1 else ()):
+        for c in (lab, unit, hint):
             row_line(ws, r, C.L(c.column), C.L(c.column))
-        # Zeilenbedarf
-        lines = max(nlines(lab.value, PX["C"], indent=ind),
-                    nlines(hint.value, PX["F"], C.T_SMALL),
-                    nlines(inp.value, px(*span), bold=True) if (is_text and not C.is_formula(inp.value)) else 1)
-        need[r] = lines
-        if lines > 2:
-            print(f"  steps: {ws.title} Z. {r} braucht {lines} Zeilen: C {nlines(lab.value, PX['C'], indent=ind)} "
-                  f"F {nlines(hint.value, PX['F'], C.T_SMALL)} ({lab.value!r} | {hint.value!r} | {inp.value!r})")
+        n = max(lines(lab.value, wc, C.T_BODY, False, ind),
+                lines(hint.value, wf, C.T_SMALL, False, 1),
+                lines(C.display_text(inp), wd, C.T_BODY, True, 1) if is_text else 1)
+        need[r] = n
+        if n > 1:
+            print(f"  steps: {ws.title} Z. {r} zweizeilig ({lab.value!r} | {hint.value!r} | {C.display_text(inp)!r})")
     for r, cond in sp.get("inactive", {}).items():
-        ref = f"D{r}:E{r}" if r in text_rows and ws.cell(r, 5).value in (None, "") else f"D{r}"
-        C.inactive_when(ws, ref, cond)
+        C.inactive_when(ws, f"D{r}", cond)
     return need
 
 
-RESULT_FONT = {"n": (C.T_BODY, False, C.INK), "t": (C.T_BODY, False, C.INK), "s": (9.5, False, C.MUTED)}
+RESULT_FONT = {"n": (C.T_BODY, False, C.INK), "t": (C.T_BODY, False, C.INK), "s": (C.T_SMALL, False, C.MUTED)}
 
 
 def style_results(ws, sp):
     need = {}
+    wh = C.span_px(ws, "H", "H")
     for r, (role, label, formula, fmt) in sp["results"].items():
         lab, val = ws.cell(r, 8), ws.cell(r, 9)
         if label is not None:
@@ -542,75 +657,90 @@ def style_results(ws, sp):
         if role in RESULT_FONT:
             sz, b, color = RESULT_FONT[role]
             lab.font = C.font(sz, b, color)
-            val.font = C.font(sz, b, C.INK if role != "s" else C.MUTED)
+            val.font = C.font(sz, b, color)
         elif role == "i":
-            C.total(ws, r, "H", "I", level=1)
+            C.sum_row(ws, r, "H", "I", "sub", neg=True)
         elif role == "f":
-            C.total(ws, r, "H", "I", level=3)
+            C.sum_row(ws, r, "H", "I", "result", neg=(fmt != C.NUMFMT["tax_effect"]))
         elif role == "m":
             C.memo(ws, r, "H", "I")
             for c in (lab, val):
                 c.border = Border()
         lab.alignment = C.align("left", "center", 2 if role == "s" else 1)
-        val.alignment = C.align("right", "center", 1, wrap=(role == "t"))
-        size = 9 if role == "m" else (9.5 if role == "s" else C.T_BODY)
-        lines = 1 if lab.data_type == "f" else nlines(lab.value, PX["H"], size, role in ("i", "f"))
-        need[r] = lines
-        if lines > 1:
+        val.alignment = C.align("right", "center", 1)
+        size = C.T_SMALL if role in ("m", "s") else C.T_BODY
+        n = 1 if lab.data_type == "f" else lines(lab.value, wh, size, role in ("i", "f"), 1)
+        need[r] = n
+        if n > 1:
             print(f"  steps: {ws.title} H{r} umbricht ({lab.value})")
-    for coord, kpi in sp.get("ampel", {}).items():
-        drop_cf(ws, [coord])
-        C.add_ampel(ws, coord, kpi)
     return need
 
 
-def left_chart(ws, sheet_charts, spec, head_row, c1="C", c2="F", heights=None, target=CHART_H):
-    """Kopf im L2-Stil und Diagramm darunter; gibt die letzte Diagrammzeile zurück."""
-    l2_head(ws, head_row, c1, c2, spec["title"], spec.get("unit"))
+def chart_block(ws, heights, charts, spec, head_row, c1, c2, end_row=None, target=CHART_MIN, chart_c2=None):
+    """Ebene-2-Kopf und Diagramm darunter; das Diagramm endet auf `end_row` oder nach `target` pt."""
+    head2(ws, head_row, c1, c2, spec["title"], spec.get("unit"))
     heights[head_row] = max(heights.get(head_row, 0), C.H_HEAD)
-    r, acc = head_row + 1, 0.0
-    while acc < target - 4:
-        h = heights.get(r)
-        if h is None:
-            h = 15
-            heights[r] = h
-        acc += h
-        r += 1
-    last = r - 1
-    chart = sheet_charts.get(spec.get("chart_col", C.col(c1) - 1))
+    if end_row is None:
+        r, acc = head_row + 1, 0.0
+        while acc < target - 4:
+            if r not in heights:
+                heights[r] = 15
+            acc += heights[r]
+            r += 1
+        end_row = r - 1
+    chart = charts.get(spec.get("chart_col", C.col(c1) - 1))
     if chart is not None:
-        set_anchor(chart, c1, head_row + 1, c2, last)
-    return last
+        set_anchor(chart, c1, head_row + 1, chart_c2 or c2, end_row)
+    return end_row
+
+
+def new_tax_chart(ws):
+    """S09: flaches Säulendiagramm „Steuerliches Ergebnis und Steuer“ aus den Diagrammdaten (Jahre 1–20).
+    Inhalt/Horizont vereinheitlicht layouts/diagramme.py, das Styling finish_pro.py (Art „steuer“)."""
+    dg = ws.parent["Diagramme"]
+    ch = BarChart()
+    ch.type, ch.grouping, ch.overlap, ch.gapWidth = "col", "clustered", 0, 60
+    for row, title in ((196, "Steuerliches Ergebnis"), (197, "Steuer (+ Zahlung / – Erstattung)")):
+        s = Series(Reference(dg, min_col=4, max_col=23, min_row=row), title=title)
+        ch.series.append(s)
+    ch.set_categories(Reference(dg, min_col=4, max_col=23, min_row=178))
+    ch.x_axis.delete = False
+    ch.y_axis.delete = False
+    ch.legend.position = "b"
+    ws.add_chart(ch)
+    ch.anchor = TwoCellAnchor(_from=AnchorMarker(), to=AnchorMarker())
+    return ch
 
 
 # ============================================================================ Standardseite
 def standard_page(ws, n, sp, names):
     heights = {}
     old_nav, old_foot = sp["nav"], sp["foot"]
-    # alte Button- und Fußzeilen leeren (werden unten neu gesetzt)
     for coord in (f"C{old_nav}", f"E{old_nav}", f"H{old_nav}", f"C{old_foot}", f"C{old_foot + 1}"):
         blank(ws[coord])
-    # Diagramme nach Spalte merken
     charts = {ch.anchor._from.col: ch for ch in ws._charts}
+    for spec in sp.get("charts", []):
+        if spec.get("new"):
+            charts[C.col("C") - 1] = new_tax_chart(ws)
 
-    # Bänder Z. 10
-    C.band_l1(ws, 10, "C", "F", "Eingaben")
-    C.band_l1(ws, 10, "H", "I", "Ergebnis dieses Schritts", right=sp.get("band_right"))
+    # Abschnitte Z. 10
+    C.section(ws, 10, "C", "F", "Eingaben")
+    C.section(ws, 10, "H", "I", "Ergebnis dieses Schritts", meta=sp.get("band_right"))
+    heights[10] = C.H_BAND
 
-    need_l = style_input_table(ws, n, sp)
-    need_r = style_results(ws, sp)
     if n == 9:  # Rechtsform: verknüpfte Anzeige, Auswahl auf der Startseite
         ws["D12"].value = '=CHOOSE(Rechtsform_Idx,"Privatperson","vv-GmbH","GmbH / Holding")'
+    need_l = style_input_table(ws, sp)
+    need_r = style_results(ws, sp)
+    if n == 9:
         C.text_link(ws["F12"], "Rechtsform auf der Startseite ändern  ›", "Start", "D23", size=C.T_SMALL, bold=True,
                     tooltip="Privat oder GmbH wählen Sie auf der Startseite („Kauf als“)")
         ws["F12"].alignment = C.align("left", "center", 1)
-        ws.conditional_formatting.add("I16", FormulaRule(formula=["$I$16<0"], font=Font(color=C.GREEN, bold=True),
-                                                         stopIfTrue=True))
     inputs_end = max(sp["inputs"])
     results_end = max(sp["results"])
     heights[11] = C.H_HEAD if need_r.get(11, 1) <= 1 else ROW2
     for r in range(12, max(inputs_end, results_end) + 1):
-        heights[r] = height_for(max(need_l.get(r, 1), need_r.get(r, 1)))
+        heights[r] = row_height(max(need_l.get(r, 1), need_r.get(r, 1)))
 
     # Hinweiszeile unter der Tabelle (S07: zweites Darlehen)
     left_end = inputs_end
@@ -627,10 +757,10 @@ def standard_page(ws, n, sp, names):
         heights[r] = ROW1
         left_end = r
 
-    # Hinweiszeile zu den Eingaben (S01: gelbe Felder = Beispielwerte)
+    # Hinweis-Banner zu den Eingaben (nur S01, Stil wie Leitfaden-Banner, Link auf die Rechtsform)
     if sp.get("info"):
         r, text = sp["info"]
-        heights[r - 1] = GAP
+        heights.setdefault(r - 1, GAP)
         for c in C.iter_cells(ws, "C", r, "F", r):
             c.fill = C.fill(C.INPUT_BG)
             c.border = Border(left=C.side("thick", C.INPUT_LINE) if c.column == 3 else None)
@@ -639,64 +769,97 @@ def standard_page(ws, n, sp, names):
         C.set_text(cell, text)
         cell.font = C.font(C.T_SMALL, False, C.INK2)
         cell.alignment = C.align("left", "center", 1, wrap=True)
-        heights[r] = height_for(nlines(text, px("C", "D", "E", "F"), C.T_SMALL))
+        cell.hyperlink = Hyperlink(ref=cell.coordinate, location=C.link_loc("Start", "D23"), display=text,
+                                   tooltip="Privat oder GmbH – Auswahl auf der Startseite („Kauf als“)")
+        heights[r] = row_height(lines(text, C.span_px(ws, "C", "F"), C.T_SMALL, False, 1))
         left_end = r
 
-    # Einordnung
+    # Diagrammkopf links reservieren (die Einordnung rechts läuft über diese Zeilen)
+    ch_specs = sp.get("charts", [])
+    chead = None
+    if len(ch_specs) == 1:
+        chead = left_end + 2
+        heights.setdefault(left_end + 1, GAP)
+        heights[chead] = max(heights.get(chead, 0), C.H_HEAD)
+
+    # Einordnung (rechts, eine Leerzeile unter dem Ergebnis)
     co = sp["callout"]
+    for rr in range(results_end + 1, results_end + 16):   # alte Köpfe/Reste der Vorlage im Einordnungsbereich
+        for c in (ws.cell(rr, 8), ws.cell(rr, 9)):
+            if c.value is not None and not C.is_formula(c.value):
+                blank(c)
     head = co["head"]
     body = co.get("body", head + 1)
-    if co["src"] != f"H{body}":
-        move_formula(ws, co["src"], f"H{body}")
     for rr in range(results_end + 1, head):
         heights.setdefault(rr, GAP)
-    lines = est_lines(co["max_chars"])
-    need_pt = lines * LINE_PT + 10
-    heights[head] = max(heights.get(head, 0), C.H_HEAD)
-    r, acc = body, 0.0
-    while acc < need_pt - 2:
-        if r in heights:
-            acc += heights[r]
-        else:
-            rest = need_pt - acc
-            h = rest if rest <= 30 else 15
-            heights[r] = max(h, 12)
-            acc += heights[r]
-        r += 1
-    callout_end = r - 1
-    for rr in range(results_end + 1, callout_end + 1):  # alte Köpfe/Reste im Einordnungsbereich
-        for c in (ws.cell(rr, 8), ws.cell(rr, 9)):
-            if c.coordinate == f"H{body}" or c.value is None:
-                continue
-            if c.data_type == "f":
-                print(f"  steps: {ws.title}!{c.coordinate} Formel im Einordnungsbereich – bleibt stehen")
-                continue
-            blank(c)
-    callout_box(ws, "H", head, "I", body, callout_end, "Einordnung", status=co.get("status"))
-    ws.cell(body, 8).font = C.font(C.T_SMALL, False, C.INK2)
+    text = None
+    if co.get("second"):  # S07: Ampel-Box DSCR, darunter neutrale Box mit dem Originaltext
+        second_text = ws[co["src"]].value.replace('="Zinsänderungsrisiko: Nach ', '="Nach ')
+        blank(ws[co["src"]])
+        text = co["text"]
+    else:
+        if co["src"] != f"H{body}":
+            move_formula(ws, co["src"], f"H{body}")
+        if co.get("text"):
+            text = co["text"]
+        elif co.get("prefix"):
+            old = ws[f"H{body}"].value
+            old = old[1:] if C.is_formula(old) else lit(str(old))
+            text = "=" + co["prefix"] + "&" + old
+    callout_end = box(ws, heights, head, co["title"], co.get("kpi"), text, body)
+    if co.get("second"):
+        h2 = callout_end + 2
+        heights.setdefault(callout_end + 1, GAP)
+        ws.cell(h2 + 1, 8).value = second_text
+        callout_end = box(ws, heights, h2, co["second"]["title"], None, None, h2 + 1)
 
     # Diagrammband
+    right_end = callout_end
     chart_end = 0
-    ch_specs = sp.get("charts", [])
+    card = n not in (7, 12)
     if len(ch_specs) == 1:
-        head_row = left_end + 2
-        heights.setdefault(left_end + 1, GAP)
-        chart_end = left_chart(ws, charts, ch_specs[0], head_row, heights=heights)
+        # rechte Spalte: flexible Leerzeile + „Als Nächstes“ – unten bündig mit dem Diagramm
+        g = max(callout_end + 1, chead + 1)
+        while g in heights:
+            g += 1
+        cbody, cneed = next_card(ws, heights, g + 1, n, names)
+        heights[cbody] = max(cneed, heights.get(cbody, 0))
+        fixed = sum(heights.get(r, 0) for r in range(chead + 1, cbody + 1) if r != g)
+        heights[g] = max(GAP, C.px_pt(sp.get("chart_min", CHART_MIN) - fixed))
+        chart_end = chart_block(ws, heights, charts, ch_specs[0], chead, "C", "F", end_row=cbody,
+                                chart_c2="E" if ch_specs[0].get("pie") else "F")
+        right_end = cbody
     elif len(ch_specs) == 2:
-        head_row = max(left_end, callout_end) + 2
-        heights.setdefault(head_row - 1, GAP)
-        chart_end = left_chart(ws, charts, ch_specs[0], head_row, "C", "F", heights)
-        l2_head(ws, head_row, "H", "I", ch_specs[1]["title"], ch_specs[1].get("unit"))
-        right = charts.get(ch_specs[1]["chart_col"])
-        if right is not None:
-            set_anchor(right, "H", head_row + 1, "I", chart_end)
+        lhead, rhead = left_end + 2, callout_end + 2
+        heights.setdefault(left_end + 1, GAP)
+        heights.setdefault(callout_end + 1, GAP)
+        heights[lhead] = max(heights.get(lhead, 0), C.H_HEAD)
+        heights[rhead] = max(heights.get(rhead, 0), C.H_HEAD)
+        target = sp.get("chart_min", CHART_MIN)
+        r, acc = lhead + 1, 0.0
+        while True:
+            heights.setdefault(r, 15)
+            acc += heights[r]
+            if acc >= target - 4 and r > rhead and \
+                    sum(heights[x] for x in range(rhead + 1, r + 1)) >= PIE_MIN - 4:
+                break
+            r += 1
+        chart_end = chart_block(ws, heights, charts, ch_specs[0], lhead, "C", "F", end_row=r)
+        chart_block(ws, heights, charts, ch_specs[1], rhead, "H", "I", end_row=r)
+        right_end = r
+    elif card:
+        g = callout_end + 1
+        heights.setdefault(g, GAP)
+        cbody, cneed = next_card(ws, heights, g + 1, n, names)
+        end = stack(heights, cbody, cneed)
+        if end > cbody:
+            C.safe_merge(ws, "H", cbody, "I", end)
+        right_end = end
 
-    content_end = max(left_end, results_end, callout_end, chart_end)
+    content_end = max(left_end, results_end, right_end, chart_end)
     for r, h in heights.items():
         ws.row_dimensions[r].height = h
-    nav_row = content_end + 3
-    end = nav_and_footer(ws, n, nav_row, names)
-    return end
+    return nav_and_footer(ws, n, content_end + 3, names)
 
 
 # ============================================================================ S08 Zwischenergebnis
@@ -707,29 +870,30 @@ def page_s08(ws, names):
     charts = {ch.anchor._from.col: ch for ch in ws._charts}
     h = ws.row_dimensions
 
-    C.band_l1(ws, 10, "C", "F", "Cashflow vor Steuern – Jahr 1")
-    for c in C.iter_cells(ws, "C", 10, "F", 10):  # weiße Fuge statt Linie über den Kacheln
-        c.border = Border(left=c.border.left, bottom=C.side("thick", C.WHITE))
-    C.band_l1(ws, 10, "H", "I", "Einordnung")
+    C.section(ws, 10, "C", "F", "Cashflow vor Steuern – Jahr 1")
+    tiles = [
+        dict(c1="C", c2="D", lr=11, label="Nettokaltmiete Ist / Monat", sub="nach Mietausfall und Leerstand"),
+        dict(c1="E", c2="F", lr=11, label="Einnahmenüberschuss (NOI) / Monat", sub="Miete abzüglich Bewirtschaftung"),
+        dict(c1="C", c2="D", lr=14, label="Rate an die Bank / Monat", sub="Zinsen und Tilgung · Jahr 1"),
+        dict(c1="E", c2="F", lr=14, label="Cashflow vor Steuern / Monat", kpi="CFV", sub="Ziel ≥ 0 € · vor Steuern"),
+    ]
+    drop_cf(ws, TEMPLATE_CF + ["D22"])
+    for t in tiles:
+        C.tile(ws, t["c1"], t["c2"], t["lr"], t["lr"] + 1, t["lr"] + 2, label=t["label"], kpi=t.get("kpi"),
+               fmt=C.NUMFMT["eur"], sub=t["sub"], gap_right=(t["c1"] == "C"), gap_top=(t["lr"] > 11))
 
-    tiles = [("C", "D", 11, 12, "Nettokaltmiete Ist / Monat", None, C.NUMFMT["eur"]),
-             ("E", "F", 11, 12, "Einnahmenüberschuss (NOI) / Monat", None, C.NUMFMT["eur"]),
-             ("C", "D", 14, 15, C.KPI["RATE"]["label"], None, C.NUMFMT["eur"]),
-             ("E", "F", 14, 15, C.KPI["CFV"]["label"], "CFV", C.NUMFMT["eur"])]
-    drop_cf(ws, ["E15", "D23", "D22"])
-    for c1, c2, lr, vr, label, kpi, fmt in tiles:
-        C.kpi_tile(ws, c1, c2, lr, vr, label=label, kpi=kpi, fmt=fmt, gap_right=(c1 == "C"))
-    h[13].height = 2.25
+    # Einordnung rechts: je Kennzahl eine Box (Cashflow · Kapitaldienstdeckung)
+    blank(ws["H28"])
+    blank(ws["H34"])
+    heights = {10: C.H_BAND, 11: C.H_TILE_LABEL, 12: C.H_TILE_VALUE, 13: C.H_TILE_SUB,
+               14: C.H_CALLOUT_HEAD, 15: C.H_TILE_VALUE, 16: C.H_TILE_SUB}
+    box(ws, heights, 10, "Cashflow vor Steuern", "CFV", TEXT_CFV_S08, 11, fixed_end=12)
+    box(ws, heights, 14, "Kapitaldienstdeckung (DSCR)", "DSCR", TEXT_DSCR_S08, 15, fixed_end=16)
+    heights[10] = C.H_BAND
 
-    # Einordnung rechts neben den Kacheln (Formel aus H28)
-    move_formula(ws, "H28", "H11")
-    callout_box(ws, "H", 10, "I", 11, 15, None, status="CFV", head=False)
-    h[10].height = C.H_BAND
-
-    # Herleitung, Diagramm und Kapitaldienstdeckung
-    h[16].height = GAP
-    l2_head(ws, 17, "C", "D", "Herleitung pro Monat")
-    l2_head_inline(ws, 17, "E", "F", "Einnahmen vs. Ausgaben", "€ / Monat, vor Steuern")
+    # Herleitung, Diagramm
+    head2(ws, 17, "C", "D", "Herleitung pro Monat")
+    head2(ws, 17, "E", "F", "Einnahmen vs. Ausgaben", "€ / Monat · vor Steuern")
     labels = {18: "Nettokaltmiete Ist", 19: "– Bewirtschaftung inkl. Rücklagen", 20: "– Zinsen", 21: "– Tilgung",
               22: "= Cashflow vor Steuern / Monat", 23: "Kapitaldienstdeckung (DSCR)"}
     for r, text in labels.items():
@@ -739,28 +903,25 @@ def page_s08(ws, names):
         lab.alignment = C.align("left", "center", 1)
         val.alignment = C.align("right", "center", 1)
         row_line(ws, r, "C", "D")
-        h[r].height = ROW1
-    C.total(ws, 22, "C", "D", level=3)
-    C.add_ampel(ws, "D22", "CFV")
+        heights[r] = ROW1
+    C.sum_row(ws, 22, "C", "D", "result", neg=True)
     ws["D23"].number_format = C.NUMFMT["dscr"]
-    C.add_ampel(ws, "D23", "DSCR")
     for c in (ws["C23"], ws["D23"]):
-        c.border = Border(top=C.side("hair", C.LINE2), bottom=C.side("hair", C.LINE))
+        c.border = Border(bottom=C.side("hair", C.LINE))
         c.alignment = C.align(c.alignment.horizontal, "bottom", 1)
-    h[23].height = 28
+    heights[17] = C.H_BAND
+    heights[23] = ROW2
+    for c in C.iter_cells(ws, "C", 17, "F", 17):
+        c.alignment = C.align(c.alignment.horizontal or "left", "bottom", 1)
     chart = charts.get(7)
     if chart is not None:
         set_anchor(chart, "E", 18, "F", 23)
 
-    move_formula(ws, "H34", "H18")
-    dscr_lines = est_lines(215)
-    body_end = 18
-    acc = ROW1
-    while acc < dscr_lines * LINE_PT + 10 - 2:
-        body_end += 1
-        acc += h[body_end].height or ROW1
-    callout_box(ws, "H", 17, "I", 18, body_end, "Kapitaldienstdeckung", status="DSCR")
-    h[17].height = C.H_HEAD
+    # rechts unten: „Als Nächstes“, bündig mit der Herleitung
+    cbody, cneed = next_card(ws, heights, 22, n, names)
+    heights[cbody] = max(heights[cbody], cneed)
+    for r, hh in heights.items():
+        h[r].height = hh
     return nav_and_footer(ws, n, 26, names)
 
 
@@ -788,53 +949,46 @@ def page_s12(ws, names):
     charts = {ch.anchor._from.col: ch for ch in ws._charts}
     h = ws.row_dimensions
 
-    C.band_l1(ws, 10, "C", "F", "Ergebnis der Kalkulation")
-    for c in C.iter_cells(ws, "C", 10, "F", 10):
-        c.border = Border(left=c.border.left, bottom=C.side("thick", C.WHITE))
-    C.band_l1(ws, 10, "H", "I", "Einordnung")
-
-    drop_cf(ws, ["C12", "C15", "E15", "E12", "D23", "D22"])
+    C.section(ws, 10, "C", "F", "Ergebnis der Kalkulation")
+    drop_cf(ws, TEMPLATE_CF + ["E12", "D22", "D23"])
+    ws["C17"].value = '="NETTOVERMÖGEN NACH "&Haltedauer&" JAHREN"'
+    ws["E17"].value = '="ZUSATZRENTE / MONAT AB "&IF(Darlehen_Summe>0,UPPER(Volltilgung_Txt),"SOFORT")'
     tiles = [
-        ("C", "D", 11, 12, 13, C.KPI["CF"]["label"], "CF", C.NUMFMT["eur"],
-         '="ab Jahr 2: "&FIXED(' + C.CF_YEAR2 + ',0)&" € / Monat"'),
-        ("E", "F", 11, 12, 13, "Steuerwirkung Jahr 1 / Monat", None, C.NUMFMT["tax_effect"],
-         '="Steuersatz Jahr 1: "&FIXED(Steuersatz_J1*100,1)&" %"'),
-        ("C", "D", 14, 15, 16, C.KPI["EKR"]["label"], "EKR", C.NUMFMT["pct1"],
-         "Vermögenszuwachs im Jahr 1 / eingesetztes Eigenkapital"),
-        ("E", "F", 14, 15, 16, C.KPI["IRR"]["label"], "IRR", C.NUMFMT["pct1"],
-         '="Haltedauer "&Haltedauer&" Jahre  ·  Multiple "&FIXED(EK_Multiple,2)&"×"'),
-        ("C", "D", 17, 18, 19, None, None, C.NUMFMT["eur"], "Immobilienwert abzüglich Restschuld"),
-        ("E", "F", 17, 18, 19, '="Zusatzrente pro Monat ab "&IF(Darlehen_Summe>0,Volltilgung_Txt,"sofort")', None,
-         C.NUMFMT["eur"], "Cashflow nach Steuern nach Volltilgung (Prognose)"),
+        dict(c1="C", c2="D", lr=11, label="Cashflow nach Steuern / Monat", kpi="CF", fmt=C.NUMFMT["eur"],
+             sub='="Jahr 1 · ab Jahr 2: "&FIXED(' + C.CF_YEAR2 + ',0)&" €"'),
+        dict(c1="E", c2="F", lr=11, label="Steuerwirkung / Monat · Jahr 1", fmt=SIGNED_EFFECT, neg=False,
+             sub='=IF(Steuer_J1<0,"Erstattung","Zahlung")&" · Steuersatz Jahr 1: "&FIXED(Steuersatz_J1*100,1)&" %"'),
+        dict(c1="C", c2="D", lr=14, label="EK-Rendite Jahr 1", kpi="EKR", fmt=C.NUMFMT["pct1"],
+             sub="Vermögenszuwachs Jahr 1 / Eigenkapital"),
+        dict(c1="E", c2="F", lr=14, label="IRR nach Steuern", kpi="IRR", fmt=C.NUMFMT["pct1"],
+             sub='="Haltedauer "&Haltedauer&" Jahre · Multiple "&FIXED(EK_Multiple,2)&"×"'),
+        dict(c1="C", c2="D", lr=17, label=None, fmt=C.NUMFMT["eur"], sub="Immobilienwert abzüglich Restschuld"),
+        dict(c1="E", c2="F", lr=17, label=None, fmt=C.NUMFMT["eur"],
+             sub="Cashflow nach Steuern nach Volltilgung (Prognose)"),
     ]
-    for c1, c2, lr, vr, sr, label, kpi, fmt, sub in tiles:
-        lab = label
-        if lab is not None and C.is_formula(lab):
-            ws.cell(lr, C.col(c1)).value = lab
-            lab = None
-        C.kpi_tile(ws, c1, c2, lr, vr, sub_row=sr, label=lab, kpi=kpi, fmt=fmt, sub=sub, gap_right=(c1 == "C"))
-        if lr > 11:
-            for c in C.iter_cells(ws, c1, lr, c2, lr):
-                c.border = Border(right=c.border.right, top=C.side("thick", C.WHITE))
-    # Steuerwirkung: Erstattung grün, Zahlung Navy
-    ws.conditional_formatting.add("E12:F12", FormulaRule(formula=["$E$12<0"], font=Font(color=C.GREEN, bold=True),
-                                                         stopIfTrue=True))
+    for t in tiles:
+        C.tile(ws, t["c1"], t["c2"], t["lr"], t["lr"] + 1, t["lr"] + 2, label=t["label"], kpi=t.get("kpi"),
+               fmt=t["fmt"], sub=t["sub"], neg=t.get("neg"), gap_right=(t["c1"] == "C"), gap_top=(t["lr"] > 11))
 
-    # Einordnung rechts neben den Kacheln: Text aus H29 und H37 in einem Kasten
+    # Einordnung rechts: IRR (Ampel) und Cashflow (neutral), bündig mit den Kacheln
     first = ws["H29"].value
-    ws["H11"].value = first + "&CHAR(10)&CHAR(10)&" + EINORDNUNG_S12_ZUSATZ
     blank(ws["H29"])
     blank(ws["H37"])
-    callout_box(ws, "H", 10, "I", 11, 19, None, status="IRR", head=False)
-    h[10].height = C.H_BAND
+    heights = {10: C.H_BAND, 11: C.H_TILE_LABEL, 12: C.H_TILE_VALUE, 13: C.H_TILE_SUB,
+               14: C.H_CALLOUT_HEAD, 15: C.H_TILE_VALUE, 16: C.H_TILE_SUB,
+               17: C.H_TILE_LABEL, 18: C.H_TILE_VALUE, 19: C.H_TILE_SUB}
+    box(ws, heights, 10, "Eigenkapitalrendite (IRR)", "IRR", TEXT_IRR_S12, 11, fixed_end=12)
+    box(ws, heights, 14, "Cashflow nach Steuern", None, first + "&CHAR(10)&CHAR(10)&" + EINORDNUNG_S12_ZUSATZ,
+        15, fixed_end=19)
+    heights[10] = C.H_BAND
 
     # Zeile 20: Herleitung · Diagramm · Weiter zur Auswertung
-    l2_head(ws, 20, "C", "D", "Herleitung pro Monat", height=28)
-    l2_head_inline(ws, 20, "E", "F", "Cashflow nach Steuern", "Jahre 1–30, € p. a.", height=28)
-    l2_head(ws, 20, "H", "I", "Weiter zur Auswertung", height=28)
+    head2(ws, 20, "C", "D", "Herleitung pro Monat")
+    head2(ws, 20, "E", "F", "Cashflow nach Steuern", "Jahre 1–30 · € p. a.")
+    head2(ws, 20, "H", "I", "Weiter zur Auswertung")
+    heights[20] = ROW2
     for c in C.iter_cells(ws, "C", 20, "I", 20):
-        if c.value is not None:
-            c.alignment = C.align(c.alignment.horizontal or "left", "bottom", 1)
+        c.alignment = C.align(c.alignment.horizontal or "left", "bottom", 1)
     labels = {21: "Cashflow vor Steuern / Monat", 22: "± Steuerwirkung / Monat", 23: "= Cashflow nach Steuern / Monat",
               24: C.KPI["EK"]["label"], 25: "Gesamtertrag n. St. bis Verkauf", 26: C.KPI["MULT"]["label"]}
     for r, text in labels.items():
@@ -844,16 +998,13 @@ def page_s12(ws, names):
         lab.alignment = C.align("left", "center", 1)
         val.alignment = C.align("right", "center", 1)
         row_line(ws, r, "C", "D")
-        h[r].height = ROW1
-    ws["D22"].number_format = C.NUMFMT["tax_effect"]
-    ws.conditional_formatting.add("D22", FormulaRule(formula=["$D$22<0"], font=Font(color=C.GREEN), stopIfTrue=True))
-    C.total(ws, 23, "C", "D", level=3)
-    C.add_ampel(ws, "D23", "CF")
+        heights[r] = ROW1
+    ws["D22"].number_format = SIGNED_EFFECT
+    C.sum_row(ws, 23, "C", "D", "result", neg=True)
     ws["D26"].number_format = C.NUMFMT["mult2"]
     for c in (ws["C24"], ws["D24"]):
-        c.border = Border(top=C.side("hair", C.LINE2), bottom=C.side("hair", C.LINE))
         c.alignment = C.align(c.alignment.horizontal, "bottom", 1)
-    h[24].height = 28
+    heights[24] = ROW2
     chart = charts.get(7)
     if chart is not None:
         set_anchor(chart, "E", 21, "F", 26)
@@ -861,6 +1012,8 @@ def page_s12(ws, names):
         cell = ws.cell(21 + i, 8)
         rich_link(cell, word, rest, target, tooltip=f"Weiter: {word}")
         row_line(ws, 21 + i, "H", "I")
+    for r, hh in heights.items():
+        h[r].height = hh
     return nav_and_footer(ws, n, 29, names)
 
 
@@ -883,7 +1036,7 @@ def apply(wb):
     for n in sorted(names):
         ws = wb[names[n]]
         old_max = max(ws.max_row, 70)
-        grid(ws)
+        grid(ws, GRID_KPI if n in (8, 12) else GRID)
         unmerge_from(ws, 10)
         reset_styles(ws, 10, old_max)
         header(ws, n)
@@ -893,6 +1046,7 @@ def apply(wb):
             end = page_s12(ws, names)
         else:
             sp = SPEC[n]
+            drop_cf(ws, TEMPLATE_CF)
             end = standard_page(ws, n, sp, names)
             if sp.get("hide"):
                 C.hide_rows(ws, *sp["hide"])
@@ -903,3 +1057,4 @@ def apply(wb):
         clear_rows_after(ws, end, (hide[0] - 1) if hide else old_max)
         ws.sheet_view.showRowColHeaders = False
         validation_messages(ws)
+        C.cf_close(ws)

@@ -12,6 +12,7 @@ page_setup(wb): ganz am Ende – A4, Ränder, Kopf-/Fußzeile, Druckbereiche, Ma
 Nur Darstellung: keine Formel der Vorlage, kein Eingabewert und kein Name wird verändert.
 """
 import re
+from copy import copy
 
 from openpyxl.styles import Alignment, Border, Font, Protection
 from openpyxl.worksheet.pagebreak import Break, ColBreak, RowBreak
@@ -76,7 +77,7 @@ CONTENT = {"Eingaben": ("B", "L"), "Haushaltsrechnung": ("B", "E"), "Vermögensa
            "Hinweise": ("B", "E"), "Konfiguration": ("B", "G"), "Sensitivität": ("C", "M"),
            "Bankgespräch": ("B", "I")}
 
-# =============================================================================== Zahlenformate (P2-06)
+# =============================================================================== Zahlenformate (P2-12, Katalog core.NUMFMT)
 NUMFMT_MAP = {
     '#,##0" €"': C.NUMFMT["eur"],
     '#,##0" €";\\-#,##0" €";\\–': C.NUMFMT["eur"],
@@ -89,22 +90,26 @@ NUMFMT_MAP = {
     '0.0"-fach"': C.NUMFMT["mult1"],
     "dd\\.mm\\.yyyy": C.NUMFMT["date"], "dd.mm.yyyy": C.NUMFMT["date"],
 }
-# Sätze (Zins, Steuer, AfA, GrESt, Soli, KSt) immer mit zwei Nachkommastellen
-RATE_CELLS = {
-    "Konfiguration": ["C10:C25", "C38:C40", "C45:C53", "C70"],
-    "Steuern": ["C18:C19", "D71:AQ71"],
-    "Finanzierung": ["D14", "D24", "D39:AQ39"],
-}
-INT_CELLS = {"Konfiguration": ["C33", "C35"]}
+# Prozent-Regel (P2-12): Eingaben und übernommene Eingaben 0,0 % – zweite Stelle nur, wenn der Wert sie braucht
+# (Makler 3,57 %); berechnete Quoten/Renditen immer 0,0 %. Fachlich zweistellig: Zins-/Tilgungssätze (Bankpraxis)
+# und die angewendeten Steuersätze (46,26 %).
+PCT2_WORDS = ("zins", "tilgung")
+PCT2_CELLS = {"S09 Steuern": ["I11:I14"], "Cockpit": ["G36"], "AfA-Vergleich": ["C12"], "Steuern": ["D72:AQ72"]}
+# DSCR überall mit Faktorzeichen (0,00×)
+DSCR_CELLS = {"Start": ["E31"], "Leitfaden": ["F13"], "S08 Zwischenergebnis": ["D23"], "Dashboard": ["N15", "E22:F22"],
+              "Cockpit": ["K24"], "Bankgespräch": ["C35"], "Sensitivität": ["D35:J41"], "Konfiguration": ["C78:D78"]}
+# Formeln/Koeffizienten mit zwei Stellen einheitlich (Konfiguration C32:C35)
+NUM2_CELLS = {"Konfiguration": ["C32:C35"]}
+# Jahre ganzzahlig mit Einheit im Format – das Label verliert „(Jahre)“
+YEARS_LABEL = re.compile(r"\s*\(Jahre\)\s*$")
 
-# =============================================================================== Typo-Skala (P2-07)
-SCALE = (8, 9, 10, 12.5, 14, 16, 20, 22, 30)
-KEEP_SIZE = {("Start", "D23"), ("Start", "G23")}   # Auswahlfeld „Kauf als“ (11 pt) und sein ▾
-SYMBOLS = set("✓○●▾›‹→↓↑⚠•✗×")
-
-
-def _symbol(v):
-    return isinstance(v, str) and 0 < len(v.strip()) <= 2 and all(ch in SYMBOLS or ch == " " for ch in v)
+# =============================================================================== Typo-Skala (P3-11)
+# Erlaubt sind nur 8 · 9 · 10 · 12,5 · 16 · 20 · 22 · 30 pt (core.TYPE_SCALE); Zwischengrößen über core.snap_size.
+SCALE = C.TYPE_SCALE
+# Monochrome Kennzeichen statt Emoji (P2-14): ● ▲ ■ › ⓘ; farbige Emoji und die Emoji-Variante (U+FE0F) entfallen
+SYMBOLS = set("✓○●▾›‹→↓↑▲■▸ⓘ•✗×–")
+EMOJI_MAP = {"🟢": "●", "🟡": "●", "🔴": "●", "🟠": "●", "⚪": "○", "✅": "✓", "❌": "✗", "ℹ️": "ⓘ", "\ufe0f": "",
+             "⚠": "▲", "ℹ": "ⓘ"}   # nur statische Texte – Formeltexte (LEFT(…)="⚠") bleiben unverändert
 
 VERSAL_FIX = [(re.compile(r"§ 32A\b"), "§ 32a"), (re.compile(r"\bESTG\b"), "EStG"), (re.compile(r"\bGRESTG\b"), "GrEStG"),
               (re.compile(r"\bKSTG\b"), "KStG"), (re.compile(r"\bGEWSTG\b"), "GewStG"), (re.compile(r"\bESTDV\b"), "EStDV"),
@@ -114,6 +119,9 @@ VERSAL_FIX = [(re.compile(r"§ 32A\b"), "§ 32a"), (re.compile(r"\bESTG\b"), "ES
 
 OLD_FONTS = {None, "Aptos", "Aptos Display", "Aptos Narrow", "Inter", "Fraunces", "IBM Plex Mono", "Arial"}
 LINE_COLORS = {C.LINE, C.LINE2, "D6D0C2", "B9B4A6", "E2DCCE", "EBE6DB"}
+# Systemregel „entfällt“ (bedingte Formatierung): lesbar zurückgenommen statt fast unsichtbar (D0D5DD ≈ 1,4:1)
+FADED_OLD = {"D0D5DD", "DADCDF"}
+FADED = "98A2B3"
 
 
 # =============================================================================== Hilfen
@@ -158,29 +166,14 @@ def _numeric_fmt(fmt):
 
 
 def _map_size(c):
-    """Zwischenstufen auf die Skala 8 · 9 · 10 · 12,5 · 16 · 20 · 22 (Hero 30, Schrittnummer 14)."""
+    """Zwischengrößen auf die Typo-Skala (core.snap_size: 8,5 → 9, 9,5/11 → 10, 12 → 12,5, 14 → 16, < 8 → 8).
+    Ausnahme: 8,5-pt-Versalienlabels werden 8 pt (Versalien-Labels stehen immer in 8 pt)."""
     sz = c.font.sz or 11
     if sz in SCALE:
         return sz
-    if sz < 8:
-        return 8
-    if sz == 8.5:
-        return 8 if (c.font.b and isinstance(c.value, str) and c.value.upper() == c.value) else 9
-    if sz == 9.5:
-        return 10 if (not isinstance(c.value, str) or C.is_formula(c.value) or c.font.b) else 9
-    if sz <= 11:
-        return 10
-    if sz <= 13.5:
-        return 12.5
-    if sz <= 15:
-        return 14
-    if sz <= 18:
-        return 16
-    if sz <= 21:
-        return 20
-    if sz <= 26:
-        return 22
-    return 30
+    if sz == 8.5 and c.font.b and isinstance(c.value, str) and not C.is_formula(c.value) and c.value.upper() == c.value:
+        return C.T_MICRO
+    return C.snap_size(sz)
 
 
 def _set_font(c, **kw):
@@ -226,7 +219,7 @@ def cell_rules(ws):
     for c in list(ws._cells.values()):
         if c.number_format in NUMFMT_MAP:
             c.number_format = NUMFMT_MAP[c.number_format]
-        if c.value is not None and (ws.title, c.coordinate) not in KEEP_SIZE:
+        if c.value is not None:
             sz = _map_size(c)
             if sz != c.font.sz:
                 _set_font(c, sz=sz)
@@ -236,12 +229,108 @@ def cell_rules(ws):
         if (drop_l or drop_r) and not _is_input(c):
             c.border = Border(left=None if drop_l else b.left, right=None if drop_r else b.right, top=b.top,
                               bottom=b.bottom)
-    for ref in RATE_CELLS.get(ws.title, []):
+    numfmt_catalog(ws)
+
+
+# =============================================================================== Zahlenformat-Katalog (P2-12)
+_REF = re.compile(r"=\s*(?:'?([^'!]+)'?!)?\$?([A-Za-z_][A-Za-z0-9_.]*?)(\$?\d+)?\s*$")
+
+
+def _pct_digits(fmt):
+    """1 bzw. 2 bei einem schlichten Prozentformat (0.0 % / 0.00 % mit Varianten), sonst None."""
+    if not fmt:
+        return None
+    head = fmt.split(";")[0].replace("\\", "").replace('"', "").replace(" ", "")
+    return {"0.0%": 1, "0.00%": 2}.get(head)
+
+
+def _ref_value(ws, c):
+    """Wert einer schlichten Verknüpfung (=Name, =A1, =Blatt!A1) – None bei echten Berechnungen."""
+    v = c.value
+    if not C.is_formula(v):
+        return None
+    m = _REF.fullmatch(v.strip())
+    if not m:
+        return None
+    sheet, name, row = m.groups()
+    if row is None:
+        return NAME_VALUES.get(name.lower(), None) if not sheet else None
+    try:
+        tgt = ws.parent[sheet] if sheet else ws
+        val = tgt[f"{name.replace('$', '')}{row.replace('$', '')}"].value
+    except Exception:
+        return None
+    return None if C.is_formula(val) else val
+
+
+def _row_label(ws, c):
+    for cc in range(c.column - 1, 1, -1):
+        v = ws.cell(c.row, cc).value
+        if isinstance(v, str) and not C.is_formula(v) and any(ch.isalpha() for ch in v):
+            return v
+    return ""
+
+
+def _needs2(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and abs(v * 1000 - round(v * 1000)) > 1e-6
+
+
+def _in_refs(coord_set, ws, key):
+    if key not in coord_set:
+        coord_set[key] = {c.coordinate for ref in key[1] for c in _cells(ws, ref)}
+    return coord_set[key]
+
+
+def numfmt_catalog(ws):
+    """Katalog core.NUMFMT durchsetzen (P2-12): Prozent 0,0 % (zweite Stelle nur bei Bedarf bzw. Zins/Steuersatz),
+    DSCR 0,00×, Jahre „1 Jahr / 12 Jahre“, Koeffizienten zweistellig. Eingabefelder zeigen 0 statt „–“."""
+    t = ws.title
+    cache = {}
+    pct2 = _in_refs(cache, ws, ("p2", tuple(PCT2_CELLS.get(t, []))))
+    for c in list(ws._cells.values()):
+        if c.value is None:
+            continue
+        d = _pct_digits(c.number_format)
+        if d is None:
+            continue
+        inp = _is_input(c)
+        if inp and isinstance(c.value, (int, float)):
+            v, kind = c.value, "entry"
+        elif C.is_formula(c.value):
+            v = _ref_value(ws, c)
+            kind = "linked" if v is not None or _REF.fullmatch(c.value.strip()) else "calc"
+        else:
+            v, kind = c.value, "static"
+        label = _row_label(ws, c).lower()
+        if c.coordinate in pct2 or any(w in label for w in PCT2_WORDS):
+            key = "pct2"
+        elif kind == "calc":
+            key = "pct1"
+        else:
+            key = "pct2" if _needs2(v) else "pct1"
+        if kind == "static" and not inp:
+            continue  # Kopf-/Achsenwerte (z. B. Sensitivität 0 % … 4 %) behalten ihr eigenes Format
+        c.number_format = C.numfmt(key, entry=inp)
+    for ref in DSCR_CELLS.get(t, []):
         for c in _cells(ws, ref):
-            c.number_format = C.NUMFMT["pct2"]
-    for ref in INT_CELLS.get(ws.title, []):
+            if c.value is not None and "%" not in (c.number_format or ""):
+                c.number_format = C.numfmt("dscr", entry=_is_input(c))
+    for ref in NUM2_CELLS.get(t, []):
         for c in _cells(ws, ref):
-            c.number_format = C.NUMFMT["int"]
+            c.number_format = C.numfmt("num2", entry=_is_input(c))
+    # „(Jahre)“ im Label → Einheit im Zahlenformat
+    for c in list(ws._cells.values()):
+        if not (_static(c) and YEARS_LABEL.search(c.value)) or c.column > 3:
+            continue
+        for cc in range(c.column + 1, c.column + 3):
+            v = ws.cell(c.row, cc)
+            if v.value is None:
+                continue
+            if (v.number_format or "General") in ("General", "0", "0.0", "#,##0") and \
+                    (isinstance(v.value, (int, float)) or C.is_formula(v.value)):
+                v.number_format = C.NUMFMT["years_n"]
+                C.set_text(c, YEARS_LABEL.sub("", c.value))
+            break
 
 
 def header(ws, spec):
@@ -261,11 +350,57 @@ def header(ws, spec):
     ws[f"{c1}7"].alignment = C.align("left", "top")
 
 
+ACRONYMS = {"GMBH": "GmbH", "KFW": "KfW", "WEG": "WEG", "DSCR": "DSCR", "IRR": "IRR", "AFA": "AfA", "ESTG": "EStG",
+            "ESTDV": "EStDV", "GRESTG": "GrEStG", "KSTG": "KStG", "GEWSTG": "GewStG", "USTG": "UStG", "SOLZG": "SolZG",
+            "BGB": "BGB", "EK": "EK", "NK": "NK", "VK": "VK", "NOI": "NOI", "BMF": "BMF", "BFH": "BFH", "UST": "USt",
+            "KAPEST": "KapESt", "HGB": "HGB", "JSTG": "JStG", "II": "II", "I": "I", "ABS.": "Abs.", "NR.": "Nr.",
+            "S.": "S.", "§": "§", "I.": "i.", "D.": "d.", "F.": "F.", "P.": "p.", "A.": "a."}
+LOWER_WORDS = {"und", "oder", "der", "die", "das", "des", "dem", "den", "im", "in", "mit", "nach", "vom", "von", "zu",
+               "zur", "zum", "für", "auf", "aus", "bei", "ohne", "als", "über", "je", "pro", "inkl.", "bzw.", "ihre",
+               "ihrer", "ihren", "am", "an", "bis", "ab", "lt.", "gem.", "sowie", "werden", "wird", "anteilig", "a",
+               "einer", "eines", "ein", "eine", "gegen", "unter", "vor", "zzgl.", "ggf.", "sofort", "abziehbar",
+               "abgeschrieben", "gesondert", "nur", "nicht", "ändern", "bitte", "hier", "je", "neu", "alle"}
+ADJ_END = re.compile(r"(lich|liche|lichen|licher|liches|isch|ische|ischen|ischer|ige|igen|iger|bare|baren|barer|"
+                     r"ierte|ierten)$")
+
+
+def title_case(text):
+    """Versalien-Band → Titelschreibung (Ebene 1, P1-12). Deutsche Heuristik: erstes Wort groß, Funktionswörter und
+    Adjektive klein, Substantive groß, Abkürzungen/Normzitate korrekt. Texte in gemischter Schreibung bleiben."""
+    if not isinstance(text, str) or C.is_formula(text) or text.upper() != text or not any(ch.isalpha() for ch in text):
+        return text
+    out, first = [], True
+    for tok in re.split(r"(\s+|[–/()·,])", text):
+        if not tok or tok.isspace() or tok in "–/()·,":
+            out.append(tok)
+            continue
+        up = tok.upper()
+        if up in ACRONYMS:
+            out.append(ACRONYMS[up])
+        elif not any(ch.isalpha() for ch in tok):
+            out.append(tok)
+            continue
+        elif "-" in tok:
+            out.append("-".join(ACRONYMS.get(p.upper(), p[:1] + p[1:].lower()) for p in tok.split("-")))
+            first = False
+            continue
+        else:
+            low = tok.lower()
+            if first:
+                out.append(low[:1].upper() + low[1:])
+            elif low in LOWER_WORDS or ADJ_END.search(low):
+                out.append(low)
+            else:
+                out.append(low[:1].upper() + low[1:])
+        first = False
+    return "".join(out)
+
+
 def table_rules(ws, c1, c2, first=8, last=None):
     """Spaltenkopf, Summenzeile und Haarlinie über die volle Tabellenbreite; Köpfe folgen ihren Werten."""
     last = last or ws.max_row
     anchors = _merged_anchor_map(ws)
-    band_colors = {C.NAVY, C.TINT} if ws.title not in FORM_SHEETS else {C.NAVY}
+    band_colors = {C.NAVY, C.TINT}
     kinds = {}
     for r in range(first, last + 1):
         vals = [ws.cell(r, cc) for cc in range(C.col(c1), C.col(c2) + 1)]
@@ -286,11 +421,11 @@ def table_rules(ws, c1, c2, first=8, last=None):
         elif any(v.value is not None for v in vals):
             kinds[r] = "row"
     for r, kind in kinds.items():
-        if kind == "band":
-            if ws.title in FORM_SHEETS:
-                C.band_form(ws, r, c1, c2)
-            else:
-                C.band_l1b(ws, r, c1, c2)
+        if kind == "band":  # P1-12: ein Abschnittskopf (Ebene 1) auf allen Tabellenblättern
+            first = ws.cell(r, C.col(c1))
+            if _static(first) and not isinstance(first.value, type(None)):
+                C.set_text(first, title_case(first.value))
+            C.section(ws, r, c1, c2, level=1)
         elif kind == "head":
             below = next((k for k in range(r + 1, r + 4) if kinds.get(k) in ("row", "sum")), None)
             C.table_head(ws, r, c1, c2)
@@ -305,13 +440,12 @@ def table_rules(ws, c1, c2, first=8, last=None):
                 h.alignment = C.align("right" if num else "left", "center", 1)
                 if isinstance(h.value, str) and h.data_type == "s":
                     h.value = h.value.upper()
-        elif kind == "sum":
-            for c in C.iter_cells(ws, c1, r, c2, r):
-                if _is_input(c):
-                    continue
-                c.fill = C.fill(C.TINT)
-                c.border = Border(top=C.side("thin", C.BLUE), bottom=C.side("hair", C.LINE))
-                _set_font(c, b=True, color=C.NAVY)
+        elif kind == "sum":  # Zwischensumme (core.sum_row 'sub'); Eingabefelder behalten ihren Stil
+            keep = {c.coordinate: (copy(c.font), copy(c.fill), copy(c.border)) for c in C.iter_cells(ws, c1, r, c2, r)
+                    if _is_input(c)}
+            C.sum_row(ws, r, c1, c2, "sub")
+            for coord, (fnt, fil, brd) in keep.items():
+                ws[coord].font, ws[coord].fill, ws[coord].border = fnt, fil, brd
         else:
             for c in C.iter_cells(ws, c1, r, c2, r):
                 if _is_input(c):
@@ -350,7 +484,7 @@ NAME_VALUES = {}
 
 
 def resolve_names(wb):
-    """Namen → aktueller Zellwert (für die Zeilenhöhe von Anzeigeformeln wie =Rechtsform)."""
+    """Namen → aktueller Zellwert (für die Prozent-Regel übernommener Eingaben wie =Makler_Pct)."""
     NAME_VALUES.clear()
     for n, d in wb.defined_names.items():
         try:
@@ -363,52 +497,21 @@ def resolve_names(wb):
             continue
 
 
-def _display_text(c):
-    v = c.value
-    if C.is_formula(v):
-        m = re.fullmatch(r"=([A-Za-z_][A-Za-z0-9_.]*)", v.strip())
-        return NAME_VALUES.get(m.group(1).lower()) if m else None
-    return v
+def fit_row(ws, row, c1, c2, base=C.H_ROW, pad=6, max_lines=3):
+    """Zeilenhöhe nach Inhalt – core.fit_row (Calibri-Metrik, Anzeigeformeln, Einzug, Raster 18/30/42)."""
+    return C.fit_row(ws, row, c1, c2, base=base, pad=pad, max_lines=max_lines)
 
 
-def _lines(text, width_px, size, bold):
-    """Zeilenzahl mit der Calibri-Laufweite aus core.text_px (in der Vorschau gemessen ≈ 3 % zu breit)."""
-    import math
-    n = 0
-    for para in str(text).split("\n"):
-        n += max(1, math.ceil(0.97 * C.text_px(para, size, bold) / max(width_px, 20)))
-    return n
-
-
-def fit_row(ws, row, c1, c2, base=C.H_ROW, line_pt=12, pad=6, max_lines=3):
-    """Wie core.fit_row_height, zählt aber auch Anzeigeformeln (=Name) mit ihrem aktuellen Text."""
-    merged = {}
-    for mr in ws.merged_cells.ranges:
-        if mr.min_row == row == mr.max_row:
-            merged[mr.min_col] = mr.max_col
-    need = 1
-    for cc in range(C.col(c1), C.col(c2) + 1):
-        cell = ws.cell(row, cc)
-        text = _display_text(cell)
-        if text is None or not (cell.alignment and cell.alignment.wrap_text):
-            continue
-        w = C.span_px(ws, cc, merged.get(cc, cc)) - 7 * (cell.alignment.indent or 0) - 6
-        need = max(need, _lines(text, w, cell.font.sz or C.T_BODY, bool(cell.font.b)))
-    need = min(need, max_lines)
-    ws.row_dimensions[row].height = base if need == 1 else need * line_pt + pad
-    return need
-
-
-def row_grid(ws, kinds, c1, c2, line_pt=12, pad=6, base=C.H_ROW, keep=None):
+def row_grid(ws, kinds, c1, c2, pad=6, base=C.H_ROW, keep=None):
     """Zeilenraster: einzeilig 18 pt, zweizeilig 30 pt, dreizeilig 42 pt; einzeilig mittig, mehrzeilig oben.
     keep: Höhen einer bereits gerasterten Nachbartabelle derselben Zeilen (es gilt das Maximum)."""
     for r, kind in kinds.items():
         if kind == "head":
             h = C.H_HEAD
         elif kind == "band":
-            h = C.H_BAND_B + 2 if ws.title in FORM_SHEETS else C.H_BAND_B
+            h = C.H_BAND
         else:
-            fit_row(ws, r, c1, c2, base=base, line_pt=line_pt, pad=pad)
+            fit_row(ws, r, c1, c2, base=base, pad=pad)
             h = ws.row_dimensions[r].height
         if keep and r in keep:
             h = max(h, keep[r])
@@ -536,7 +639,6 @@ def note_cols(ws):
 
 def bank_defaults(ws):
     """HH / VA: Ergebniszeilen, kritische Puffer rot/grün, Blattschutz mit entsperrten Eingaben (P2-08, P3-02)."""
-    from openpyxl.formatting.rule import FormulaRule
     if ws.title == "Haushaltsrechnung":
         res, crit = 46, ("C46:D46", "$C$46")
     elif ws.title == "Vermögensaufstellung":
@@ -545,18 +647,21 @@ def bank_defaults(ws):
         return
     if ws.title == "Haushaltsrechnung" and isinstance(ws["E46"].value, str) and ws["E46"].data_type == "s":
         C.set_text(ws["E46"], "Banken erwarten > 0 nach neuem Kapitaldienst")
+    C.sum_row(ws, res, "B", "E", "result")  # das EINE Blockergebnis (Summenstufe 2)
     for c in C.iter_cells(ws, "B", res, "E", res):
-        c.fill = C.fill(C.TINT)
-        c.border = Border(top=C.side("thin", C.NAVY), bottom=C.side("double", C.NAVY))
         if c.value is not None and c.column <= 4:
             _set_font(c, sz=C.T_H3, b=True, color=C.NAVY)
             _set_align(c, vertical="center")
-    ws.row_dimensions[res].height = 21
+        elif c.value is not None:
+            _set_font(c, sz=C.T_SMALL, b=False, color=C.MUTED)
+    ws.row_dimensions[res].height = C.H_BAND
     ref, cell = crit
-    ws.conditional_formatting.add(ref, FormulaRule(formula=[f"{cell}<0"], stopIfTrue=True,
-                                                   font=Font(color=C.RED, bold=True), fill=C.fill(C.RED_BG)))
-    ws.conditional_formatting.add(ref, FormulaRule(formula=[f"ISNUMBER({cell})"], stopIfTrue=True,
-                                                   font=Font(color=C.GREEN, bold=True)))
+    if ws.title == "Haushaltsrechnung":  # Status nach der Überschussquote C47 (P1-10): Schrift, keine Fläche
+        conds = [("$C$47<0", "red"), ("$C$47<0.05", "amber"), ("ISNUMBER($C$47)", "green")]
+        C.status_cf(ws, "C46:D46", conds)
+        C.status_cf(ws, "C47", conds)
+    else:
+        C.status_cf(ws, ref, [(f"{cell}<0", "red"), (f"ISNUMBER({cell})", "green")])
     for r in range(9, res + 2):  # Kommentar-/Nachweisspalte neben Eingaben bleibt beschreibbar
         if ws.cell(r, 3).protection.locked is False:
             ws.cell(r, 5).protection = Protection(locked=False)
@@ -576,10 +681,8 @@ def calc_colors(ws):
 
 def sensitivity_defaults(ws):
     from openpyxl.formatting.rule import FormulaRule
-    for ref in ("D11", "D62"):
-        cell = "$" + re.sub(r"(\d+)", r"$\1", ref)
-        ws.conditional_formatting.add(ref, FormulaRule(formula=[f"{cell}<0"], stopIfTrue=True,
-                                                       font=Font(color=C.RED, bold=True), fill=C.fill(C.RED_BG)))
+    for ref in ("D11", "D62"):  # nur echte negative Ergebnisse rot, keine Flächentönung
+        C.neg_red(ws, ref, bold=True)
 
 
 def early(wb):
@@ -605,7 +708,7 @@ def early(wb):
         for c1, c2 in spans:
             kinds = table_rules(ws, c1, c2, first=8)
             if name == "Hinweise":
-                row_grid(ws, kinds, c1, c2, line_pt=13, pad=10)
+                row_grid(ws, kinds, c1, c2, pad=10)
             else:
                 row_grid(ws, kinds, c1, c2, keep=done)
             for r in kinds:
@@ -629,15 +732,52 @@ def early(wb):
 # =============================================================================== final
 def final(wb):
     for ws in wb.worksheets:
-        normalise(ws)
-        for cf in ws.conditional_formatting:
-            for rule in cf.rules:
-                if rule.dxf is not None and rule.dxf.font is not None:
-                    rule.dxf.font.name = None
+        finish_sheet(ws)
+
+
+def finish_sheet(ws):
+    """Sicherheits-Normalisierung eines Blatts (auch für das später gebaute Dashboard)."""
+    normalise(ws)
+    numfmt_catalog(ws)
+    units_once(ws)
+    cf_rules(ws)
+    C.cf_close(ws)
+
+
+def cf_rules(ws):
+    """dxf ohne Schriftnamen; „entfällt“-Grau lesbar (98A2B3 kursiv statt D0D5DD); Warn-/Info-Zeilen ohne Emoji."""
+    for cf in ws.conditional_formatting:
+        for rule in cf.rules:
+            d = rule.dxf
+            if d is None or d.font is None:
+                continue
+            d.font.name = None
+            if _rgb(d.font.color) in FADED_OLD and d.fill is None:
+                d.font.color = FADED
+                d.font.i = True
+
+
+def units_once(ws):
+    """Eine Einheit wird nur einmal genannt: steht sie schon in der Beschriftung oder im Zahlenformat (×),
+    bleibt die Einheitenspalte leer. § 82b: „Jahr(e)“."""
+    if ws.title not in ("Eingaben", "Konfiguration"):
+        return
+    for r in range(9, ws.max_row + 1):
+        b, cval, e = ws.cell(r, 2), ws.cell(r, 3), ws.cell(r, 5)
+        if not (_static(e) and isinstance(b.value, str)) or _is_input(e):
+            continue
+        unit = e.value.strip()
+        label = b.value.lower()
+        if len(unit) <= 14 and unit.lower() in label:
+            e.value = None
+        elif "×" in (cval.number_format or "") and unit in ("Jahresmieten", "fach"):
+            e.value = None
+        elif "82b" in label and unit == "Jahre":
+            C.set_text(e, "Jahr(e)")
 
 
 def _rich_runs(c):
-    """Rich-Text: Sekundärtext ≤ 9 pt nie in 8A9099, nur Calibri, Mindestgröße 8 pt."""
+    """Rich-Text: Typo-Skala, Sekundärtext ≤ 9 pt nie in 8A9099, nur Calibri, Mindestgröße 8 pt."""
     from openpyxl.cell.rich_text import CellRichText, TextBlock
     v = c.value
     if not isinstance(v, CellRichText):
@@ -649,8 +789,8 @@ def _rich_runs(c):
         col = _rgb(f.color) if f.color is not None else None
         if (f.sz or 11) <= 9 and col == C.MUTED2:
             f.color = C.MUTED
-        if f.sz is not None and f.sz < 8:
-            f.sz = 8
+        if f.sz is not None and f.sz not in SCALE:
+            f.sz = C.snap_size(f.sz)
         if f.rFont in OLD_FONTS - {None}:
             f.rFont = C.SANS
 
@@ -661,6 +801,13 @@ def _zero_visible(fmt):
     if len(parts) == 3 and parts[2].strip('"\\ ') in ("–", "-"):
         return ";".join(parts[:2])
     return fmt
+
+
+def _plain_symbols(text):
+    """Farbige Emoji → monochrome Zeichen (P2-14)."""
+    for k, v in EMOJI_MAP.items():
+        text = text.replace(k, v)
+    return text
 
 
 def normalise(ws):
@@ -681,27 +828,24 @@ def normalise(ws):
             if f.name in OLD_FONTS:  # leere Zellen: beim Tippen erscheint sonst die Altschrift
                 _set_font(c, name=C.SANS)
             continue
-        # 2) Mindestschrift 8 pt; 3) Sekundärtext ≤ 9 pt nie in 8A9099 (außer inaktive Felder)
+        # 2) Mindestschrift 8 pt und Typo-Skala (P3-11); 3) Sekundärtext ≤ 9 pt nie in 8A9099 (außer inaktive Felder)
         kw = {}
-        if (f.sz or 11) < 8:
-            kw["sz"] = 8
-        if (f.sz or 11) <= 9 and _rgb(f.color) == C.MUTED2 and _fill_rgb(c) != C.INACTIVE_BG:
-            kw["color"] = C.MUTED
-        # 3b) Typo-Skala (P2-07): Zwischenstufen abbilden – Ausnahmen: Auswahlfeld, Symbole, Textergebnisse S-Seiten
-        sz0 = f.sz or 11
-        if sz0 not in SCALE and (ws.title, c.coordinate) not in KEEP_SIZE and not _symbol(c.value) \
-                and not (sz0 == 9.5 and STEP_RE.match(ws.title)):
+        if (f.sz or 11) not in SCALE:
             kw["sz"] = _map_size(c)
-        # 4) nur Calibri
+        if (kw.get("sz") or f.sz or 11) <= 9 and _rgb(f.color) == C.MUTED2 and _fill_rgb(c) != C.INACTIVE_BG:
+            kw["color"] = C.MUTED
+        # 4) nur Calibri (monochrome Symbolschrift bleibt erlaubt)
         if f.name in OLD_FONTS:
             kw["name"] = C.SANS
         if kw:
             _set_font(c, **kw)
-        # 5) Normzitate in Versaltexten
-        if _static(c) and sum(ch.isupper() for ch in c.value) > 0.6 * max(1, sum(ch.isalpha() for ch in c.value)):
+        # 5) Normzitate in Versaltexten; farbige Emoji → monochrome Zeichen
+        if _static(c):
             v = c.value
-            for pat, rep in VERSAL_FIX:
-                v = pat.sub(rep, v)
+            if sum(ch.isupper() for ch in v) > 0.6 * max(1, sum(ch.isalpha() for ch in v)):
+                for pat, rep in VERSAL_FIX:
+                    v = pat.sub(rep, v)
+            v = _plain_symbols(v)
             if v != c.value:
                 C.set_text(c, v)
 
@@ -725,7 +869,7 @@ def _print(ws, area, orient="landscape", w=1, h=0, scale=None, rows=None, cols=N
     ws.page_setup.orientation = orient
     if scale:
         ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=False)
-        ws.page_setup.scale = scale
+        ws.page_setup.scale = int(scale)
         ws.page_setup.fitToWidth = None
         ws.page_setup.fitToHeight = None
     else:
@@ -733,18 +877,163 @@ def _print(ws, area, orient="landscape", w=1, h=0, scale=None, rows=None, cols=N
         ws.page_setup.fitToWidth = w
         ws.page_setup.fitToHeight = h
         ws.page_setup.scale = None
-    if rows:
-        ws.print_title_rows = rows
+    ws.print_title_rows = rows if rows else None
     if cols:
         ws.print_title_cols = cols
     ws.row_breaks = RowBreak()
-    for r in breaks:
+    for r in sorted(set(breaks)):
         ws.row_breaks.append(Break(id=r - 1))
     ws.col_breaks = ColBreak()
     for cc in col_breaks:
         ws.col_breaks.append(Break(id=C.col(cc)))
     if over_then_down:
         ws.page_setup.pageOrder = "overThenDown"
+
+
+# ------------------------------------------------------------------------------- Seitenplanung
+PAPER = {"landscape": (842.0, 595.0), "portrait": (595.0, 842.0)}   # A4 in pt
+RESERVE = 0.985                                                      # Rundungs-/Druckerreserve
+
+
+def _avail(orient):
+    pw, ph = PAPER[orient]
+    return (pw - 72 * (MARGINS["left"] + MARGINS["right"]),
+            ph - 72 * (MARGINS["top"] + MARGINS["bottom"]))
+
+
+def _row_pt(ws, r):
+    d = ws.row_dimensions.get(r) if hasattr(ws.row_dimensions, "get") else ws.row_dimensions[r]
+    if d is not None and d.hidden:
+        return 0.0
+    return float(d.height) if (d is not None and d.height) else 15.0
+
+
+def _width_pt(ws, c1, c2):
+    return C.span_px(ws, c1, c2) * 0.75
+
+
+def _chart_spans(ws):
+    """Zeilenbereiche (1-basiert) aller Diagramme/Bilder – Seitenumbrüche nie mitten hindurch."""
+    out = []
+    for obj in list(getattr(ws, "_charts", [])) + list(getattr(ws, "_images", [])):
+        a = obj.anchor
+        fr, to = getattr(a, "_from", None), getattr(a, "to", None)
+        if fr is not None and to is not None:
+            out.append((fr.row + 1, to.row + 1))
+    return out
+
+
+def _merged_spans(ws):
+    return [(mr.min_row, mr.max_row) for mr in ws.merged_cells.ranges if mr.max_row > mr.min_row]
+
+
+def block_starts(ws, c1, c2, r1, r2):
+    """Mögliche Umbruchstellen: Zeilen, vor denen eine Leer-/Fugenzeile steht, und Abschnittsköpfe."""
+    def empty(r):
+        return all(ws.cell(r, cc).value is None for cc in range(C.col(c1), C.col(c2) + 1)) and \
+            not _row_has_fill(ws, r, c1, c2, {C.NAVY, C.TINT, C.HEAD, C.TINT_XL, C.BLUE})
+    out = []
+    for r in range(r1 + 1, r2 + 1):
+        if _row_pt(ws, r) == 0:
+            continue
+        first = ws.cell(r, C.col(c1))
+        lb = first.border.left
+        head = _fill_rgb(first) in (C.NAVY,) or (_fill_rgb(first) == C.TINT and lb is not None and lb.style == "thick")
+        prev = r - 1
+        while prev > r1 and _row_pt(ws, prev) == 0:
+            prev -= 1
+        if head or (empty(prev) and _row_pt(ws, prev) >= 7.5 and not empty(r)):
+            out.append(r)
+    return out
+
+
+def section_starts(ws, c1, c2, r1, r2):
+    """Nur Abschnittsköpfe (Ebene 1 bzw. Navy-Band) – für die Aufteilung von Präsentationsblättern."""
+    out = []
+    for r in range(r1 + 1, r2 + 1):
+        for cc in range(C.col(c1), C.col(c2) + 1):
+            c = ws.cell(r, cc)
+            lb = c.border.left
+            if c.value is not None and _fill_rgb(c) == C.TINT and lb is not None and lb.style == "thick":
+                out.append(r)
+                break
+            if isinstance(c.value, str) and not C.is_formula(c.value) and c.font is not None \
+                    and (c.font.sz or 0) in (C.T_H3, C.T_H2) and c.font.b \
+                    and _rgb(c.font.color) == C.NAVY and r > 8:
+                out.append(r)
+                break
+    return out
+
+
+def best_split(ws, c2, r2, orient="landscape", pages=2, candidates=()):
+    """Aufteilung auf genau `pages` Seiten mit dem größten Maßstab (Umbrüche nur vor Abschnittsköpfen)."""
+    from itertools import combinations
+    aw, ah = _avail(orient)
+    w_scale = min(1.0, aw * RESERVE / max(_width_pt(ws, "A", c2), 1))
+    heights = {r: _row_pt(ws, r) for r in range(1, r2 + 1)}
+    best = (0.0, ())
+    for cut in combinations(sorted(set(candidates)), pages - 1):
+        bounds = (1,) + cut + (r2 + 1,)
+        segs = [sum(heights[r] for r in range(bounds[k], bounds[k + 1])) for k in range(pages)]
+        sc = min([w_scale] + [ah * RESERVE / max(h, 1) for h in segs])
+        if sc > best[0]:
+            best = (sc, cut)
+    return int(best[0] * 100), list(best[1])
+
+
+def paginate(ws, c1, c2, r1, r2, orient="landscape", forced=(), candidates=None, title_rows=None, min_scale=70,
+             max_scale=100, one_page_segments=False):
+    """Maßstab und Zeilenumbrüche so planen, dass jede Seite voll lesbar ist:
+    Maßstab = Seitenbreite (max. 100 %); Umbrüche vor Abschnitten/Blöcken (nie durch Diagramme oder Verbünde).
+    one_page_segments: jedes erzwungene Segment genau eine Seite (Maßstab sinkt dafür bis min_scale).
+    Liefert (Maßstab in %, Umbruchzeilen)."""
+    aw, ah = _avail(orient)
+    scale = min(max_scale / 100, aw * RESERVE / max(_width_pt(ws, c1, c2), 1))
+    t_h = 0.0
+    if title_rows:
+        a, b = title_rows
+        t_h = sum(_row_pt(ws, r) for r in range(a, b + 1))
+    forced = sorted(r for r in set(forced) if r1 < r <= r2)
+    if one_page_segments:
+        bounds = [r1] + forced + [r2 + 1]
+        segs = [sum(_row_pt(ws, r) for r in range(bounds[k], bounds[k + 1])) for k in range(len(bounds) - 1)]
+        need = min(ah * RESERVE / max(h, 1) for h in segs)
+        if need >= min_scale / 100:
+            return int(min(scale, need) * 100), forced
+    heads = set(section_starts(ws, c1 if c1 != "A" else "B", c2, r1, r2))
+    cands = sorted(set(candidates if candidates is not None else block_starts(ws, c1, c2, r1, r2)) | set(forced) | heads)
+
+    blocked = set()
+    for a, b in _chart_spans(ws) + _merged_spans(ws):
+        blocked.update(range(a + 1, b + 1))
+    breaks, start, used = [], r1, 0.0
+    limit = ah * 0.97 / scale
+    r = r1
+    while r <= r2:
+        h = _row_pt(ws, r)
+        room = limit - (t_h if breaks else 0.0)
+        if r in forced and r > start:
+            breaks.append(r)
+            start, used = r, 0.0
+        elif used + h > room and r > start:
+            opts = [c for c in cands if start < c <= r and c not in blocked
+                    and sum(_row_pt(ws, k) for k in range(start, c)) >= 0.3 * room]
+            # keine Seite nur mit dem Fuß: Umbrüche kurz vor dem Blattende meiden
+            full = [c for c in opts if sum(_row_pt(ws, k) for k in range(c, r2 + 1)) >= 0.15 * room]
+            opts = full or opts
+            cut = max(opts) if opts else r
+            while cut in blocked and cut > start + 1:
+                cut -= 1
+            # Überschrift nie allein am Seitenende: Kopfzeilen direkt vor dem Umbruch wandern mit
+            lead = [h for h in heads if cut - 3 <= h < cut and h > start]
+            if lead:
+                cut = min(lead)
+            breaks.append(cut)
+            start = cut
+            used = sum(_row_pt(ws, k) for k in range(cut, r))
+        used += h
+        r += 1
+    return int(scale * 100), breaks
 
 
 def _chart_right_col(ws):
@@ -756,59 +1045,98 @@ def _chart_right_col(ws):
     return max(cols) if cols else 0
 
 
+def _find_row(ws, text, c_max=20, default=None, contains=False, r_min=1):
+    rows = [c.row for c in ws._cells.values()
+            if c.column <= c_max and c.row >= r_min and isinstance(c.value, str) and not C.is_formula(c.value)
+            and (text in c.value if contains else c.value.strip() == text)]
+    return min(rows) if rows else default
+
+
+def _smart(ws, c1, c2, r2, orient="landscape", forced=(), title_rows=None, one_page_segments=False, min_scale=70,
+           **kw):
+    """Druckbereich ab A1 (Kopfleiste und Akzentlinie immer im Druck) mit geplanten Umbrüchen."""
+    scale, breaks = paginate(ws, "A", c2, 1, r2, orient, forced=forced, title_rows=title_rows,
+                             one_page_segments=one_page_segments, min_scale=min_scale)
+    rows = f"{title_rows[0]}:{title_rows[1]}" if title_rows else None
+    if scale >= _width_scale(ws, c2, orient) - 1:
+        # Maßstab = Seitenbreite: „1 Seite breit, Höhe automatisch“ – die Anwendung rechnet die Breite selbst
+        # (keine zweite Seite nach rechts), die geplanten Zeilenumbrüche bleiben bei offener Höhe wirksam.
+        _print(ws, f"A1:{c2}{r2}", orient, 1, 0, rows=rows, breaks=breaks, **kw)
+    else:
+        _print(ws, f"A1:{c2}{r2}", orient, scale=scale, rows=rows, breaks=breaks, **kw)
+    return scale, breaks
+
+
+def _width_scale(ws, c2, orient="landscape"):
+    aw, _ = _avail(orient)
+    return int(min(1.0, aw * RESERVE / max(_width_pt(ws, "A", c2), 1)) * 100)
+
+
 def print_setup(ws):
+    """Druck (P1-02, P2-05, P2-06): alle Druckbereiche beginnen bei A1 (Kopfleiste und Akzentlinie im Druck),
+    der Fuß mit Haftungsausschluss liegt immer im Druckbereich, jede Seite mindestens 70 % Maßstab."""
     t = ws.title
     fr = _footer_row(ws)
-    if STEP_RE.match(t):
-        _print(ws, f"A1:I{_footer_row(ws, 1, 9) or fr or 60}")
-    elif t == "Start":
-        _print(ws, f"A1:H{max(_footer_row(ws, 1, 8) or 0, 65)}")
+    if STEP_RE.match(t):  # ein Schritt = eine Seite
+        _print(ws, f"A1:I{_footer_row(ws, 1, 9) or fr or 60}", "landscape", 1, 1)
+    elif t == "Start":  # genau zwei Seiten, Umbruch vor dem Abschnitt mit dem größten Maßstab (Legende/Vorgehen)
+        last = max(_footer_row(ws, 1, 8) or 0, 65)
+        scale, breaks = best_split(ws, "H", last, pages=2, candidates=section_starts(ws, "B", "H", 20, last - 3))
+        if scale >= _width_scale(ws, "H") - 1:
+            _print(ws, f"A1:H{last}", "landscape", 1, 0, breaks=breaks)
+        else:
+            _print(ws, f"A1:H{last}", "landscape", scale=scale, breaks=breaks)
         if ws.freeze_panes is None:
             ws.freeze_panes = "A4"
-    elif t == "Dashboard":
+    elif t == "Dashboard":  # quer; Seite 1 Kopf, Urteil, Kacheln, Wasserfall | Seite 2 Verlauf, Tabelle, Hinweise
         last = _footer_row(ws, 1, 18) or ws.max_row
-        _print(ws, f"A1:R{last}", "portrait", 1, 1)
+        cut = _find_row(ws, "Vermögensentwicklung", 18, 28)
+        hints = _find_row(ws, "Prüfhinweise", 18, None, contains=True, r_min=cut + 1)
+        scale, breaks = _smart(ws, "A", "R", last, forced=(cut,), one_page_segments=True)
+        if scale < 70 or len(breaks) > 1:  # Seite 2 zu lang: Verlauf + Zeitverlauf | Prüfhinweise (3 Seiten, ≥ 70 %)
+            _smart(ws, "A", "R", last, forced=(cut, hints) if hints else (cut,), one_page_segments=True)
     elif t == "Leitfaden":
-        _print(ws, f"A1:I{_footer_row(ws, 1, 9) or 53}")
+        _print(ws, f"A1:I{_footer_row(ws, 1, 9) or 53}", "landscape", 1, 1)
     elif t == "Cockpit":
-        _print(ws, f"A1:L{_footer_row(ws, 1, 12) or 76}")
+        _smart(ws, "A", "L", _footer_row(ws, 1, 12) or 76)
     elif t == "Eingaben":
-        _print(ws, f"A1:L{_footer_row(ws, 1, 12) or 148}", rows="9:10", breaks=(48, 75, 95, 119))
+        _smart(ws, "A", "L", _footer_row(ws, 1, 12) or 148)
     elif t == "Diagramme":
-        _print(ws, "A1:P136", breaks=(51, 92))
+        last = _footer_row(ws, 1, 42) or ws.max_row
+        data = _find_row(ws, "Diagrammdaten", 3, contains=True, r_min=100) or 138
+        visible_data = any(_row_pt(ws, r) > 0 and any(ws.cell(r, cc).value is not None for cc in range(2, 17))
+                           for r in range(data + 1, max(data + 1, last - 2)))
+        _smart(ws, "A", "P", last, forced=(data,) if visible_data else ())
     elif t in ("Steuern", "Projektion", "Finanzierung"):
         last = _footer_row(ws) or ws.max_row
-        rows = "40:42" if t == "Steuern" else "8:10"
-        _print(ws, f"A1:AQ{last}", scale=70, rows=rows, cols="A:C", breaks=(40,) if t == "Steuern" else (),
+        rows = (40, 42) if t == "Steuern" else (8, 10)
+        forced = (40,) if t == "Steuern" else ()
+        _, breaks = paginate(ws, "A", "M", 1, last, "landscape", forced=forced, title_rows=rows, max_scale=70)
+        _print(ws, f"A1:AQ{last}", scale=70, rows=f"{rows[0]}:{rows[1]}", cols="A:C", breaks=breaks,
                col_breaks=("M", "W", "AG"), over_then_down=True)
     elif t == "AfA-Vergleich":
-        _print(ws, f"A1:Q{_footer_row(ws, 1, 17) or 75}", breaks=(52,))
-    elif t == "Sensitivität":
-        _print(ws, "$B$5:$M$63", breaks=(43,))
-    elif t == "Bankgespräch":
-        _print(ws, f"$B$5:$I${max(_footer_row(ws, 2, 9) or 0, 67)}", "portrait", 1, 1)
+        _smart(ws, "A", "Q", _footer_row(ws, 1, 17) or 75)
+    elif t == "Sensitivität":  # Hilfsrechnung 65–115 ist eingeklappt; der Fuß (117/118) kommt mit auf die Seite
+        _smart(ws, "A", "M", _footer_row(ws, 1, 13) or 118)
+    elif t == "Bankgespräch":  # hoch, eine Seite
+        _print(ws, f"A1:I{max(_footer_row(ws, 1, 9) or 0, 67)}", "portrait", 1, 1)
     elif t in ("Haushaltsrechnung", "Vermögensaufstellung"):
-        last = _footer_row(ws, 2, 5) or (50 if t == "Haushaltsrechnung" else 37)
+        from openpyxl.utils import get_column_letter
+        last = _footer_row(ws, 1, 5) or (50 if t == "Haushaltsrechnung" else 37)
         right = _chart_right_col(ws)
-        if right > 5:  # Diagramm rechts neben der Tabelle: quer, sonst hoch (B:E)
-            from openpyxl.utils import get_column_letter
-            _print(ws, f"$B$5:${get_column_letter(right)}${last}", "landscape", 1, 1)
+        if right > 5:  # Diagramm rechts neben der Tabelle: quer, sonst hoch (A:E); Umbruch nur vor Abschnitten
+            _smart(ws, "A", get_column_letter(right), last, "landscape")
         else:
-            _print(ws, f"$B$5:$E${last}", "portrait", 1, 1)
+            _smart(ws, "A", "E", last, "portrait")
     elif t == "Hinweise":
-        _print(ws, f"A1:E{_footer_row(ws, 1, 5) or 39}", rows="8:9")
+        _smart(ws, "A", "E", _footer_row(ws, 1, 5) or 39)
     elif t == "Konfiguration":
-        _print(ws, f"A1:G{_footer_row(ws, 1, 7) or 83}", rows="8:9")
+        _smart(ws, "A", "G", _footer_row(ws, 1, 7) or 83)
 
 
 def page_setup(wb):
     if "Dashboard" in wb.sheetnames:  # entsteht erst nach final(): dieselben Sicherheitsregeln
-        ws = wb["Dashboard"]
-        normalise(ws)
-        for cf in ws.conditional_formatting:
-            for rule in cf.rules:
-                if rule.dxf is not None and rule.dxf.font is not None:
-                    rule.dxf.font.name = None
+        finish_sheet(wb["Dashboard"])
     for ws in wb.worksheets:
         ps = ws.page_setup
         ps.paperSize = 9
