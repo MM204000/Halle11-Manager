@@ -30,14 +30,14 @@ Sie wird von `excel/build_immobilien_kalkulation.py` erzeugt (`pip install openp
 
 ## Excel: Immobilien-Kalkulationstool Pro (Premium-Design)
 
-`excel/Immobilien-Kalkulationstool_Pro_4_blau.xlsx` (empfohlen) und `excel/Immobilien-Kalkulationstool_Pro_4_rot.xlsx`
-sind das Kalkulationstool Pro im Premium-Design mit 3D-Säulen- und 3D-Kreisdiagrammen.
+`excel/Immobilien-Kalkulationstool_Pro_5_blau.xlsx` (empfohlen) und `excel/Immobilien-Kalkulationstool_Pro_5_rot.xlsx`
+sind das Kalkulationstool Pro im Premium-Design mit Dashboard-Blatt (Management-Übersicht auf einer Seite), 3D-Säulen- und 3D-Kreisdiagrammen.
 Beide werden aus der Vorlage `excel/quelle/Immobilien-Kalkulationstool_Pro_1.xlsx` erzeugt:
 
 ```
 pip install openpyxl lxml pillow
-python excel/design_pro.py excel/quelle/Immobilien-Kalkulationstool_Pro_1.xlsx excel/Immobilien-Kalkulationstool_Pro_4_blau.xlsx blau
-python excel/design_pro.py excel/quelle/Immobilien-Kalkulationstool_Pro_1.xlsx excel/Immobilien-Kalkulationstool_Pro_4_rot.xlsx rot
+python excel/design_pro.py excel/quelle/Immobilien-Kalkulationstool_Pro_1.xlsx excel/Immobilien-Kalkulationstool_Pro_5_blau.xlsx blau
+python excel/design_pro.py excel/quelle/Immobilien-Kalkulationstool_Pro_1.xlsx excel/Immobilien-Kalkulationstool_Pro_5_rot.xlsx rot
 ```
 
 Das Skript verändert ausschließlich die Darstellung (Farbthema, Kopfleiste, Typografie, Tabellen, Kacheln,

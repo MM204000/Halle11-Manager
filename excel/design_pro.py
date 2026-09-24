@@ -22,6 +22,9 @@ from openpyxl.utils import get_column_letter, column_index_from_string
 from openpyxl.worksheet.hyperlink import Hyperlink
 from PIL import Image
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import dashboard  # noqa: E402
+
 # ============================================================================ Design-Tokens / Farbthemen
 # Rollen: TEAL = Primärfarbe (Banner, Titel), TEAL_MID = Sekundär, ACC = Akzent, TEAL_L/TEAL_XL = helle Flächen.
 THEMES = {
@@ -445,7 +448,7 @@ def masthead(ws, title_text):
         put(link1, "Eingaben  ›", Font(name=SANS, sz=9, color=ON_DARK_2), "right", "Eingaben")
         put(link2, "‹  Start", Font(name=SANS, sz=9, color=ON_DARK_2), "right", "Start")
     elif ws.title == "Start":
-        put(link1, "Cockpit  ›", Font(name=SANS, sz=9, color=ON_DARK_2), "right", "Cockpit")
+        put(link1, "Dashboard  ›", Font(name=SANS, sz=9, color=ON_DARK_2), "right", "Dashboard")
         put(link2, "Leitfaden", Font(name=SANS, sz=9, color=ON_DARK_2), "right", "Leitfaden")
     else:
         put(link1, "Cockpit  ›", Font(name=SANS, sz=9, color=ON_DARK_2), "right", "Cockpit")
@@ -559,6 +562,14 @@ def design_workbook(src, tmp):
             part.font = "Aptos,Regular"
             part.color = MUTED2
 
+    dashboard.build(wb, {k: globals()[k] for k in ("TEAL", "TEAL_MID", "ACC", "TEAL_L", "TEAL_XL", "ON_DARK_2", "ON_DARK_ACC")})
+    # Beim Öffnen: jedes Blatt oben links, Cursor in der ersten Eingabe-/Inhaltszeile
+    for w in wb.worksheets:
+        w.sheet_view.topLeftCell = "A1"
+        anchor = w.freeze_panes or "A1"
+        for sel in w.sheet_view.selection:
+            sel.activeCell = anchor
+            sel.sqref = anchor
     wb._named_styles["Normal"].font = Font(name=SANS, sz=10)
     wb.properties.title = "Immobilien-Kalkulation"
     wb.properties.creator = "MM Holding GmbH"
@@ -721,6 +732,19 @@ def style_chart(xml):
                     ln.set("cap", "rnd")
     # Diagrammfläche ohne Rahmen
     cs_sp = root.find(a("c:spPr"))
+    if cs_sp is None:  # Diagrammfläche ohne Rahmen, Standardschrift klein und grau
+        cs_sp = etree.Element(a("c:spPr"))
+        etree.SubElement(cs_sp, a("a:noFill"))
+        etree.SubElement(cs_sp, a("a:ln"))
+        root.find(a("c:chart")).addnext(cs_sp)
+    if root.find(a("c:txPr")) is None:
+        tx = etree.Element(a("c:txPr"))
+        etree.SubElement(tx, a("a:bodyPr"))
+        etree.SubElement(tx, a("a:lstStyle"))
+        ppr = etree.SubElement(etree.SubElement(tx, a("a:p")), a("a:pPr"))
+        set_run_props(etree.SubElement(ppr, a("a:defRPr")), 800, MUTED)
+        etree.SubElement(tx.find(a("a:p")), a("a:endParaRPr")).set("lang", "de-DE")
+        cs_sp.addnext(tx)
     if cs_sp is not None:
         for ln in cs_sp.findall(a("a:ln")):
             for child in list(ln):
