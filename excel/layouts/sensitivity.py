@@ -35,7 +35,7 @@ LABELS = {
     "C20": "Jahr 1: Cashflow und Kapitaldienstdeckung – Miete × Sollzins",
     "C21": "Cashflow nach Steuern (€ / Monat)",
     "C32": "Kapitaldienstdeckung (DSCR = NOI / Kapitaldienst)",
-    "C44": "IRR nach Steuern p. a. – vollständige Neuberechnung der Zahlungsreihe",
+    "C44": "IRR nach Steuern p. a. (volle Neuberechnung)",
     "C53": "Verkauf nach der Haltedauer je Wertsteigerung (€, Basis-Miete)",
 }
 # Einordnung je Zeile (G, 9 pt grau) – ersetzt die frühere Lesehilfe-Box F9:J18 (P2-04)
@@ -114,27 +114,6 @@ def _legend_formula(ws, coord, formula):
     cell.value = formula
     cell.font = C.font(C.T_LABEL, False, C.MUTED)
     cell.alignment = C.align("right", "center")
-
-
-def _legend(ws, coord, items):
-    """Legende rechtsbündig: (Stufe|None, Text) – Punkte in Statusfarbe, „▢“ Navy für die aktuelle Annahme."""
-    parts = []
-    for i, (lvl, text) in enumerate(items):
-        if i:
-            parts.append(("   ·   ", C.T_MICRO, False, C.MUTED))
-        glyph, color = ("▢", C.NAVY) if lvl is None else (C.STATUS_DOT, C.STATUS_COLORS[lvl][0])
-        parts += [(glyph + " ", C.T_MICRO, True, color), (text, C.T_MICRO, False, C.MUTED)]
-    cell = ws[coord]
-    cell.value = C.rich(parts)
-    cell.font = C.font(C.T_MICRO, False, C.MUTED)
-    cell.alignment = C.align("right", "center")
-
-
-def _caption(ws, coord, text):
-    cell = ws[coord]
-    C.set_text(cell, text)
-    cell.font = C.font(C.T_MICRO, False, C.MUTED)
-    cell.alignment = C.align("left", "center", 1)
 
 
 def _matrix(ws, head, r1, r2, c_last, corner, base_row):
@@ -232,6 +211,11 @@ def apply(wb):
 
     for coord, text in LABELS.items():
         C.set_text(ws[coord], text)
+    # P21: keine Farbwörter in Beschriftungen – Ziel- bzw. Mindestwert statt „(grün)“/„(gelb)“ (reine Anzeigeformeln)
+    for coord, old, new in (("C16", "(grün)", "(Zielwert)"), ("C17", "(gelb)", "(Mindestwert)")):
+        v = ws[coord].value
+        if isinstance(v, str) and old in v:
+            ws[coord].value = v.replace(old, new)
 
     # ---- Rail frei machen (die Boxen entstehen unten neu, je Abschnitt genau eine)
     _unmerge(ws, 8, 63, "L", "M")
@@ -281,13 +265,12 @@ def apply(wb):
     for row in (21, 32):
         _clear(ws, "D", row, "J", row)
         C.section(ws, row, "C", "J", level=2, variant="line")
-    for row in (22, 33):
+    for row in (22, 33):                    # Legende steht rechts im Unterabschnittskopf, hier nur eine Fuge
         _clear(ws, "C", row, "J", row)
-        C.set_height(ws, row, C.H_ROW)
-    _caption(ws, "C22", "Zeilen: Nettokaltmiete (Abweichung)  ·  Spalten: Sollzins Darlehen I (Δ %-Punkte)")
-    _caption(ws, "C33", "Zeilen: Nettokaltmiete (Abweichung)  ·  Spalten: Sollzins Darlehen I (Δ %-Punkte)")
-    _matrix(ws, 23, 24, 30, "J", "Miete ↓  ·  Sollzins →", 27)
-    _matrix(ws, 34, 35, 41, "J", "Miete ↓  ·  Sollzins →", 38)
+        C.set_height(ws, row, 6)
+    corner = "Miete ↓  ·  Sollzins Darlehen I (Δ %-Pkt.) →"
+    _matrix(ws, 23, 24, 30, "J", corner, 27)
+    _matrix(ws, 34, 35, 41, "J", corner, 38)
     for c in list(C.iter_cells(ws, "D", 23, "J", 23)) + list(C.iter_cells(ws, "D", 34, "J", 34)):
         c.number_format = MATRIX_COLFMT
     for c in C.iter_cells(ws, "D", 35, "J", 41):
@@ -301,13 +284,14 @@ def apply(wb):
     # Cashflow: Blau-Sequenz, rote Schrift nur für Zuschuss (< 0 €)
     _heat(ws, "D24:J30", [("AND(ISNUMBER(D24),D24<0)", "red")])
     # DSCR: Blau-Sequenz, Schrift rot unter „prüfen“-Schwelle, amber bis „erfüllt“, darüber neutral
-    _heat(ws, "D35:J41", [("AND(ISNUMBER(D35),D35<Ampel_DSCR_gelb)", "red"),
-                          ("AND(ISNUMBER(D35),D35<Ampel_DSCR_gruen)", "amber")])
+    _heat(ws, "D35:J41", [("AND(ISNUMBER(D35),D35<Ampel_DSCR_gelb)", "red")])
     _base_box(ws["G27"])
     _base_box(ws["G38"])
 
-    _legend(ws, "J22", [("red", "Zuschuss (Cashflow < 0 €)"), (None, "aktuelle Annahme")])
-    _legend_formula(ws, "J33", C.threshold_legend("DSCR") + '&"   ·   ▢ aktuelle Annahme"')
+    # Legenden rechts im Unterabschnittskopf; Schwellen live aus den Ampel-Namen der Konfiguration (P21)
+    _legend_formula(ws, "J21", "Rote Schrift = Zuschuss (Cashflow < 0 €)   ·   □ aktuelle Annahme")
+    _legend_formula(ws, "J32", '="Rote Schrift = kritisch (< "&FIXED(Ampel_DSCR_gelb,2)&"×)   ·   "&'
+                    + C.threshold_text("DSCR") + '&"   ·   □ aktuelle Annahme"')
 
     # ---- Abschnitt 3: IRR-Matrix und Verkauf (C:J, P2-04)
     _unmerge(ws, 43, 43, "C", "J")
@@ -323,9 +307,8 @@ def apply(wb):
         _clear(ws, "D", row, "J", row, values=False)
         C.section(ws, row, "C", "H", level=2, variant="line")
     _clear(ws, "C", 45, "J", 45)
-    C.set_height(ws, 45, C.H_ROW)
-    _caption(ws, "C45", "Zeilen: Nettokaltmiete (Abweichung)  ·  Spalten: Wertsteigerung p. a.")
-    _matrix(ws, 46, 47, 51, "H", "Miete ↓  ·  Wertsteigerung →", 49)
+    C.set_height(ws, 45, 6)
+    _matrix(ws, 46, 47, 51, "H", "Miete ↓  ·  Wertsteigerung p. a. →", 49)
     for c in C.iter_cells(ws, "D", 46, "H", 46):
         c.number_format = HEAD_PCT
     for c in C.iter_cells(ws, "D", 47, "H", 51):
@@ -339,12 +322,12 @@ def apply(wb):
     nb = C.side("medium", C.NAVY)
     box = Border(left=nb, right=nb, top=nb, bottom=nb)
     base = "ISNUMBER(D47),$C47=0,ABS(D$46-Wertsteigerung)<0.00005"   # flaches AND (LibreOffice: kein AND in AND)
-    for cond, color in (("D47<Ampel_IRR_gelb", C.RED), ("D47<Ampel_IRR_gruen", C.AMBER), ("TRUE", C.INK)):
+    for cond, color in (("D47<Ampel_IRR_gelb", C.RED), ("TRUE", C.INK)):
         ws.conditional_formatting.add("D47:H51", FormulaRule(
             formula=[f"AND({base},{cond})"], stopIfTrue=True, font=Font(bold=True, color=color), border=box))
-    _heat(ws, "D47:H51", [("AND(ISNUMBER(D47),D47<Ampel_IRR_gelb)", "red"),
-                          ("AND(ISNUMBER(D47),D47<Ampel_IRR_gruen)", "amber")])
-    _legend_formula(ws, "H45", C.threshold_legend("IRR") + '&"   ·   ▢ aktuelle Annahme"')
+    _heat(ws, "D47:H51", [("AND(ISNUMBER(D47),D47<Ampel_IRR_gelb)", "red")])
+    _legend_formula(ws, "H44", '="Rote Schrift = kritisch (< "&FIXED(Ampel_IRR_gelb*100,1)&" %)   ·   "&'
+                    + C.threshold_text("IRR") + '&"   ·   □ aktuelle Annahme"')
     C.set_height(ws, 52, C.H_GAP)
 
     # Verkaufstabelle (Kopf und Linien bis H – P30)
@@ -409,7 +392,7 @@ def apply(wb):
                      "über das Gliederungssymbol [+] am linken Rand einblenden.")
     note.font = C.font(C.T_SMALL, False, C.MUTED, italic=True)
     note.alignment = C.align("left", "center", 1)
-    C.set_height(ws, 64, 22)
+    C.set_height(ws, 64, C.H_ROW)
     # ---- Buttonzeile am Seitenende (P22): „‹ Zurück: Finanzierung“ links, „Weiter: Bankgespräch ›“ rechts bündig M
     _nav_row(ws, 117, ("C", "C", "‹  Zurück: Finanzierung", "Finanzierung"),
              ("L", "M", "Weiter: Bankgespräch  ›", "Bankgespräch"))

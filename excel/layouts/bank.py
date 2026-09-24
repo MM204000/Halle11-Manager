@@ -113,15 +113,19 @@ def _move_footer(ws, row, c1, c2):
 
 def _nav_row(ws, row, back, nxt, footer_cols):
     """P22: Zurück/Weiter als Buttonzeile am Seitenende (dieselbe Komponente wie S01–S12): Leerzeile · Buttons ·
-    Leerzeile · Seitenfuß. back/nxt: (c1, c2, Text, Zielblatt)."""
+    Leerzeile · Seitenfuß. back/nxt: (c1, c2, Text, Zielblatt[, Art]) – Zurück links bündig, Weiter rechts bündig.
+    Formulare (schmale Wertspalten): Zurück als Textlink-Stufe „back“, damit kein Button direkt am anderen klebt."""
     C.set_height(ws, row - 1, C.H_GAP)
-    items = [dict(c1=back[0], c2=back[1], text=back[2], target=back[3], kind="secondary",
+    kind = back[4] if len(back) > 4 else "secondary"
+    items = [dict(c1=back[0], c2=back[1], text=back[2], target=back[3], kind=kind,
                   tooltip=f"Zurück zu {back[3]}"),
              dict(c1=nxt[0], c2=nxt[1], text=nxt[2], target=nxt[3], kind="primary", tooltip=f"Weiter zu {nxt[3]}")]
     _move_footer(ws, row + 2, *footer_cols)
     for it in items:
         _unmerge(ws, row, row, it["c1"], it["c2"])
     out = C.btn_row(ws, row, items)
+    if kind == "back":                      # Textlink-Stufe: bündig an der linken Inhaltskante
+        ws[f"{back[0]}{row}"].alignment = C.align("left", "center", 1)
     C.set_height(ws, row + 1, C.H_GAP)
     return out
 
@@ -454,10 +458,10 @@ def _form_header(ws):
     lg = ws["M7"]
     lg.value = C.rich([("■ ", C.T_LABEL, True, C.INPUT_LINE), ("Eingabe", C.T_LABEL, False, C.MUTED),
                        ("   ·   ", C.T_LABEL, False, C.MUTED),
-                       ("┅ ", C.T_LABEL, True, C.INPUT_LINE),
+                       ("□ ", C.T_LABEL, True, C.INPUT_LINE),
                        ("gestrichelt = aus der Kalkulation, überschreibbar", C.T_LABEL, False, C.MUTED)])
     lg.font = C.font(C.T_LABEL, False, C.MUTED)
-    lg.alignment = C.align("right", "center")
+    lg.alignment = C.align("right", "top")
 
 
 def _gaps(ws, rows):
@@ -536,13 +540,12 @@ def household(ws):
     ws["E46"].font = C.font(C.T_SMALL, False, C.MUTED)
     ws["E46"].alignment = C.align("left", "center", 1)
     ws["C47"].number_format = C.NUMFMT["pct1"]
-    _drop_cf(ws, "C46:D46", "C47")
+    _drop_cf(ws, "C46:D46", "C46:E46", "C47")   # auch die Negativ-Regel aus sum_row (LibreOffice: ein Bereich je Zelle)
     conds = [("AND(ISNUMBER($C$47),$C$47<0)", "red"), ("AND(ISNUMBER($C$47),$C$47<0.05)", "amber"),
              ("ISNUMBER($C$47)", "green")]
     C.status_cf(ws, "C46:D46", conds)
     C.status_cf(ws, "C47", conds)
     C.status_pill(ws, ws["E47"], conditions=conds, style="chip", h="left", suffix='"Ziel ≥ 5 %"')
-    C.neg_red(ws, "C46:D46")
 
     # Rechte Spalte: Abschnitt + Diagramm (Oberkante bündig mit Z. 8), darunter die Ergebnis-Kacheln
     _side_section(ws, 8, "Ausgabenstruktur")
@@ -555,7 +558,7 @@ def household(ws):
                dict(label="Überschussquote", value="=C47", fmt=C.NUMFMT["pct1"], sub="Ziel ≥ 5 % vom Einkommen",
                     status_col="M", conditions=conds))
     _form_header(ws)
-    _nav_row(ws, 49, ("C", "D", "‹  Zurück: Bankgespräch", BANK),
+    _nav_row(ws, 49, ("B", "B", "‹  Zurück: Bankgespräch", BANK, "back"),
              ("E", "E", "Weiter: Vermögensaufstellung  ›", VA), ("B", "E"))
     _text_formula_general(ws)
     C.cf_close(ws)
@@ -603,7 +606,7 @@ def assets(ws):
                dict(label="Liquide Mittel nach EK-Einsatz", value="=C34", fmt=C.NUMFMT["eur"],
                     sub='="nach Eigenkapital "&FIXED(C33,0)&" €"', conditions=liq))
     _form_header(ws)
-    _nav_row(ws, 36, ("C", "D", "‹  Zurück: Haushaltsrechnung", HH),
+    _nav_row(ws, 36, ("B", "B", "‹  Zurück: Haushaltsrechnung", HH, "back"),
              ("E", "E", "↺  Zurück zur Übersicht: Bankgespräch", BANK), ("B", "E"))
     _text_formula_general(ws)
     C.cf_close(ws)
