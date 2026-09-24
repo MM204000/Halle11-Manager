@@ -30,17 +30,20 @@ Sie wird von `excel/build_immobilien_kalkulation.py` erzeugt (`pip install openp
 
 ## Excel: Immobilien-Kalkulationstool Pro (Premium-Design)
 
-`excel/Immobilien-Kalkulationstool_Pro_5_blau.xlsx` (empfohlen) und `excel/Immobilien-Kalkulationstool_Pro_5_rot.xlsx`
-sind das Kalkulationstool Pro im Premium-Design mit Dashboard-Blatt (Management-Übersicht auf einer Seite), 3D-Säulen- und 3D-Kreisdiagrammen.
-Beide werden aus der Vorlage `excel/quelle/Immobilien-Kalkulationstool_Pro_1.xlsx` erzeugt:
+`excel/Immobilien-Kalkulationstool_Pro_6.xlsx` ist das Kalkulationstool Pro im Premium-Design (Blau-Weiß):
+Navigationsleiste mit allen Bereichen auf jedem Blatt, Schritt-Leiste mit Fortschritt und „Weiter“ auf den
+zwölf Leitfaden-Seiten, Direktauswahl Privat / Kapitalgesellschaft auf der Startseite („Kauf als“),
+Dashboard als Management-Übersicht, 3D-Säulen- und 3D-Kreisdiagramme.
+
+Erzeugung aus der Vorlage `excel/quelle/Immobilien-Kalkulationstool_Pro_1.xlsx` (LibreOffice für die Neuberechnung):
 
 ```
 pip install openpyxl lxml pillow
-python excel/design_pro.py excel/quelle/Immobilien-Kalkulationstool_Pro_1.xlsx excel/Immobilien-Kalkulationstool_Pro_5_blau.xlsx blau
-python excel/design_pro.py excel/quelle/Immobilien-Kalkulationstool_Pro_1.xlsx excel/Immobilien-Kalkulationstool_Pro_5_rot.xlsx rot
+python excel/design_pro.py excel/quelle/Immobilien-Kalkulationstool_Pro_1.xlsx excel/Immobilien-Kalkulationstool_Pro_6.xlsx
+soffice --headless --convert-to xlsx ...   # bzw. einmal in Excel öffnen und speichern (Neuberechnung)
+python excel/navigation.py excel/Immobilien-Kalkulationstool_Pro_6.xlsx   # Reiter- und Schritt-Leiste als Formen
 ```
 
-Das Skript verändert ausschließlich die Darstellung (Farbthema, Kopfleiste, Typografie, Tabellen, Kacheln,
-Schaltflächen, Hinweise, Zahlenformate, Diagramme inkl. 3D, Logo). Formeln, Namen, Blattschutz und
-Datenüberprüfungen bleiben unverändert. Nach dem Erzeugen die Mappe einmal in Excel öffnen oder mit
-LibreOffice neu berechnen.
+`design_pro.py` gestaltet die Darstellung, `dashboard.py` erzeugt das Dashboard, `navigation.py` setzt die
+anklickbaren Leisten ein. Formeln und Namen bleiben unverändert; einzige Ausnahme: der Name `Rechtsform`
+zeigt auf die Auswahl der Startseite, Schritt 9 übernimmt sie von dort.

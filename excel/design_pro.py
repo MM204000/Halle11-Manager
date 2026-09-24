@@ -19,7 +19,10 @@ from openpyxl import load_workbook
 from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter, column_index_from_string
+from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.hyperlink import Hyperlink
+from openpyxl.styles import Protection
+from openpyxl.workbook.defined_name import DefinedName
 from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -38,18 +41,9 @@ THEMES = {
         LOGO_DARK=(11, 42, 74), LOGO_LIGHT=(156, 187, 226),
         INPUT_WORD="Gelb", LINK_WORD="Blau",
     ),
-    "rot": dict(
-        TEAL="7A1422", TEAL_MID="A3202F", ACC="D2495B", TEAL_L="F8E8EA", TEAL_XL="FCF4F5", SUM_BG="FCF6F7",
-        ON_DARK_2="F0CBD1", ON_DARK_ACC="EBA3AE",
-        INPUT_BG="EAF1FA", INPUT_LINE="B9CFE8", INPUT_FG="2F6FB0",
-        GROUP={"ein": "C4C8CE", "inp": "2F6FB0", "aus": "7A1422", "ber": "D2495B", "bank": "C79AA1", "anh": "DADCDF"},
-        SERIES=["7A1422", "D2495B", "EBA3AE", "A3202F", "C9CDD2", "6E7480"],
-        PIE_MAIN="B32A3B",
-        LOGO_DARK=(122, 20, 34), LOGO_LIGHT=(235, 163, 174),
-        INPUT_WORD="Blau", LINK_WORD="Rot",
-    ),
 }
 INK, INK2, MUTED, MUTED2 = "1A1D21", "3A3F45", "5B6068", "8A9099"
+HEAD_TINT = "EEF3FA"
 LINE, LINE2, HEAD_BG = "E6E8EB", "D5D9DE", "F3F4F5"
 ON_DARK = "FFFFFF"
 RED, AMB, GRN = "B42318", "B54708", "1F7A4D"
@@ -255,19 +249,23 @@ def restyle_cell(ws, c, o, ctx):
                 c.font = font_like(c.font, name=DISPLAY, sz=30, b=True)
             return
         if c.row in ctx["tile_rows"]:
-            c.fill = fill(TEAL_XL)
+            label_row = c.row in ctx["tile_label_rows"]
+            c.fill = fill(TEAL if label_row else TEAL_XL)
             if is_tile_label(o):
-                c.font = Font(name=SANS, sz=8.5, b=True, color=INK2)
-                c.alignment = Alignment(horizontal="left", vertical="bottom", indent=1, wrap_text=False)
+                c.font = Font(name=SANS, sz=8.5, b=True, color=ON_DARK)
+                if c.data_type == "s" and isinstance(o.value, str) and not is_formula(o.value):
+                    c.value = o.value.upper()
+                c.alignment = Alignment(horizontal="left", vertical="center", indent=1, wrap_text=False, shrink_to_fit=True)
             elif is_tile_value(o):
-                c.font = Font(name=DISPLAY, sz=20 if o.size >= 16 else 13, b=True, color=INK)
+                c.font = Font(name=DISPLAY, sz=20 if o.size >= 16 else 13, b=True, color=TEAL)
                 c.alignment = Alignment(horizontal="left", vertical="center", indent=1, shrink_to_fit=True)
             return
         if c.row in ctx["rule_rows"] and c.column in ctx["rule_rows"][c.row]:
-            c.fill = NOFILL
+            c.fill = fill(TEAL)
             if o.value is not None:
-                c.font = Font(name=SANS, sz=9, b=True, color=TEAL)
-            c.border = Border(bottom=side("medium", TEAL))
+                c.font = Font(name=SANS, sz=9, b=True, color=ON_DARK)
+                c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+            c.border = Border()
             return
         c.fill = fill(TEAL)
         style_text(c, o, True)
@@ -302,12 +300,12 @@ def restyle_cell(ws, c, o, ctx):
             d = side("dashed", LINE2)
             c.border = Border(left=d, right=d, top=d, bottom=d)
         elif o.bold and o.size < 10:  # Spaltenkopf
-            c.fill = fill(HEAD_BG)
-            c.font = Font(name=SANS, sz=8, b=True, color=MUTED)
+            c.fill = fill(HEAD_TINT)
+            c.font = Font(name=SANS, sz=8, b=True, color=TEAL_MID)
             if isinstance(o.value, str) and not is_formula(o.value) and len(o.value) <= 40:
                 if c.data_type == "s" and o.value.upper() != o.value:
                     c.value = o.value.upper()
-            c.border = Border(top=c.border.top, bottom=side("thin", LINE2))
+            c.border = Border(top=c.border.top, bottom=side("thin", ACC))
         elif f == O_SAND2 and o.bold:  # Ergebnis
             c.fill = fill(TEAL_L)
             c.font = font_like(c.font, b=True, color=TEAL)
@@ -336,7 +334,7 @@ def restyle_cell(ws, c, o, ctx):
 
 def analyse_rows(ws, origs, hero_rows):
     """Kachelzeilen und Linien-Überschriften (Laufweite) je Zeile bestimmen."""
-    tile_rows, rule_rows = set(), {}
+    tile_rows, rule_rows, tile_label_rows = set(), {}, set()
     by_row = {}
     for (r, col), o in origs.items():
         by_row.setdefault(r, {})[col] = o
@@ -345,6 +343,8 @@ def analyse_rows(ws, origs, hero_rows):
             continue
         if any(is_tile_label(o) or is_tile_value(o) for o in cells.values()):
             tile_rows.add(r)
+            if any(is_tile_label(o) for o in cells.values()):
+                tile_label_rows.add(r)
             continue
         # zusammenhängende dunkle Läufe
         cols = sorted(col for col, o in cells.items() if o.fill == O_DARK)
@@ -362,17 +362,18 @@ def analyse_rows(ws, origs, hero_rows):
                 continue
             if any(is_rule_header(o) for o in os_):
                 rule_rows.setdefault(r, set()).update(run)
-    return tile_rows, rule_rows
+    return tile_rows, rule_rows, tile_label_rows
 
 
-def tile_gaps(ws, tile_rows):
+def tile_gaps(ws, tile_rows, tile_label_rows):
     """Weiße Fugen zwischen Kacheln und teal Oberkante auf Label-Zeilen."""
     gap = side("thick", "FFFFFF")
     for r in sorted(tile_rows):
-        cells = [c for c in ws[r] if c.fill is not None and c.fill.fill_type == "solid" and rgb(c.fill.fgColor) == TEAL_XL]
+        tint = TEAL if r in tile_label_rows else TEAL_XL
+        cells = [c for c in ws[r] if c.fill is not None and c.fill.fill_type == "solid" and rgb(c.fill.fgColor) == tint]
         if not cells:
             continue
-        label_row = any(c.value is not None and c.font.sz and c.font.sz <= 9 for c in cells)
+        label_row = False
         anchors = {}
         for mr in ws.merged_cells.ranges:
             if mr.min_row <= r <= mr.max_row:
@@ -381,15 +382,24 @@ def tile_gaps(ws, tile_rows):
         for c in cells:
             right_edge = anchors.get(c.column, c.column) == c.column
             nxt = ws.cell(r, c.column + 1)
-            nxt_tile = nxt.fill is not None and nxt.fill.fill_type == "solid" and rgb(nxt.fill.fgColor) == TEAL_XL
+            nxt_tile = nxt.fill is not None and nxt.fill.fill_type == "solid" and rgb(nxt.fill.fgColor) == tint
             c.border = Border(top=side("thick", TEAL) if label_row else None,
                               right=gap if (right_edge and nxt_tile) else None)
 
 
 # ============================================================================ Kopfleiste
+NAV_MIN_PX = 1480  # Mindestbreite der Kopfleiste (Platz für alle Reiter)
+
+
+def col_px(ws, col):
+    d = ws.column_dimensions.get(get_column_letter(col))
+    w = d.width if d is not None and d.customWidth and d.width else 8.43
+    return int(w * 7 + 5)
+
+
 def masthead(ws, title_text):
-    row2 = [c for c in ws[2] if c.value is not None]
-    brand = [c for c in row2 if c.value == "MM HOLDING"]
+    """Kopfleiste als Farbfläche; Reiter und Logo-Schriftzug setzt navigation.py als Formen darüber."""
+    brand = [c for c in ws[2] if c.value == "MM HOLDING"]
     last_col = brand[0].column if brand else ws.max_column
     for mr in list(ws.merged_cells.ranges):
         if mr.min_row <= 2 <= mr.max_row:
@@ -399,60 +409,70 @@ def masthead(ws, title_text):
     for c in ws[2]:
         c.value = None
         c.hyperlink = None
-    def width(col):
-        d = ws.column_dimensions.get(get_column_letter(col))
-        return d.width if d is not None and d.customWidth and d.width else 8.43
-
-    for r, h in ((1, 6), (2, 27), (3, 2.25)):
+    px, col = 0, 1
+    while col <= last_col or px < NAV_MIN_PX:
+        px += col_px(ws, col)
+        col += 1
+    last_col = col - 1
+    for r, h in ((1, 6), (2, 33), (3, 3)):
         ws.row_dimensions[r].height = h
-        for col in range(1, last_col + 1):
-            c = ws.cell(r, col)
+        for cc in range(1, last_col + 1):
+            c = ws.cell(r, cc)
             c.fill = fill(ACC if r == 3 else TEAL)
             c.border = Border()
-            c.font = Font(name=SANS, sz=9, color=ON_DARK)
 
-    def span(start, need, step=1):
-        cols, acc, col = [], 0, start
-        while 2 <= col <= last_col and acc < need:
-            cols.append(col)
-            acc += width(col)
-            col += step
-        return sorted(cols)
 
-    brand_cols = span(2, 34)
-    crumb_cols = span(brand_cols[-1] + 1, len(title_text) * 1.05 + 4) if brand_cols else []
-    link1 = span(last_col, 13, -1)
-    link2 = span(link1[0] - 1, 11, -1) if link1 else []
-    used = set(brand_cols) | set(crumb_cols)
-    if set(link1) & used:
-        link1, link2 = [], []
-    if set(link2) & used:
-        link2 = []
+def stepper_row(ws):
+    """Leitfaden-Seiten: Punktreihe (●○○) durch freie Zeile für die Schritt-Leiste ersetzen."""
+    if not re.match(r"S\d\d ", ws.title):
+        return
+    for c in ws[8]:
+        if isinstance(c.value, str) and set(c.value) <= set("●○"):
+            c.value = None
+    ws.row_dimensions[8].height = 30
+    ws.row_dimensions[9].height = 10
 
-    def put(cols, text, fnt, align, target=None):
-        if not cols:
-            return
-        a, b = get_column_letter(cols[0]), get_column_letter(cols[-1])
-        if len(cols) > 1:
-            ws.merge_cells(f"{a}2:{b}2")
-        c = ws[f"{a}2"]
-        c.value = text
-        c.font = fnt
-        c.alignment = Alignment(horizontal=align, vertical="center", indent=1 if align == "left" else 0)
-        if target:
-            c.hyperlink = Hyperlink(ref=c.coordinate, location=f"'{target}'!A1", display=text)
 
-    put(brand_cols, "MM HOLDING  ·  IMMOBILIEN-KALKULATION", Font(name=SANS, sz=8.5, b=True, color=ON_DARK_ACC), "left")
-    put(crumb_cols, title_text, Font(name=SANS, sz=10, b=True, color=ON_DARK), "left")
-    if ws.title == "Cockpit":
-        put(link1, "Eingaben  ›", Font(name=SANS, sz=9, color=ON_DARK_2), "right", "Eingaben")
-        put(link2, "‹  Start", Font(name=SANS, sz=9, color=ON_DARK_2), "right", "Start")
-    elif ws.title == "Start":
-        put(link1, "Dashboard  ›", Font(name=SANS, sz=9, color=ON_DARK_2), "right", "Dashboard")
-        put(link2, "Leitfaden", Font(name=SANS, sz=9, color=ON_DARK_2), "right", "Leitfaden")
-    else:
-        put(link1, "Cockpit  ›", Font(name=SANS, sz=9, color=ON_DARK_2), "right", "Cockpit")
-        put(link2, "‹  Start", Font(name=SANS, sz=9, color=ON_DARK_2), "right", "Start")
+def purchase_selector(wb):
+    """Direktauswahl Privat / Kapitalgesellschaft auf der Startseite (steuert den Namen „Rechtsform“)."""
+    ws, s09 = wb["Start"], wb["S09 Steuern"]
+    current = s09["D12"].value
+    ws.row_dimensions[23].height = 34
+    ws.row_dimensions[22].height = 3.75
+    lab = ws["C23"]
+    lab.value = "KAUF ALS"
+    lab.font = Font(name=SANS, sz=9, b=True, color=TEAL)
+    lab.alignment = Alignment(horizontal="right", vertical="center", indent=1)
+    ws.merge_cells("D23:G23")
+    sel = ws["D23"]
+    sel.value = current
+    sel.font = Font(name=SANS, sz=11, b=True, color=INPUT_FG)
+    sel.fill = fill(INPUT_BG)
+    sel.alignment = Alignment(horizontal="left", vertical="center", indent=1, shrink_to_fit=True)
+    sel.protection = Protection(locked=False)
+    ln = side("medium", INPUT_LINE)
+    for col in "DEFG":
+        ws[f"{col}23"].fill = fill(INPUT_BG)
+        ws[f"{col}23"].border = Border(top=ln, bottom=ln, left=ln if col == "D" else None, right=ln if col == "G" else None)
+    dv = DataValidation(type="list", formula1="=L_Rechtsform", allow_blank=False, showDropDown=False)
+    dv.promptTitle = "Kaufstruktur"
+    dv.prompt = "Privatperson oder Kapitalgesellschaft (vermögensverwaltende bzw. gewerbliche GmbH) wählen."
+    dv.showInputMessage = True
+    ws.add_data_validation(dv)
+    dv.add("D23")
+    wb.defined_names["Rechtsform"] = DefinedName("Rechtsform", attr_text="Start!$D$23")
+    # Schritt 9 zeigt die Auswahl nur noch an
+    for dvs in list(s09.data_validations.dataValidation):
+        if "D12" in str(dvs.sqref):
+            s09.data_validations.dataValidation.remove(dvs)
+    s09["D12"].value = "=Rechtsform"
+    s09["D12"].protection = Protection(locked=True)
+    s09["D12"].fill = fill(TEAL_L)
+    s09["D12"].font = Font(name=SANS, sz=10, b=True, color=TEAL)
+    s09["D12"].border = Border()
+    s09["D12"].hyperlink = Hyperlink(ref="D12", location="'Start'!D23", display="Auswahl auf der Startseite")
+    s09["F12"].value = "Auswahl direkt auf der Startseite („Kauf als“) – Klick auf das Feld öffnet sie. " + str(s09["F12"].value or "")
+    s09["F12"].data_type = "s"
 
 
 def sheet_title(ws):
@@ -477,11 +497,13 @@ def section_rules(ws):
         if c.font.name == DISPLAY and c.font.sz == 13 and rgb(c.font.color) == TEAL:
             mr = merged.get((c.row, c.column))
             cols = range(mr.min_col, mr.max_col + 1) if mr else [c.column]
-            for col in cols:
+            for k, col in enumerate(cols):
                 cc = ws.cell(c.row, col)
-                cc.border = Border(left=cc.border.left, right=cc.border.right, top=cc.border.top,
-                                   bottom=side("medium", TEAL))
-            c.alignment = Alignment(horizontal="left", vertical="bottom")
+                cc.fill = fill(TEAL_L)
+                cc.border = Border(left=side("thick", ACC) if k == 0 else None, bottom=side("thin", ACC))
+            c.font = font_like(c.font, sz=12.5)
+            c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+            ws.row_dimensions[c.row].height = max(ws.row_dimensions[c.row].height or 15, 24)
 
 
 def normalise_merged(ws):
@@ -500,8 +522,9 @@ def design_workbook(src, tmp):
     for ws in wb.worksheets:
         hero_rows = set(range(4, 23)) if ws.title == "Start" else set()
         origs = {(c.row, c.column): Orig(c) for c in ws._cells.values()}
-        tile_rows, rule_rows = analyse_rows(ws, origs, hero_rows)
-        ctx = {"hero": lambda r, h=hero_rows: r in h, "tile_rows": tile_rows, "rule_rows": rule_rows, "hints": [],
+        tile_rows, rule_rows, tile_label_rows = analyse_rows(ws, origs, hero_rows)
+        ctx = {"hero": lambda r, h=hero_rows: r in h, "tile_rows": tile_rows, "tile_label_rows": tile_label_rows,
+               "rule_rows": rule_rows, "hints": [],
                "template": ws.title in ("Bankgespräch", "Haushaltsrechnung", "Vermögensaufstellung")}
 
         for c in list(ws._cells.values()):
@@ -521,7 +544,7 @@ def design_workbook(src, tmp):
             ws.row_dimensions[r].height = max(ws.row_dimensions[r].height or 15, 21)
             for c in ws[r]:
                 if c.value is not None:
-                    c.alignment = Alignment(horizontal="left", vertical="bottom")
+                    c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
         for c in ws._cells.values():
             if c.row > 3 and c.value is not None and c.row not in rule_rows and c.row not in tile_rows:
                 al = c.alignment
@@ -529,9 +552,10 @@ def design_workbook(src, tmp):
                     c.alignment = Alignment(horizontal=al.horizontal, vertical="center", wrap_text=al.wrap_text,
                                             indent=al.indent, shrink_to_fit=al.shrink_to_fit, text_rotation=al.text_rotation)
         normalise_merged(ws)
-        tile_gaps(ws, tile_rows)
+        tile_gaps(ws, tile_rows, tile_label_rows)
         section_rules(ws)
         masthead(ws, sheet_title(ws))
+        stepper_row(ws)
 
         for ref in ctx["hints"]:
             ws.conditional_formatting.add(ref, FormulaRule(formula=[f'LEFT({ref},1)="⚠"'], font=Font(color=RED, bold=True)))
@@ -562,6 +586,7 @@ def design_workbook(src, tmp):
             part.font = "Aptos,Regular"
             part.color = MUTED2
 
+    purchase_selector(wb)
     dashboard.build(wb, {k: globals()[k] for k in ("TEAL", "TEAL_MID", "ACC", "TEAL_L", "TEAL_XL", "ON_DARK_2", "ON_DARK_ACC")})
     # Beim Öffnen: jedes Blatt oben links, Cursor in der ersten Eingabe-/Inhaltszeile
     for w in wb.worksheets:

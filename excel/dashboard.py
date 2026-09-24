@@ -62,13 +62,16 @@ def build(wb, T):
         return put(rng.split(":")[0], value, **kw)
 
     def section(row, c1, c2, title, right=None):
-        ws.row_dimensions[row].height = 22
-        for col in range(c1, c2 + 1):
-            ws.cell(row, col).border = Border(bottom=side("medium", P))
-        put(f"{get_column_letter(c1)}{row}", title, font=f(12, True, P, DISP), al=Alignment(vertical="bottom"))
+        ws.row_dimensions[row].height = 24
+        for k, col in enumerate(range(c1, c2 + 1)):
+            c = ws.cell(row, col)
+            c.fill = fill(L)
+            c.border = Border(left=side("thick", ACC) if k == 0 else None, bottom=side("thin", ACC))
+        put(f"{get_column_letter(c1)}{row}", title, font=f(12.5, True, P, DISP),
+            al=Alignment(vertical="center", indent=1))
         if right:
-            put(f"{get_column_letter(c2)}{row}", right, font=f(8.5, color=MUTED2),
-                al=Alignment(horizontal="right", vertical="bottom"))
+            put(f"{get_column_letter(c2)}{row}", right, font=f(8.5, color=P2),
+                al=Alignment(horizontal="right", vertical="center"))
 
     LEFT = Alignment(horizontal="left", vertical="center")
     RIGHT = Alignment(horizontal="right", vertical="center")
@@ -84,16 +87,10 @@ def build(wb, T):
         ws.row_dimensions[r].height = 16.5
 
     # ------------------------------------------------------------------ Kopfleiste
-    for r, h in ((1, 6), (2, 27), (3, 2.25)):
+    for r, h in ((1, 6), (2, 33), (3, 3)):  # Reiter setzt navigation.py als Formen darüber
         ws.row_dimensions[r].height = h
-        for col in range(1, 15):
+        for col in range(1, 21):
             ws.cell(r, col).fill = fill(ACC if r == 3 else P)
-    merge("B2:D2", "MM HOLDING  ·  IMMOBILIEN-KALKULATION", font=f(8.5, True, T["ON_DARK_ACC"]),
-          al=Alignment(horizontal="left", vertical="center", indent=1))
-    merge("E2:H2", "Auswertung  ›  Dashboard", font=f(10, True, "FFFFFF"), al=Alignment(vertical="center", indent=1))
-    for ref, text, target in (("L2", "‹  Start", "Start"), ("M2", "Cockpit  ›", "Cockpit")):
-        c = put(ref, text, font=f(9, color=T["ON_DARK_2"]), al=Alignment(horizontal="right", vertical="center"))
-        c.hyperlink = Hyperlink(ref=ref, location=f"'{target}'!A1", display=text)
 
     # ------------------------------------------------------------------ Titel
     ws.row_dimensions[5].height = 34
@@ -187,10 +184,10 @@ def build(wb, T):
         for r in range(11, 15):
             for col in (a, b):
                 c = ws[f"{col}{r}"]
-                c.fill = fill(XL)
-                c.border = Border(top=side("thick", P) if r == 11 else None, right=gap if col == b and i < 5 else None)
-        merge(f"{a}11:{b}11", lab, font=f(8, True, MUTED), al=Alignment(horizontal="left", vertical="bottom", indent=1))
-        merge(f"{a}12:{b}13", frm, fmt=fmt, font=f(22, True, INK, DISP), al=Alignment(horizontal="left", vertical="center", indent=1, shrink_to_fit=True))
+                c.fill = fill(P if r == 11 else XL)
+                c.border = Border(right=gap if col == b and i < 5 else None)
+        merge(f"{a}11:{b}11", lab, font=f(8, True, "FFFFFF"), al=Alignment(horizontal="left", vertical="center", indent=1))
+        merge(f"{a}12:{b}13", frm, fmt=fmt, font=f(22, True, P, DISP), al=Alignment(horizontal="left", vertical="center", indent=1, shrink_to_fit=True))
         merge(f"{a}14:{b}14", sub, font=f(8, color=MUTED), al=Alignment(horizontal="left", vertical="top", indent=1, shrink_to_fit=True))
     ws.conditional_formatting.add("F12", FormulaRule(formula=["CF_nSt_Monat_J1<0"], font=Font(color=RED, bold=True)))
     ws.conditional_formatting.add("F12", FormulaRule(formula=["CF_nSt_Monat_J1>=0"], font=Font(color=GRN, bold=True)))
