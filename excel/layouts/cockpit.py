@@ -210,6 +210,43 @@ FOOTER_ROW = 77
 ROW_AUSBLICK = 24
 GAP_SECTION = C.H_ROW                     # Weißraum zwischen den großen Abschnitten (Karten, Hinweise, Diagramme)
 
+# --------------------------------------------------------------------------------------------- Runde 6 „Wow-Paket“
+# Hero: Z. 5–6 nachtblaues Band B:L (wie Deckblatt/Dashboard-Hero) mit Titel links, feiner Gold-Stadtsilhouette in
+# der Mitte und dem Gesamturteil rechts (Label · „n von 6 erfüllt“ · Urteil 20 pt weiß, Statuskante links in
+# leuchtender Statusfarbe); Z. 7 weiß: Objektzeile und „Erstellt für …“ – darunter die Kacheln wie bisher.
+H_HERO = {4: 12, 5: 30, 6: 52, 7: 24}
+HERO_PAD = 2                              # Einzug der Hero-Texte (≈ 18 px Innenabstand)
+HERO_ICON, HERO_ICON_PX, HERO_ICON_DX = "rechner", 30, 16
+HERO_TITLE_INDENT = 7                     # Titel/Eyebrow hinter dem Icon (16 + 30 + ≈ 17 px Luft)
+# Statuskante des Urteils auf Navy: leuchtende Semantikfarben (die Text-Statusfarben sind auf Navy zu dunkel)
+HERO_STATUS = {"red": C.C_NEG, "amber": C.C_ORANGE, "green": C.C_POS}
+# Verlaufsspalte (Sparklines): die Wertspalten der Karten F und J werden 118 | 64 px statt 91 | 91 px aufgeteilt –
+# das Paar bleibt 182 px breit (Kacheln G:H/K:L und Diagrammanker unverändert). Werte stehen in G/K, H/L trägt die
+# Sparklines (nur Anzeige, Daten aus Projektion, Jahre 1–30 wie die Diagramme darunter).
+W_VALUE, W_LANE = 16.8, 9.1               # 118 px · 64 px
+LANE_CARDS = {("F", "upper"), ("J", "upper"), ("J", "lower")}
+TREND_YEARS = 30
+PJ = "Projektion"
+TRENDS = [   # (Zielzelle, Projektion-Zeile, Sparkline-Vorlage, Zusatzargumente)
+    ("H16", 13, "rent", {}),                       # Jahresnettokaltmiete (Soll)
+    ("H18", 26, "costs", {}),                      # Bewirtschaftung
+    ("H20", 29, "trend", {"markers": True}),       # Einnahmenüberschuss (NOI)
+    ("H28", 45, "trend", {"markers": True}),       # Eigenkapitalrendite je Jahr
+    ("L14", 42, "debt", {}),                       # Darlehen → Restschuld Jahresende
+    ("L23", 32, "trend", {"markers": True}),       # Kapitaldienst pro Jahr
+    ("L36", 41, "value", {}),                      # Verkaufspreis → Immobilienwert
+    ("L38", 42, "debt", {}),                       # Restschuld (Ablösung)
+    ("L43", 38, "cashflow", {}),                   # kumulierter Cashflow n. St.
+    ("D46", 33, "cashflow", {}),                   # Ausblick: Cashflow v. St.
+    ("D47", 36, "cashflow", {}),                   # Ausblick: Cashflow n. St.
+]
+LANE_CAPTION = f"Verlauf Jahre 1–{TREND_YEARS}"
+LANE_CAPTIONS = ("H31", "L31", "L48")      # unter der Verlaufsspalte, direkt unter der Kartenunterkante
+# Icons der Abschnittsköpfe (ein Motiv je Block, Nachtblau 20 px wie auf den Schrittseiten, steps.ICON_*)
+BLOCK_ICON = {(13, "B"): "haus", (13, "F"): "prozent", (13, "J"): "bank", (32, "B"): "muenzen",
+              (32, "F"): "paragraf", (32, "J"): "schluessel", (49, "B"): "schild", (57, "B"): "diagramm"}
+ICON_PX, ICON_DX, ICON_INDENT = 20, 10, 4
+
 
 # --------------------------------------------------------------------------------------------- Helfer
 def _nf(key):
