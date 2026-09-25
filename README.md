@@ -30,11 +30,11 @@ Sie wird von `excel/build_immobilien_kalkulation.py` erzeugt (`pip install openp
 
 ## Excel: Immobilien-Kalkulationstool Pro (Premium-Design)
 
-`excel/Immobilien-Kalkulationstool_Pro.xlsx` ist das Kalkulationstool Pro im Premium-Design (Blau-Weiß, Calibri):
+`excel/Immobilien-Kalkulationstool_Pro.xlsx` ist das Kalkulationstool Pro im Premium-Design „Midnight & Gold“ (Nachtblau, Gold, warme Flächen; Calibri):
 Reiterleiste mit allen Bereichen auf jedem Blatt (plus Zell-Links als Rückfall), Schritt-Leiste mit Fortschritt und
 „Weiter“ auf den zwölf Leitfaden-Seiten, Direktauswahl Privat / Kapitalgesellschaft auf der Startseite („Kauf als“),
 Feld „Erstellt für“, Dashboard als Management-Übersicht, einheitliche Komponenten (Kacheln, Einordnungs-Boxen,
-Abschnittsköpfe, Buttons, Summenstufen, Status-Pills), 3D nur für Kreise und einfache Säulen, sonst flache Diagramme,
+Abschnittsköpfe, Buttons, Summenstufen, Status-Pills), mehrfarbige Diagramme mit fester Farbbedeutung (3D nur für Kreise und einfache Säulen),
 Druckeinrichtung für A4 auf allen Blättern.
 
 Erzeugung aus der Vorlage `excel/quelle/Immobilien-Kalkulationstool_Pro_1.xlsx` (LibreOffice für die Neuberechnung):

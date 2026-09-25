@@ -206,7 +206,7 @@ def legend(*items, size=T_SMALL):
 
 def year_legend(*extra):
     """Legende der Jahrestabellen (8,5 pt): Verkaufsjahr-Marke Gold, Rot-Regel, Zusätze."""
-    return legend(("Verkaufsjahr", "■", C.GOLD), ("negatives Ergebnis", "●", RED), *extra, size=C.T_LABEL)
+    return legend(("Verkaufsjahr", "■", C.GOLD_INK), ("negatives Ergebnis", "●", RED), *extra, size=C.T_LABEL)
 
 
 def toolbar(ws, row, link_text, target, legend_rich):
@@ -302,7 +302,7 @@ def data_row(ws, row, kind="data", fmt=NUM, label=None, unit=True):
         b.alignment = align("left", "center", 1)
     elif kind == "info":          # P2-06: Nebeninfo 8,5 pt NEUTRAL_DASH, ohne Rot-Regel
         for c in C.iter_cells(ws, 2, row, LAST, row):
-            c.font = font(C.T_LABEL, False, FADED)
+            c.font = font(C.T_LABEL, False, MUTED)
     elif kind == "memo_plain":    # nachrichtlich, aber lesbar (Break-even): 9 pt aufrecht 1A1D21
         for c in C.iter_cells(ws, 2, row, LAST, row):
             c.font = font(T_SMALL, False, INK)
@@ -389,7 +389,7 @@ def base_colors(rows):
         k = spec[0]
         if k in ("gap", "band"):
             continue
-        out[r] = {"davon": MUTED, "memo": MUTED, "info": FADED, "sub": NAVY, "result": NAVY, "final": NAVY,
+        out[r] = {"davon": MUTED, "memo": MUTED, "info": MUTED, "sub": NAVY, "result": NAVY, "final": NAVY,
                   "kpi": NAVY}.get(k, INK)
     return out
 
@@ -469,7 +469,7 @@ def finanzierung(ws):
            "Tilgungsverlauf Darlehen I und II  ·  Annuitätendarlehen mit konstanter Rate", back="Dashboard")
     year_head(ws, 8, 9, 10)
     toolbar(ws, 11, "Eingaben dazu: S07 Finanzierung  ›", "S07 Finanzierung",
-            legend(("Verkaufsjahr", "■", C.GOLD), ("Anschlusszins nach der Zinsbindung", "●", BLUE),
+            legend(("Verkaufsjahr", "■", C.GOLD_INK), ("Anschlusszins nach der Zinsbindung", "●", BLUE),
                    ("– entfällt (getilgt bzw. nicht genutzt)", None, None), size=C.T_LABEL))
     rows = {
         12: ("band", "Darlehen I"),
