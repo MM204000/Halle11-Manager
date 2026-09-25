@@ -115,6 +115,7 @@ RULES = {
     "kontrast":        (WARNUNG, "Textkontrast gegen die Zellfläche unter WCAG (Fließtext < 4,5:1, große Schrift < 3:1 – C.contrast)"),
     "diagramm_altfarbe": (WARNUNG, "Diagramm mit Alt-Farbe aus int7 (Blau-/Grauwerte) statt C.chart_color / C.CHART_CAT"),
     "diagramm_einfarbig": (WARNUNG, "Diagramm mit ≥ 3 sichtbaren Serien bzw. Kreissegmenten in nur einer Farbe (Runde 5: mehrfarbig nach Semantik)"),
+    "diagramm_label_kontrast": (WARNUNG, "Datenbeschriftung innen (ctr/inEnd/inBase) mit Kontrast < 3:1 zur Balken-/Segmentfarbe (Weiß auf Gold/Aqua …)"),
     "diagramm_textfarbe": (WARNUNG, "Werte-/Achsen-/Legendentext in einer Serienfarbe (C.CHART_CAT) statt C.CHART_TEXT / CHART_TEXT2"),
 }
 
@@ -1523,6 +1524,7 @@ class Linter:
                 if len(cols) >= 3 and len(set(cols)) == 1:
                     self.add(sheet, ref, "diagramm_einfarbig",
                              f"„{name}“ ({kind}): {len(cols)} Serien alle {cols[0]} (C.chart_color je Serie)")
+        self.check_label_contrast(sheet, ref, name, root)
         bad = set()
         for tx in root.iter():
             if tx.tag.split("}")[1] not in ("txPr", "rich"):
@@ -1535,6 +1537,56 @@ class Linter:
                     bad.add((x.get("val") or "").upper())
         if bad:
             self.add(sheet, ref, "diagramm_textfarbe", f"„{name}“: Text in {', '.join(sorted(bad))} (C.CHART_TEXT/CHART_TEXT2)")
+
+    INSIDE = {"ctr", "inEnd", "inBase"}
+
+    def check_label_contrast(self, sheet, ref, name, root):
+        """Innenliegende Datenbeschriftungen: Textfarbe gegen die Füllung der Säule/des Segments (≥ 3:1, Beschriftungen
+        sind kurz und fett – WCAG-Grenze für große Schrift/Grafik). Einzel-Beschriftungen (c:dLbl idx) und
+        Einzelpunkt-Füllungen (c:dPt idx) werden paarweise zugeordnet."""
+        def fill(sppr):
+            x = sppr.find("a:solidFill/a:srgbClr", NS) if sppr is not None else None
+            return (x.get("val") or "").upper() if x is not None else None
+
+        def txt_color(node):
+            x = node.find("c:txPr//a:defRPr/a:solidFill/a:srgbClr", NS) if node is not None else None
+            if x is None and node is not None:
+                x = node.find("c:tx//a:rPr/a:solidFill/a:srgbClr", NS)
+            return (x.get("val") or "").upper() if x is not None else None
+
+        def pos(node):
+            x = node.find("c:dLblPos", NS) if node is not None else None
+            return x.get("val") if x is not None else None
+
+        seen = set()
+        for ser in root.iter("{%s}ser" % NS["c"]):
+            base = fill(ser.find("c:spPr", NS))
+            pts = {dp.find("c:idx", NS).get("val"): fill(dp.find("c:spPr", NS)) for dp in ser.findall("c:dPt", NS)
+                   if dp.find("c:idx", NS) is not None}
+            dl = ser.find("c:dLbls", NS)
+            if dl is None:
+                continue
+            show = dl.find("c:showVal", NS)
+            show_any = any(dl.find(f"c:{k}", NS) is not None and dl.find(f"c:{k}", NS).get("val") in ("1", "true")
+                           for k in ("showVal", "showCatName", "showSerName", "showPercent"))
+            d_col, d_pos = txt_color(dl), pos(dl)
+            cases = []
+            if show_any or show is None:
+                cases.append((None, d_col, d_pos))
+            for one in dl.findall("c:dLbl", NS):
+                idx = one.find("c:idx", NS)
+                if one.find("c:delete", NS) is not None and one.find("c:delete", NS).get("val") in ("1", "true"):
+                    continue
+                cases.append((idx.get("val") if idx is not None else None, txt_color(one) or d_col, pos(one) or d_pos))
+            for idx, tc, ps in cases:
+                bg = pts.get(idx, base) if idx is not None else base
+                if not tc or not bg or ps not in self.INSIDE:
+                    continue
+                cr = core.contrast(tc, bg)
+                if cr < 3.0 and (tc, bg) not in seen:
+                    seen.add((tc, bg))
+                    self.add(sheet, ref, "diagramm_label_kontrast",
+                             f"„{name}“: Beschriftung {tc} auf {bg} {cr:.2f}:1 (C.CHART_TEXT bzw. Weiß nach C.contrast)")
 
     def check_chart_part(self, sheet, ref, name, part):
         if not part:
@@ -1852,7 +1904,15 @@ def selftest():
     ch2.dataLabels = None
     ch2.x_axis.txPr = RichText(p=[Paragraph(pPr=ParagraphProperties(
         defRPr=CharacterProperties(sz=900, solidFill=core.CHART_CAT[0])), endParaRPr=CharacterProperties())])
+    from openpyxl.chart.label import DataLabelList
     ws.add_chart(ch2, "N40")                                                           # Achsentext in Serienfarbe
+    ch3 = BarChart()
+    ch3.add_data(Reference(ws, min_col=2, min_row=12, max_row=19))
+    ch3.series[0].graphicalProperties.solidFill = core.C_GOLD
+    ch3.series[0].dLbls = DataLabelList(showVal=True, dLblPos="ctr")                   # Weiß auf Gold: label_kontrast
+    ch3.series[0].dLbls.txPr = RichText(p=[Paragraph(pPr=ParagraphProperties(
+        defRPr=CharacterProperties(sz=900, b=True, solidFill=core.WHITE)), endParaRPr=CharacterProperties())])
+    ws.add_chart(ch3, "N60")
     # Gegenprobe: neue Bausteine dürfen keine Befunde auslösen (Kachel mit Chip, Callout mit Texthöhe)
     ok = wb.create_sheet("OK")
     for c in "BCDEFGH":
@@ -1898,7 +1958,8 @@ def selftest():
             "typo_skala", "emoji", "kpi_statusfarbe", "status_flaeche", "button_hoehe",
             "nav_rueckweg", "formel_text", "minus_typo", "neg_rot",
             "eingabe_gelb", "dropdown_zeichen", "link_tooltip", "druck_umbruch", "minus_text",
-            "altfarbe", "gold_text", "kontrast", "diagramm_altfarbe", "diagramm_einfarbig", "diagramm_textfarbe"}
+            "altfarbe", "gold_text", "kontrast", "diagramm_altfarbe", "diagramm_einfarbig", "diagramm_textfarbe",
+            "diagramm_label_kontrast"}
     missing = want - got
     false_pos = [f"{f['ref']} {f['rule']}: {f['msg']}" for f in found if f["sheet"] == "OK"]
     print("Selbsttest:", "OK" if not missing else f"FEHLT {sorted(missing)}", f"({len(want)} Regeln)")

@@ -27,7 +27,7 @@ from openpyxl.utils.cell import range_boundaries
 from openpyxl.worksheet.hyperlink import Hyperlink
 
 import core as C
-from core import (ACCENT, BLUE, INK, INK2, LINE, LINE2, MIST, MUTED, NAVY, NOFILL, NUMFMT, RECHTSFORM_SHORT, RED,
+from core import (ACCENT, BLUE, INK, INK2, LINE, LINE2, MUTED, NAVY, NOFILL, NUMFMT, RECHTSFORM_SHORT, RED,
                   RED_BG, RED_LINE, T_BODY, T_MICRO, T_SMALL, TINT_XL, WHITE, align, col, fill, font, is_formula,
                   iter_cells, safe_merge, set_height, set_text, side)
 
@@ -299,7 +299,7 @@ def header(ws):
     C.page_header(ws, FIRST, LAST, "Cockpit", "Cockpit", subtitle=subtitle)
     ws["B6"].alignment = align("left", "bottom")
     safe_merge(ws, "B", 7, "J", 7)
-    # rechts: Gesamtbewertung wie auf dem Dashboard (P41, C.status_banner) – Label Z. 5, Banner Z. 6 (F3F7FC,
+    # rechts: Gesamtbewertung wie auf dem Dashboard (P41) – Label Z. 5, Banner Z. 6 (TINT_XL,
     # linke 3-px-Kante in Statusfarbe, Urteil fett in Statusfarbe), „Erstellt für …“ Z. 7 bündig an der Inhaltskante
     safe_merge(ws, "K", 5, "L", 5)
     cap = ws["K5"]
@@ -317,12 +317,17 @@ def header(ws):
     v = "$K$6"
     conds = [(f'ISNUMBER(SEARCH("kritisch",{v}))', "red"), (f'ISNUMBER(SEARCH("Prüfpunkten",{v}))', "amber"),
              (f'ISNUMBER(SEARCH("Solide",{v}))', "green")]
-    for cond, lvl in conds:                      # Urteil in Statusfarbe (Regel vor der Kante, ohne stopIfTrue)
-        C.cf_rule(ws, "K6:L6", cond, font_=Font(color=C.STATUS_COLORS[lvl][0], bold=True), stop=False)
-    C.status_banner(ws, "K", 6, "L", 6, conditions=conds)
-    for c in iter_cells(ws, "K", 6, "L", 6):     # feine Kontur wie eine Kachel-Fläche
-        c.border = Border(left=c.border.left, top=side("thin", MIST), bottom=side("thin", MIST),
-                          right=side("thin", MIST) if c.column == col("L") else None)
+    # Runde 5: Banner lokal statt C.status_banner – Schriftfarbe UND Statuskante in EINER Regel je Status, damit auch
+    # Anzeigen, die nur die erste zutreffende Regel auswerten (LibreOffice), die Kante in Statusfarbe zeigen.
+    # Statisch: warme Kachelfläche TINT_XL, ruhige Akzentkante links, feine warme Kontur LINE2 (wie die Kacheln).
+    frame = side("thin", LINE2)
+    for c in iter_cells(ws, "K", 6, "L", 6):
+        c.fill = fill(TINT_XL)
+        c.border = Border(left=side("thick", ACCENT) if c.column == col("K") else None, top=frame, bottom=frame,
+                          right=frame if c.column == col("L") else None)
+    for cond, lvl in conds:
+        C.cf_rule(ws, "K6", cond, font_=Font(color=C.STATUS_COLORS[lvl][0], bold=True),
+                  border=Border(left=side("thick", C.STATUS_COLORS[lvl][0]), top=frame, bottom=frame))
     safe_merge(ws, "K", 7, "L", 7)
     meta = ws["K7"]
     meta.value = '=IFERROR(IF(Erstellt_fuer="","","Erstellt für "&Erstellt_fuer),"")'
@@ -518,7 +523,7 @@ def hint_formula(k, n):
 
 def hints(ws):
     """Prüfhinweise B49:L55 (P2-14, P32, P41, P3-02): Zähler rechts im Kopf („1 Warnung“ rot fett · „3 Hinweise“ grau,
-    direkt vor „↑ Übersicht“). Die sechs Plätze bilden EINE geschlossene Box (F3F7FC, weiße Fugen, Abschlusslinie
+    direkt vor „↑ Übersicht“). Die sechs Plätze bilden EINE geschlossene Box (TINT_XL, weiße Fugen, Abschlusslinie
     unter Z. 55) – freie Plätze lesen sich als Teil der Box, nicht als Loch. Gefüllte Zeilen erhalten per bedingter
     Formatierung die linke 3-px-Kante (Warnung rot mit roter Schrift, Information Akzent)."""
     _unmerge_rows(ws, 49, 57)
@@ -545,7 +550,7 @@ def hints(ws):
         c.font = font(T_BODY, False, INK2)
         c.alignment = align("left", "center", 1)
         for cc in iter_cells(ws, "B", r, "L", r):      # statische Box: Fläche + Fuge bzw. Abschlusslinie,
-            cc.border = Border(left=side("thick", C.MIST) if cc.column == col("B") else None,   # ruhige Kante
+            cc.border = Border(left=side("thick", LINE2) if cc.column == col("B") else None,    # ruhige Kante (warm)
                                bottom=close if r == bot else white)
             cc.fill = fill(TINT_XL)
         set_height(ws, r, C.H_ROW)

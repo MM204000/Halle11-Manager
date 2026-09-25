@@ -1406,7 +1406,7 @@ def page_s12(ws, names):
         cf_years = C.col(getattr(D, "CF_NACH_LAST", "AG")) - C.col("D") + 1
     except Exception:  # noqa: BLE001
         cf_years = 30
-    head2(ws, 20, "E", "F", "Cashflow nach Steuern", f"Jahre 1–{cf_years} · T€ p. a.")
+    head2(ws, 20, "E", "F", "Cashflow nach Steuern", f"Jahre 1–{cf_years} · T€ p. a. · rot = Zuschuss")
     head2(ws, 20, "H", "I", "Weiter zur Auswertung")
     result_rows(ws, heights, {21: "Cashflow vor Steuern / Monat", 22: "± Steuerwirkung / Monat (+ Erstattung)",
                               23: "= Cashflow nach Steuern / Monat", 24: C.KPI_LABELS["EK"],

@@ -1,8 +1,10 @@
-"""Formularblätter Eingaben, Konfiguration, Hinweise (Agent E) – ruhiger „Private Banking“-Stil, Runde 4.
+"""Formularblätter Eingaben, Konfiguration, Hinweise (Agent E) – ruhiger „Private Banking“-Stil, Runde 5
+(„Midnight & Gold“: alle Farben ausschließlich über core-Tokens, keine hart kodierten Hexwerte; Blattfuß mit
+Zurück/Weiter über core.btn_row).
 
 Komponentensprache ausschließlich aus core.py:
   Seitenkopf core.page_header (P04: Eyebrow links / Unterreiter rechts · Titel + Objekt · Untertitel + „Erstellt für“) ·
-  Abschnittskopf core.section (Ebene 1 E7EEF7 + Akzentkante, Ebene 2 EEF3FA-Tabellenkopf) ·
+  Abschnittskopf core.section (Ebene 1 TINT + Goldkante, Ebene 2 HEAD-Tabellenkopf) ·
   Summenhierarchie core.sum_row (P12: 'sub' · genau ein 'final' je Abschnitt · 'memo' für nachrichtliche Kennzahlen) ·
   Zahlenformate core.NUMFMT/numfmt (P24/P38: Einheiten Jahre/Monate/m² im Format, „–“ für berechnete Nullen) ·
   Zeilenhöhen core.fit_row (Hinweise: metric=True, n × 12,5 + 8 pt, P27) · Rich-Text core.rich · Fuß core.footer.
@@ -387,7 +389,8 @@ def eingaben(wb):
     # P1-13 (Runde 4): Wertachse = rechte Kante von C (112 px, so breit wie ein Eingabefeld); D ist eine 8-px-Fuge,
     # E trägt die Einheit direkt hinter der Zahl. Auswahl-/Texte stehen linksbündig über C:E (438 px, 10 pt einzeilig).
     _widths_px(ws, (("B", 300), ("C", 112), ("D", 8), ("E", 318), ("F", 56),
-                    ("G", 94), ("H", 94), ("I", 94), ("J", 94), ("K", 93), ("L", 74)))   # L: nur „↑ Übersicht“
+                    ("G", 81), ("H", 81), ("I", 81), ("J", 94), ("K", 93), ("L", 113)))
+    # G:L bleibt 543 px (Hinweis-Verbund); J:L = 300 px = B, damit „Weiter“ genau so breit ist wie „‹ Zurück“ (Blattfuß)
     _width(ws, "M", 3)
 
     # ---- Seitenkopf (P04): Objekt / „Erstellt für“ rechts an der Inhaltskante
@@ -462,7 +465,7 @@ def eingaben(wb):
 
     # Blattfuß: Zurück/Weiter in Reiterreihenfolge (Diagramme › Eingaben › Projektion), darunter der Seitenfuß
     _nav(ws, EIN_LAST + 2, ("B", "B", "‹  Zurück: Diagramme", "Diagramme"),
-         ("I", "L", "Weiter: Projektion  ›", "Projektion"), gap_above=C.H_GAP, last=L_)
+         ("J", "L", "Weiter: Projektion  ›", "Projektion"), gap_above=C.H_GAP, last=L_)
     _footer(ws, EIN_LAST + 4, 2, L_)
 
 
@@ -756,7 +759,7 @@ def hinweise(wb):
             "2025, JStG 2024) · keine Steuerberatung im Einzelfall", last)
 
     # ---- EIN Band, zwei Tabellen mit je einem Tabellenkopf (P2-10: Spaltenköpfe nie im Band)
-    _section(ws, 8, "B", "E", "Steuerliche Regelungen und Modellannahmen", "17 Regelungen · 8 Annahmen · Kurzfassung")
+    _section(ws, 8, "B", "E", "Steuerliche Regelungen und Modellannahmen", "17 Regelungen · 7 Annahmen · Kurzfassung")
     _clear_row(ws, 9, 2, last)
     C.section(ws, 9, "B", "E", None, level=2,
               labels={"B": ("THEMA", "left"), "C": ("REGELUNG (KURZFASSUNG)", "left"),
@@ -806,6 +809,8 @@ def hinweise(wb):
         # Formularraster 18/30 pt (wie Eingaben/Konfiguration), mittig – kompakter als der Fließtextblock darüber
         n = C.lines_needed_metric(C.display_text(t) or "", C.span_px(ws, "C", "D"), T_BODY, False, 1)
         ws.row_dimensions[r].height = C.H_ROW if n <= 1 else C.H_ROW2 if n == 2 else C.grid_height(n * 13 + 8)
+    # Z. 36 „Haftung“ wiederholt wortgleich den Haftungsausschluss des Seitenfußes → ausgeblendet (Inhalt bleibt)
+    ws.row_dimensions[36].hidden = True
     _nav(ws, 38, ("B", "B", "‹  Zurück: Vermögen", "Vermögensaufstellung"),
          ("E", "E", "Weiter: Konfiguration  ›", "Konfiguration"), gap_above=C.H_GAP, last=last)
     _footer(ws, 40, 2, last)

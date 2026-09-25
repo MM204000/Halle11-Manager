@@ -147,7 +147,9 @@ def _matrix(ws, head, r1, r2, c_last, corner, base_row):
 
 
 def _base_head(cell):
+    """Spaltenkopf der aktuellen Annahme: GOLD_BG + Goldunterlinie (das EINE Goldelement der Matrix)."""
     cell.fill = C.fill(BASE_BG)
+    cell.border = Border(bottom=C.side("medium", C.GOLD))
     cell.font = C.font(C.T_LABEL, True, C.NAVY)
 
 
@@ -324,7 +326,8 @@ def apply(wb):
     # aktuelle Wertsteigerungsannahme: Kopf GOLD_BG fett Navy (keine Navy-Vollfläche mehr)
     ws.conditional_formatting.add("D46:H46", FormulaRule(
         formula=["ABS(D46-Wertsteigerung)<0.00005"], stopIfTrue=True,
-        font=Font(color=C.NAVY, bold=True), fill=C.fill(BASE_BG)))
+        font=Font(color=C.NAVY, bold=True), fill=C.fill(BASE_BG),
+        border=Border(bottom=C.side("medium", C.GOLD))))
     # Basiszelle (Basis-Miete × aktuelle Wertsteigerung): Navy-Rahmen + fett, Schrift in Statusfarbe – alles in EINEM
     # Bereich D47:H51 (LibreOffice wertet je Zelle nur einen Bereich aus); Basis-Zeile = Zeilenwert 0 in Spalte C
     nb = C.side("medium", C.NAVY)
