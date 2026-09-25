@@ -223,7 +223,15 @@ class Styles:
         for f in re.findall(r"<fill>(.*?)</fill>|<fill/>", fm.group(1) if fm else "", re.S):
             pm = re.search(r'patternType="(\w+)"', f or "")
             cm = re.search(r'<fgColor[^>]*rgb="([0-9A-Fa-f]{6,8})"', f or "")
-            fills.append(cm.group(1)[-6:].upper() if (pm and pm.group(1) == "solid" and cm) else None)
+            bm = re.search(r'<bgColor[^>]*rgb="([0-9A-Fa-f]{6,8})"', f or "")
+            if pm and pm.group(1) == "solid" and cm:
+                fills.append(cm.group(1)[-6:].upper())
+            elif pm and pm.group(1) not in ("none", "solid") and (bm or cm):
+                # Musterfüllung (LibreOffice schreibt manche Kopfleisten-Goldzellen als „mediumGray“ mit Gold-Hintergrund):
+                # sichtbar ist im Wesentlichen die Hintergrundfarbe – so zählt die Zelle zur Kopfleiste (trim_band)
+                fills.append((bm or cm).group(1)[-6:].upper())
+            else:
+                fills.append(None)
         fonts = []
         fo = re.search(r"<fonts[^>]*>(.*?)</fonts>", xml, re.S)
         for f in re.findall(r"<font>(.*?)</font>|<font/>", fo.group(1) if fo else "", re.S):

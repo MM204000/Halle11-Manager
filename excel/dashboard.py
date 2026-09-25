@@ -65,17 +65,18 @@ R_PILL, R_REASONS, R_HERO_END, R_GOLD = 12, 13, 14, 15
 R_LINKS = 17
 R_TILE = 19                                        # 19 Label · 20 Wert · 21 Kontextzeile
 R_GAUGE_BAND = 23                                  # Kennzahl-Tachos
-R_GAUGE_HEAD = 25                                  # Kartenkopf · 26–32 Tacho · 33 Zonenlegende
-R_GAUGE_CHART = (26, 32)
-R_GAUGE_LEGEND = 33
-R_BAND1 = 35                                       # Kennzahlen-Check | Cashflow Jahr 1
-R_CHECK_HEAD = 36
-R_CHECK = 37                                       # 37–42
-R_CHECK_NOTE = 43
-R_BAND2 = 45                                       # Vermögensentwicklung (volle Breite)
-R_CHART2 = (46, 57)
-R_BAND3 = 59                                       # Kennzahlen im Zeitverlauf
-R_YEAR, R_CAL = 60, 61                             # Kopf: Projektjahr · Kalenderjahr
+R_GAUGE_HEAD = 25                                  # Kartenkopf · 26–33 Tacho-Rahmen · 34 Zonenlegende
+R_GAUGE_CHART = (26, 33)                           # 26–29 Bogen · 30 Fuge (Mittellinie) · 31 Wert · 32 Ziel · 33 Abstand
+GAUGE_VALUE_ROWS = (31, 32, 33)
+R_GAUGE_LEGEND = 34
+R_BAND1 = 36                                       # Kennzahlen-Check | Cashflow Jahr 1
+R_CHECK_HEAD = 37
+R_CHECK = 38                                       # 38–43
+R_CHECK_NOTE = 44
+R_BAND2 = 46                                       # Vermögensentwicklung (volle Breite)
+R_CHART2 = (47, 58)
+R_BAND3 = 60                                       # Kennzahlen im Zeitverlauf
+R_YEAR, R_CAL = 61, 62                             # Kopf: Projektjahr · Kalenderjahr
 
 # Wasserfall-Hilfstabelle (ausgeblendet): Zeilen 20–26
 W_ROW = 20
@@ -87,7 +88,8 @@ HINT_KEY_COL, HINT_KEY_ROW = "AJ", 20              # Sortierschlüssel der 25 Pr
 MARK_COL, MARK_ROW = "AK", 20                      # Verkaufsmarke (Säulenhöhe im Verkaufsjahr, sonst #NV)
 DOT_COL = "AL"                                     # Punkt auf der Nettovermögenslinie (Zeilen 20–59, #NV)
 MARK_LABEL = "AK62"                                # Beschriftung der Verkaufsmarke (Reihenname)
-GAUGE_COLS = ("AN", "AO", "AP")                    # Tacho-Hilfsdaten (je Tacho eine Spalte, Zeilen 19–42)
+GAUGE_COLS = ("AN", "AO", "AP")                    # Tacho-Hilfsdaten (je Tacho eine Spalte, Zeilen 19–31)
+GAUGE_CAT_COL = "AM"                               # Segmentrollen (Kategorien) für finish_pro.tacho_style
 GAUGE_ROW = 19
 N_HINTS = 6
 
@@ -111,11 +113,11 @@ ICON_INDENT = 4                                    # Titel-Einzug hinter dem Ico
 GAUGES = [("DSCR", "DSCR_J1", "DSCR (Jahr 1)", "bank"),
           ("BMR", "Bruttomietrendite", "Bruttomietrendite", "prozent"),
           ("IRR", "EK_IRR", None, "trend")]           # IRR: Label als Anzeigeformel mit Haltedauer
-GAUGE_SPAN = 240                                   # sichtbarer Bogen (°): 8 Uhr → 4 Uhr, unten 120° frei für den Wert
-GAUGE_START = 240                                  # firstSliceAng: Beginn bei 8 Uhr
-GAUGE_NEEDLE = 0.022                               # Zeigerbreite als Anteil der Skala (≈ 5°)
-GAUGE_ZONE_STRONG = (C.RED, C.AMBER, C.GREEN)      # erreichter Teil der Zone
-GAUGE_ZONE_SOFT = (C.RED_LINE, C.AMBER_LINE, C.GREEN_LINE)   # noch nicht erreichter Teil
+GAUGE_SCALE = 1.5                                  # Skalenende = 1,5 × Zielwert (grün)
+GAUGE_NEEDLE = 0.012                               # Zeigerbreite als Anteil der Skala (Tintenkante macht ihn kräftig)
+GAUGE_INSET = 82                                   # Tacho-Rahmen 82 px ab den Kartenkanten → 208 px breit, mittig
+GAUGE_ZONE = (C.RED, C.AMBER, C.GREEN)
+GAUGE_CATS = ("Zone rot", "Zone gelb", "Zone grün", "Zeiger", "Zone rot", "Zone gelb", "Zone grün", "unsichtbar")
 
 
 def build(wb, T=None):
@@ -157,7 +159,7 @@ def _grid(ws):
     ws.column_dimensions["S"].width = EDGE_W
     for r in range(4, 100):
         ws.row_dimensions[r].height = 15
-    for r, h in ((4, C.H_GAP), (16, C.H_GAP), (18, C.H_GAP), (22, 20), (24, 6), (34, 20), (44, 20), (58, 20)):
+    for r, h in ((4, C.H_GAP), (16, C.H_GAP), (18, C.H_GAP), (22, 20), (24, 6), (35, 20), (45, 20), (59, 20)):
         C.set_height(ws, r, h)
 
 
@@ -346,22 +348,23 @@ def _section_icons(ws):
 def _gauges(ws):
     """Drei Kennzahl-Tachos (Runde 6) in Karten zu je 372 px (B:F · H:L · N:R).
 
-    Karte: Kopf (Icon Navy + Kennzahl 10 pt fett, rechts Status-Chip) · Tacho (flacher Doughnut, 7 × 20 pt) ·
-    Zonenlegende „● < 1,00×  ● 1,00–1,20×  ● ≥ 1,20×“ in Statusfarben. Die Karte ist hell (FBFAF7) mit Goldkante oben.
-
-    Tacho (DoughnutChart, zwei Ringe, 240°-Bogen von 8 bis 4 Uhr, firstSliceAng 240):
-      äußerer Ring (2. Reihe): Zonen rot/amber/grün nach den Ampel-Namen – bis zum Zeiger satt (erreicht), danach
-        zart (*_LINE); dazwischen der Zeiger als schmales Tinten-Segment, weiße 1,5-pt-Fugen zwischen den Segmenten;
-      innerer Ring (1. Reihe): nur der Zeiger (Tinte) – er reicht so von der Zone bis tief in die Öffnung wie eine Nadel;
-      unten 120° unsichtbar: dort stehen der Wert (20 pt fett Tinte, Beschriftung des inneren Rings = Reihenname aus
-      einer Anzeigezelle) und darunter das Ziel (8 pt, Beschriftung des äußeren Rings).
-    Skala 0 … 1,5 × Zielwert (grün); Werte außerhalb werden am Skalenende angezeigt. Alle Hilfszellen sind
-    Anzeigeformeln in den ausgeblendeten Spalten AN:AP (nichts verweist auf sie außer den Tachos)."""
+    Karte (FBFAF7, Goldkante oben): Kopf (Icon Navy + Kennzahl 10 pt fett, rechts Status-Chip) · Tacho-Rahmen
+    (Z. 26–33) · Zonenlegende „●  < 1,00×   ●  1,00 – 1,20×   ●  ≥ 1,20×“ in Statusfarben.
+    Tacho (flacher DoughnutChart, 180°, untere Hälfte unsichtbar): Zonen rot/amber/grün aus den Ampel-Namen, Zeiger als
+    schmales Tinten-Segment – im inneren Ring als Nadel bis in die Öffnung, im Zonenring als Marke. Stil (aktive Zone
+    kräftig, übrige zurückgenommen, Lochgröße, Kreis oben im Rahmen) setzt finish_pro.tacho_style (Agent H) anhand der
+    Segmentrollen (Kategorien „Zone rot/gelb/grün“, „Zeiger“, „unsichtbar“).
+    In der durchsichtigen unteren Hälfte stehen in Zellen: Wert 20 pt fett Tinte (direkt unter der Mittellinie), Ziel
+    (9 pt) und Abstand zum Ziel (8 pt). Skala 0 … 1,5 × Zielwert; Werte außerhalb stehen am Skalenende.
+    Alle Hilfszellen sind Anzeigeformeln in den ausgeblendeten Spalten AM:AP (nur die Tachos lesen sie)."""
     C.section(ws, R_GAUGE_BAND, "B", "R", "Kennzahl-Tachos",
               meta="Zeiger = Istwert  ·  Zonen aus den Ampel-Schwellen der Konfiguration")
     C.set_height(ws, R_GAUGE_HEAD, C.H_STEP_ROW)
-    for r in range(R_GAUGE_CHART[0], R_GAUGE_CHART[1] + 1):
-        C.set_height(ws, r, 20)
+    for r in range(R_GAUGE_CHART[0], R_GAUGE_CHART[0] + 4):
+        C.set_height(ws, r, 18)
+    C.set_height(ws, R_GAUGE_CHART[0] + 4, 6)
+    for r, h in zip(GAUGE_VALUE_ROWS, (C.H_TILE_VALUE, 20, 20)):
+        C.set_height(ws, r, h)
     C.set_height(ws, R_GAUGE_LEGEND, 20)
     spans = [("B", "F"), ("H", "L"), ("N", "R")]
     for (c1, c2), hc, (kpi, name, label, icon) in zip(spans, GAUGE_COLS, GAUGES):
@@ -369,12 +372,15 @@ def _gauges(ws):
 
 
 def _gauge_data(ws, hc, kpi, name):
-    """Hilfsdaten eines Tachos in Spalte hc ab GAUGE_ROW. Rückgabe: {rolle: zeile}."""
+    """Hilfsdaten eines Tachos in Spalte hc ab GAUGE_ROW (reine Anzeigeformeln). Rückgabe: {rolle: zeile}.
+    Segmente (Kategorien in GAUGE_CAT_COL, von finish_pro.tacho_style als Rollen gelesen):
+      Zone rot · Zone gelb · Zone grün (bis zum Zeiger) · Zeiger · Zone rot · Zone gelb · Zone grün (ab dem Zeiger) ·
+      unsichtbar (= Skala, die untere Hälfte). Beide Ringe lesen denselben Block: im Zeigerring ist alles außer dem
+      Zeiger unsichtbar, im Zonenring färbt tacho_style die Zone des Zeigers kräftig und die übrigen zurückgenommen."""
     spec = C.KPI[kpi]
     g, y = spec["green"], spec["yellow"]
-    r0 = GAUGE_ROW
     rows = {}
-    k = [r0]
+    k = [GAUGE_ROW]
 
     def put(role, formula, text=False):
         r = k[0]
@@ -385,24 +391,21 @@ def _gauge_data(ws, hc, kpi, name):
         cell.number_format = "General" if text else "0.0000"
         return r
 
-    lbl = ws[f"{hc}{r0 - 1}"]
-    C.set_text(lbl, f"Tacho {C.kpi_label(kpi)} (Anzeige)")
-    M = put("max", f"=MAX(1.5*{g},1.2*{y},0.0001)")
+    C.set_text(ws[f"{hc}{GAUGE_ROW - 1}"], f"Tacho {C.kpi_label(kpi)} (Anzeige)")
+    M = put("max", f"=MAX({GAUGE_SCALE}*{g},1.2*{y},0.0001)")
     W = put("w", f"={hc}{M}*{GAUGE_NEEDLE}")
     V = put("v", f"=IFERROR(MIN(MAX({name},0),{hc}{M}),0)")
-    P0 = put("p0", f"=MIN(MAX({hc}{V}-{hc}{W}/2,0),{hc}{M}-{hc}{W})")
+    # Zeiger mittig auf dem Wert; liegt der Wert näher als eine halbe Zeigerbreite an einer Schwelle, rückt der Zeiger
+    # ganz auf die Seite seines Status (4,0 % bei „gelb ab 4,0 %“ zeigt in die gelbe Zone, nicht auf die Fuge)
+    v_, w2 = f"{hc}{V}", f"{hc}{W}/2"
+    snap = (f"IF(AND({v_}>={g},{v_}-{g}<{w2}),{g},IF(AND({v_}>={y},{v_}-{y}<{w2}),{y},"
+            f"IF(AND({v_}<{y},{y}-{v_}<{w2}),{y}-2*{w2},IF(AND({v_}<{g},{g}-{v_}<{w2}),{g}-2*{w2},{v_}-{w2}))))")
+    P0 = put("p0", f"=MIN(MAX({snap},0),{hc}{M}-{hc}{W})")
     P1 = put("p1", f"={hc}{P0}+{hc}{W}")
     m, w, p0, p1 = (f"{hc}{x}" for x in (M, W, P0, P1))
-    # äußerer Ring: Zonen (erreicht) · Zeiger · Zonen (offen) · unsichtbarer Rest (120° von 360° = halbe Skala)
-    outer = [f"=MIN({p0},{y})", f"=MAX(0,MIN({p0},{g})-{y})", f"=MAX(0,{p0}-{g})", f"={w}",
-             f"=MAX(0,{y}-{p1})", f"=MAX(0,{g}-MAX({p1},{y}))", f"=MAX(0,{m}-MAX({p1},{g}))",
-             f"={m}*{(360 - GAUGE_SPAN) / GAUGE_SPAN}"]
-    rows["outer"] = [put(f"o{i}", f) for i, f in enumerate(outer)]
-    inner = [f"={p0}", f"={w}", f"=MAX(0,{m}-{p1})", f"={m}*{(360 - GAUGE_SPAN) / GAUGE_SPAN}"]
-    rows["inner"] = [put(f"i{i}", f) for i, f in enumerate(inner)]
-    val_expr = C._fmt_expr(kpi, name) if hasattr(C, "_fmt_expr") else f"FIXED({name},2)"
-    put("val_txt", C.minus_text(f'=IFERROR({val_expr},"–")'), text=True)
-    put("goal_txt", "=" + C.threshold_text(kpi), text=True)
+    seg = [f"=MIN({p0},{y})", f"=MAX(0,MIN({p0},{g})-{y})", f"=MAX(0,{p0}-{g})", f"={w}",
+           f"=MAX(0,{y}-{p1})", f"=MAX(0,{g}-MAX({p1},{y}))", f"=MAX(0,{m}-MAX({p1},{g}))", f"={m}"]
+    rows["seg"] = [put(f"s{i}", f) for i, f in enumerate(seg)]
     return rows
 
 
@@ -411,14 +414,14 @@ def _gauge_card(ws, c1, c2, hc, kpi, name, label, icon):
     spec = C.KPI[kpi]
     g, y = spec["green"], spec["yellow"]
     head, (ch1, ch2), leg = R_GAUGE_HEAD, R_GAUGE_CHART, R_GAUGE_LEGEND
-    # Kartenfläche
+    cols = [C.L(k) for k in range(C.col(c1), C.col(c2) + 1)]     # 5 Spalten: 84 · 96 · 12 · 84 · 96
+    # Kartenfläche: FBFAF7, Goldkante oben, Haarlinie unter dem Kopf
     for r in range(head, leg + 1):
         for c in C.iter_cells(ws, c1, r, c2, r):
             c.fill = C.fill(C.TINT_XL)
             c.border = Border(top=C.side("medium", C.GOLD) if r == head else None,
-                              bottom=C.side("thin", C.LINE) if r == head else None)
-    cols = [C.L(k) for k in range(C.col(c1), C.col(c2) + 1)]     # 5 Spalten: 84 · 96 · 12 · 84 · 96
-    # Kopf: Icon + Kennzahl (links, B:D) · Status-Chip (rechts, E:F)
+                              bottom=C.side("thin", C.LINE) if r in (head, leg - 1) else None)
+    # Kopf: Icon + Kennzahl (links) · Status-Chip (rechts)
     C.safe_merge(ws, cols[0], head, cols[2], head)
     lab = ws[f"{cols[0]}{head}"]
     if label is None:
@@ -433,44 +436,88 @@ def _gauge_card(ws, c1, c2, hc, kpi, name, label, icon):
     chip = ws[f"{cols[3]}{head}"]
     C.status_pill(ws, chip, kpi=kpi, value_ref=name, style="chip")
     chip.alignment = C.align("right", "center", 1)
-    # Zonenlegende
-    fx = C._fmt_expr(kpi, y), C._fmt_expr(kpi, g)
+    # Wert (20 pt) in der Öffnung des Bogens, darunter Ziel und Abstand – über die ganze Kartenbreite verbunden
+    r_val, r_goal, r_gap = GAUGE_VALUE_ROWS
+    fx_v = C._fmt_expr(kpi, name)
+    for r, val, size, bold, colr in (
+            (r_val, C.minus_text(f'=IFERROR({fx_v},"–")'), C.T_KPI, True, C.NAVY),
+            (r_goal, "=" + C.threshold_text(kpi), C.T_SMALL, False, C.MUTED),
+            (r_gap, C.minus_text(_gap_text(kpi, name, g)), C.T_MICRO, False, C.MUTED)):
+        C.safe_merge(ws, c1, r, c2, r)
+        cell = ws[f"{c1}{r}"]
+        cell.value = val
+        cell.number_format = "General"
+        cell.font = C.font(size, bold, colr)
+        cell.alignment = C.align("center", "top" if r == r_val else "center")
+    # Zonenlegende in Statusfarben: links „< gelb“, Mitte „gelb – grün“, rechts „≥ grün“
+    fy, fg = C._fmt_expr(kpi, y), C._fmt_expr(kpi, g)
     lo = ws[f"{cols[0]}{leg}"]
-    lo.value = C.minus_text(f'="●  < "&{fx[0]}')
+    lo.value = C.minus_text(f'="●  < "&{fy}')
     lo.font = C.font(C.T_MICRO, True, C.RED)
     lo.alignment = C.align("left", "center", 1)
     C.safe_merge(ws, cols[1], leg, cols[3], leg)
     mid = ws[f"{cols[1]}{leg}"]
-    mid.value = C.minus_text(f'="●  "&{fx[0].replace(" %", "")}&" – "&{fx[1]}')
+    mid.value = C.minus_text(f'="●  "&{fy.replace(" %", "").replace("×", "")}&" – "&{fg}')
     mid.font = C.font(C.T_MICRO, True, C.AMBER)
     mid.alignment = C.align("center", "center")
     hi = ws[f"{cols[4]}{leg}"]
-    hi.value = C.minus_text(f'="●  ≥ "&{fx[1]}')
+    hi.value = C.minus_text(f'="●  ≥ "&{fg}')
     hi.font = C.font(C.T_MICRO, True, C.GREEN)
     hi.alignment = C.align("right", "center", 1)
 
-    # Doughnut
-    ch = DoughnutChart(holeSize=50, firstSliceAng=GAUGE_START)
+    # Doughnut: zwei Ringe auf denselben Daten (innen Zeiger, außen Zonen); Stil setzt finish_pro.tacho_style
+    ch = DoughnutChart(holeSize=46, firstSliceAng=270)
     ch.varyColors = True
-    inner, outer = rows["inner"], rows["outer"]
-    ch.add_data(Reference(ws, min_col=C.col(hc), min_row=inner[0], max_row=inner[-1]), titles_from_data=False)
-    ch.add_data(Reference(ws, min_col=C.col(hc), min_row=outer[0], max_row=outer[-1]), titles_from_data=False)
+    seg = rows["seg"]
+    data = Reference(ws, min_col=C.col(hc), min_row=seg[0], max_row=seg[-1])
+    cats = Reference(ws, min_col=C.col(GAUGE_CAT_COL), min_row=seg[0], max_row=seg[-1])
+    for i, role in enumerate(GAUGE_CATS):
+        C.set_text(ws[f"{GAUGE_CAT_COL}{seg[0] + i}"], role)
+    ch.add_data(data, titles_from_data=False)
+    ch.add_data(data, titles_from_data=False)
+    ch.set_categories(cats)
     s_in, s_out = ch.series
-    s_in.tx = SeriesLabel(strRef=StrRef(f=f"'{SHEET}'!${hc}${rows['val_txt']}"))
-    s_out.tx = SeriesLabel(strRef=StrRef(f=f"'{SHEET}'!${hc}${rows['goal_txt']}"))
-    zones = [GAUGE_ZONE_STRONG[0], GAUGE_ZONE_STRONG[1], GAUGE_ZONE_STRONG[2], C.NAVY,
-             GAUGE_ZONE_SOFT[0], GAUGE_ZONE_SOFT[1], GAUGE_ZONE_SOFT[2], None]
-    _slices(s_out, zones)
-    _slices(s_in, [None, C.NAVY, None, None])
-    s_in.dLbls = _slice_label(3, C.T_KPI, C.NAVY, True)
-    s_out.dLbls = _slice_label(7, C.T_MICRO, C.MUTED, False)
+    short = C.kpi_label(kpi)
+    s_in.tx = SeriesLabel(v=f"Tacho {short} Zeiger")
+    s_out.tx = SeriesLabel(v=f"Tacho {short} Zonen")
+    _slices(s_out, [GAUGE_ZONE[0], GAUGE_ZONE[1], GAUGE_ZONE[2], C.NAVY,
+                    GAUGE_ZONE[0], GAUGE_ZONE[1], GAUGE_ZONE[2], None])
+    _slices(s_in, [None, None, None, C.NAVY, None, None, None, None])
     ch.legend = None
     ch.title = None
     ch.visible_cells_only = False                  # Hilfsdaten liegen in ausgeblendeten Spalten
     ch.graphical_properties = _no_fill()
     ch.plot_area.graphicalProperties = _no_fill()
-    _anchor(ch, c1, ch1, c2, ch2)
+    # Rahmen mittig über der Karte, 208 px breit (Karte 372 px): tacho_style setzt den Kreis oben in den Rahmen
+    # (Ø = Rahmenhöhe − 6 px ≈ 192 px); Wert, Ziel und Abstand stehen in der durchsichtigen unteren Hälfte.
+    x0 = GAUGE_INSET
+    x1 = C.span_px(ws, c1, c2) - GAUGE_INSET
+    c_from, off_from = _px_to_col(ws, c1, x0)
+    c_to, off_to = _px_to_col(ws, c1, x1)
+    ch.anchor = TwoCellAnchor(
+        _from=AnchorMarker(col=C.col(c_from) - 1, row=ch1 - 1, colOff=int(off_from * 9525), rowOff=0),
+        to=AnchorMarker(col=C.col(c_to) - 1, row=ch2, colOff=int(off_to * 9525), rowOff=0))
     ws.add_chart(ch)
+
+
+def _px_to_col(ws, c1, x):
+    """Pixelposition x ab der linken Kante von c1 → (Spalte, Versatz in px)."""
+    k = C.col(c1)
+    while True:
+        w = C.col_px(ws, C.L(k))
+        if x < w:
+            return C.L(k), x
+        x -= w
+        k += 1
+
+
+def _gap_text(kpi, name, g):
+    """Abstand zum Ziel: „noch 0,59× bis zum Ziel“ bzw. „Ziel erreicht · +0,32×“ (Prozente in %-Punkten)."""
+    if "%" in C.KPI[kpi]["fmt"]:
+        d = f'FIXED(ABS({name}-{g})*100,1)&" %-Pkt."'
+    else:
+        d = f'FIXED(ABS({name}-{g}),2)&"×"'
+    return f'=IFERROR(IF({name}>={g},"Ziel erreicht  ·  +"&{d},"noch "&{d}&" bis zum Ziel"),"")'
 
 
 def _slices(ser, colors):
@@ -480,18 +527,10 @@ def _slices(ser, colors):
             pt.graphicalProperties = _no_fill()
         else:
             gp = GraphicalProperties(solidFill=colr)
-            gp.line = LineProperties(solidFill=C.CHART_SEP, w=19050)
+            gp.line = LineProperties(solidFill=C.CHART_SEP, w=15875)
             pt.graphicalProperties = gp
         ser.dPt.append(pt)
     ser.graphicalProperties = _no_fill()
-
-
-def _slice_label(idx, size, color, bold):
-    dl = DataLabel(idx=idx, showLegendKey=False, showVal=False, showCatName=False, showSerName=True,
-                   showPercent=False, showBubbleSize=False)
-    dl.txPr = _txpr(size, color, bold)
-    return DataLabelList(dLbl=[dl], showLegendKey=False, showVal=False, showCatName=False, showSerName=False,
-                         showPercent=False, showBubbleSize=False)
 
 
 # ========================================================================================== Kennzahlen-Check
@@ -895,17 +934,17 @@ def _timeline(ws):
     # (Art, Beschriftung, Blatt, Zeile, Vorzeichen, Format, Negativ-Rot, Sparkline-Vorlage bzw. dict)
     groups = [
         ("Cashflow", [
-            ("row", "Nettokaltmiete Ist", "Projektion", 15, 1, None, False, "rent"),
-            ("row", "Bewirtschaftungskosten", "Projektion", 26, -1, None, False, "costs"),
-            ("row", "Kapitaldienst", "Projektion", 32, -1, None, False, "costs"),
-            ("davon", "davon Zinsen", "Projektion", 30, -1, None, False, dict(kind="column", color=C.chart_color("Zinsen"))),
-            ("davon", "davon Tilgung", "Projektion", 31, -1, None, False, dict(kind="column", color=C.chart_color("Tilgung"))),
+            ("row", "Nettokaltmiete Ist", "Projektion", 15, 1, None, False, dict(style="rent", min_zero=True)),
+            ("row", "Bewirtschaftungskosten", "Projektion", 26, -1, None, False, dict(style="costs", min_zero=True)),
+            ("row", "Kapitaldienst", "Projektion", 32, -1, None, False, dict(style="costs", min_zero=True)),
+            ("davon", "davon Zinsen", "Projektion", 30, -1, None, False, dict(kind="column", color=C.chart_color("Zinsen"), min_zero=True)),
+            ("davon", "davon Tilgung", "Projektion", 31, -1, None, False, dict(kind="column", color=C.chart_color("Tilgung"), min_zero=True)),
             ("sub", "= Cashflow vor Steuern", "Projektion", 33, 1, None, True, "cashflow"),
             ("row", "± Steuerwirkung (Cash-Sicht)", "Projektion", 35, -1, C.NUMFMT["eur_plain_signed"], False, None),
             ("result", "= Cashflow nach Steuern", "Projektion", 36, 1, None, True, "cashflow"),
             ("row", "Kumulierter Cashflow n. St.", "Projektion", 38, 1, None, True, "cashflow")]),
         ("Steuer", [
-            ("row", "Abschreibungen (AfA)", "Steuern", 56, 1, None, False, dict(kind="column", color=C.chart_color("Steuer"))),
+            ("row", "Abschreibungen (AfA)", "Steuern", 56, 1, None, False, dict(kind="column", color=C.chart_color("Steuer"), min_zero=True)),
             ("row", "Steuerliches Ergebnis", "Steuern", 67, 1, None, True,
              dict(kind="column", color=C.chart_color("Steuerliches Ergebnis"), neg=C.C_NEG))]),
         ("Vermögen", [

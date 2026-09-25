@@ -567,6 +567,7 @@ CRUMBS = {
     "AfA-Vergleich": ("Steuer-Tabelle", "AfA-Vergleich"),
     "Bankgespräch": ("Bank", "Bankgespräch"), "Haushaltsrechnung": ("Bank", "Haushaltsrechnung"),
     "Vermögensaufstellung": ("Bank", "Vermögensaufstellung"),
+    "Exposé": ("Bank", "Exposé"),
     "Hinweise": ("Anhang", "Hinweise"), "Konfiguration": ("Anhang", "Konfiguration"),
 }
 # Elternblatt je Reiter (Ziel des ersten, verlinkten Krumenteils und des Rücksprungs „‹ Elternblatt“ rechts in Z. 5).
@@ -574,7 +575,7 @@ CRUMB_PARENT = {"LEITFADEN": "Leitfaden", "BERECHNUNG": "Dashboard", "STEUER-TAB
                 "ANHANG": "Start", "DASHBOARD": "Start", "COCKPIT": "Start", "DIAGRAMME": "Start", "EINGABEN": "Start"}
 PARENT = {"Dashboard": "Start", "Cockpit": "Start", "Diagramme": "Start", "Eingaben": "Start",
           "Projektion": "Dashboard", "Steuern": "Dashboard", "Finanzierung": "Dashboard", "Sensitivität": "Dashboard",
-          "AfA-Vergleich": "Steuern", "Haushaltsrechnung": "Bankgespräch", "Vermögensaufstellung": "Bankgespräch",
+          "AfA-Vergleich": "Steuern", "Haushaltsrechnung": "Bankgespräch", "Vermögensaufstellung": "Bankgespräch", "Exposé": "Bankgespräch",
           "Bankgespräch": "Start", "Hinweise": "Start", "Konfiguration": "Start", "Leitfaden": "Start"}
 _STEP_TITLE = re.compile(r"^S(\d\d)\s+(.+)$")
 
@@ -1718,7 +1719,7 @@ _TILE_FILLS = {NAVY, BLUE, TINT_XL}
 # Kachel-Kopffarbe (Runde 4, P1-02): genau zwei benannte Varianten, festgelegt durch die ROLLE des Blatts (DECISIONS 3):
 #   strong 0E2238 – Start, Leitfaden, Dashboard, Cockpit, S08, S12 (kräftig / Fintech)
 #   calm   1E4E8C – alle Rechenschritte und ruhigen Blätter (S03–S11, AfA-Vergleich, Haushalt, Vermögen …)
-TILE_STRONG_SHEETS = ("Start", "Leitfaden", "Dashboard", "Cockpit")
+TILE_STRONG_SHEETS = ("Start", "Leitfaden", "Dashboard", "Cockpit", "Exposé")
 TILE_STRONG_PREFIX = ("S08", "S12")
 TILE_HEAD = {"strong": NAVY, "calm": BLUE}
 # Runde 5: strong-Kacheln tragen unter dem Nachtblau-Kopf eine 2-px-Goldlinie (edle Kopflinie); calm bleibt ruhig ohne.

@@ -245,11 +245,6 @@ def _photo(ws):
     """Fotoplatzhalter links (B:D) – so hoch wie die drei Kachelreihen rechts."""
     r1, r2 = R_TILES, R_TILES + 10
     C.safe_merge(ws, "B", r1, "D", r2)
-    top = ws.cell(r1, 2)
-    top.fill = C.fill(C.TINT_XL)
-    for r in range(r1, r2 + 1):
-        for c in C.iter_cells(ws, "B", r, "D", r):
-            c.fill = C.fill(C.TINT_XL)
     w, h = C.span_px(ws, "B", "D"), _rows_px(ws, r1, r2)
     if I is not None:
         _image(ws, f"B{r1}", lambda: I.photo_placeholder_path(w, h), w, h)
@@ -378,7 +373,7 @@ def _structure(ws):
         ws[f"H{a}"].alignment = C.align("left", "bottom", 1)
         c = ws[f"H{b}"]
         c.value = C.minus_text(f'=IF({v}{r + 1 + i}>0,FIXED({v}{r + 1 + i},0)&" €  ·  "&'
-                               f'FIXED(IF({tot}>0,{v}{r + 1 + i}/{tot},0)*100,0)&" %","–")')
+                               f'FIXED(IF({tot}>0,{v}{r + 1 + i}/{tot},0)*100,0)&" %","nicht vorgesehen")')
         _cell(ws, f"H{b}", None, C.T_SMALL, False, C.MUTED, "left", "top", 3)
     rt = r + 7
     ws[f"H{rt}"].value = C.minus_text('="Gesamt "&FIXED(' + tot + ',0)&" €"')
@@ -499,7 +494,7 @@ def _verdict(ws):
     lab = ws[f"B{r1}"]
     C.set_text(lab, "GESAMTURTEIL")
     lab.font = C.font(C.T_LABEL, True, C.BLUE)
-    lab.alignment = C.align("left", "bottom", 1)
+    lab.alignment = C.align("left", "bottom", 5)
     pill = ws[f"D{r1}"]
     C.status_pill(ws, pill, conditions=conds, style="chip",
                   suffix=f'COUNTIF({st},"erfüllt")&" von 6 erfüllt"')
@@ -512,7 +507,9 @@ def _verdict(ws):
                      f'IF(COUNTIF({st},"prüfen")>0,"Solide mit Prüfpunkten","Solide")))')
     verdict.number_format = "General"
     verdict.font = C.font(C.T_KPI, True, C.NAVY)
-    verdict.alignment = C.align("left", "center", 1)
+    verdict.alignment = C.align("left", "center", 5)
+    # Siegel links: Navy-Badge mit goldenem Schild über beide Bannerzeilen
+    _icon(ws, f"B{r2}", "schild", C.GOLD, 30, bg=C.NAVY, dx=12, valign="middle")
     C.safe_merge(ws, "F", r1, "H", r2)
     ex = ws[f"F{r1}"]
     ex.value = C.minus_text(

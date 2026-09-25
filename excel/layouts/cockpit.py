@@ -122,7 +122,7 @@ LOWER = {
         (42, "row", TAX_LABEL, TAX_CASH),
         (43, "result", "= Cashflow nach Steuern", "eur"),
         (44, "memo", "nachrichtlich: Warmmiete", "eur"),
-        (45, "l2", "Ausblick Folgejahr (Jahr 2)", None),
+        (45, "l2", "Ausblick und Verlauf", None),
         (46, "row", "Cashflow vor Steuern Jahr 2", "eur"),
         (47, "row", "Cashflow nach Steuern Jahr 2", "eur"),
     ],
@@ -175,9 +175,7 @@ DISPLAY_FORMULAS = {
     "K29": "=Anschlusszins_I",
     "K30": "=Tilgung_I",
     "C46": "=INDEX(Projektion!$D$33:$AQ$33,2)/12",
-    "D46": "=INDEX(Projektion!$D$33:$AQ$33,2)",
     "C47": "=INDEX(Projektion!$D$36:$AQ$36,2)/12",
-    "D47": "=INDEX(Projektion!$D$36:$AQ$36,2)",
 }
 
 
@@ -197,7 +195,7 @@ TILES = [
     ("K", "L", "IRR", "=IRR_Tile", "=" + C.threshold_text("IRR")),
 ]
 AMPEL = {"G23": "BMR", "G24": "NMR", "G28": "EKR", "K24": "DSCR", "K47": "IRR"}   # Tabellenwerte 10 pt: Statusfarbe
-NEGATIVE_RED = ("K43", "C46:D47")      # Kumul- und Cashflow-Werte außerhalb der Summenzeilen (P15)
+NEGATIVE_RED = ("K43", "C46:C47")      # Kumul- und Cashflow-Werte außerhalb der Summenzeilen (P15)
 
 HINT_ROWS = range(50, 56)
 CHART_TOP, CHART_BOTTOM = 58, 73          # Diagramme füllen B58:D73 | F58:H73 | J58:L73
@@ -228,12 +226,12 @@ LANE_CARDS = {("F", "upper"), ("J", "upper"), ("J", "lower")}
 TREND_YEARS = 30
 PJ = "Projektion"
 TRENDS = [   # (Zielzelle, Projektion-Zeile, Sparkline-Vorlage, Zusatzargumente) – Farben nach CHART_SEMANTIC
-    ("H16", 13, "rent", {}),                                           # Jahresnettokaltmiete → Miete Blau
-    ("H18", 26, "costs", {}),                                          # Bewirtschaftung → Orange
+    ("H16", 13, "rent", {"min_zero": True}),                                           # Jahresnettokaltmiete → Miete Blau
+    ("H18", 26, "costs", {"min_zero": True}),                                          # Bewirtschaftung → Orange
     ("H20", 29, "trend", {"color": "C_BLUE", "markers": True}),        # Einnahmenüberschuss (NOI) → Blau
     ("H28", 45, "value", {}),                                          # Eigenkapitalrendite je Jahr → Aqua
     ("L14", 42, "debt", {}),                                           # Darlehen → Restschuld Jahresende (grau)
-    ("L23", 32, "costs", {}),                                          # Kapitaldienst pro Jahr → Orange
+    ("L23", 32, "costs", {"min_zero": True}),                                          # Kapitaldienst pro Jahr → Orange
     ("L36", 41, "value", {}),                                          # Verkaufspreis → Immobilienwert (Aqua)
     ("L38", 42, "debt", {}),                                           # Restschuld (Ablösung)
     ("L43", 38, "cashflow", {"color": "C_BLUE"}),                      # kumulierter Cashflow n. St. (Blau/Rot)
@@ -332,55 +330,119 @@ def _verdict_ref():
         return "Dashboard!$B$12"
 
 
+def _dashboard_attr(name, default):
+    try:
+        import dashboard
+        return int(getattr(dashboard, name))
+    except Exception:
+        return default
+
+
+def _check_range():
+    """Statusspalte des Kennzahlen-Checks auf dem Dashboard (6 Zeilen, Wörter erfüllt/prüfen/kritisch)."""
+    r = _dashboard_attr("R_CHECK", 20)
+    return f"Dashboard!$H${r}:$H${r + 5}"
+
+
+def _icon(ws, cell, name, color=NAVY, px=ICON_PX, dx=ICON_DX, dy=0, valign="middle"):
+    """Icon setzen (icons.place_icon, OneCellAnchor) – Spaltenbreiten/Zeilenhöhen müssen vorher stehen.
+    Fehler → Blatt ohne Icon (nie ohne Blatt)."""
+    if ICN is None or not name:
+        return None
+    try:
+        return ICN.place_icon(ws, cell, name, color, px=px, dx=dx, dy=dy, valign=valign)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  cockpit: Icon „{name}“ in {cell} übersprungen ({exc})")
+        return None
+
+
+def grid(ws):
+    """Runde 6: Wertspalten G/K 118 px, Verlaufsspalten H/L 64 px (Summe je Paar unverändert 182 px)."""
+    for c, w in (("G", W_VALUE), ("H", W_LANE), ("K", W_VALUE), ("L", W_LANE)):
+        d = ws.column_dimensions[c]
+        d.min = d.max = col(c)
+        d.width = w
+        d.hidden = False
+
+
 # --------------------------------------------------------------------------------------------- Seitenkopf
 def header(ws):
-    """Seitenkopf-Standard (P1-18): Z. 5 Überzeile, Z. 6 H1, Z. 7 Untertitel links; rechts die Gesamtbewertung
-    (Label · Status-Pille mit Link auf die Prüfhinweise) und „Erstellt für …“ als Meta (9 pt)."""
-    _unmerge_rows(ws, 5, 7)
-    for c in iter_cells(ws, "C", 5, "L", 7):
+    """Runde 6 – Hero im Stil des Deckblatts/Dashboard-Heros: Z. 5–6 nachtblaues Band B:L mit feiner Goldlinie unten.
+      links   Eyebrow „COCKPIT“ (helles Gold 8,5 pt) · Titel „Cockpit“ 30 pt weiß · Gold-Icon „rechner“
+      Mitte   feine goldene Stadtsilhouette (icons.cover_art_path, transparent, zurückhaltend)
+      rechts  „GESAMTBEWERTUNG“ · „n von 6 Kennzahlen erfüllt“ · Urteil 20 pt weiß; linke 3-px-Kante in leuchtender
+              Statusfarbe (bedingte Formatierung, EINE Regel je Status); Link auf die Prüfhinweise.
+    Z. 7 (weiß): Objektzeile links, „Erstellt für …“ rechts. Die Kacheln (Z. 8–10) bleiben, wo sie sind."""
+    _unmerge_rows(ws, 4, 7)
+    for c in iter_cells(ws, "C", 4, "L", 7):
         c.value = None
         c.hyperlink = None
     date = 'TEXT(DAY(Kaufdatum),"00")&"."&TEXT(MONTH(Kaufdatum),"00")&"."&YEAR(Kaufdatum)'
     subtitle = (f'=Obj_Name&"  ·  "&Obj_Adresse&"  ·  Kauf am "&{date}&"  ·  Haltedauer "&Haltedauer&" Jahre  ·  "'
                 f'&{RECHTSFORM_SHORT}')
-    # P2-04: kanonische Brotkrume „COCKPIT“ (C.CRUMBS, einteilig ohne Link); Kopfhöhen 12/18/30/21,75 (C.H_HDR)
     C.page_header(ws, FIRST, LAST, "Cockpit", "Cockpit", subtitle=subtitle)
-    ws["B6"].alignment = align("left", "bottom")
-    safe_merge(ws, "B", 7, "J", 7)
-    # rechts: Gesamtbewertung wie auf dem Dashboard (P41) – Label Z. 5, Banner Z. 6 (TINT_XL,
-    # linke 3-px-Kante in Statusfarbe, Urteil fett in Statusfarbe), „Erstellt für …“ Z. 7 bündig an der Inhaltskante
-    safe_merge(ws, "K", 5, "L", 5)
-    cap = ws["K5"]
-    set_text(cap, "GESAMTBEWERTUNG")
-    cap.font = font(C.T_LABEL, True, BLUE)
-    cap.alignment = align("right", "bottom")      # P3-02: rechte Kopfgruppe K5:K7 bündig an der Inhaltskante L
-    safe_merge(ws, "K", 6, "L", 6)
-    pill = ws["K6"]
-    pill.value = f"={_verdict_ref()}"
-    pill.number_format = "General"
-    pill.font = font(C.T_H3, True, NAVY)          # P3-02: Gesamturteil als wichtigste Aussage 12,5 pt fett
-    pill.alignment = align("right", "center", 1)
-    pill.hyperlink = Hyperlink(ref="K6", location=C.link_loc(SHEET, C.link_row(SHEET, 49)),
-                               tooltip="Zu den Prüfhinweisen und der steuerlichen Einordnung")
-    v = "$K$6"
-    conds = [(f'ISNUMBER(SEARCH("kritisch",{v}))', "red"), (f'ISNUMBER(SEARCH("Prüfpunkten",{v}))', "amber"),
-             (f'ISNUMBER(SEARCH("Solide",{v}))', "green")]
-    # Runde 5: Banner lokal statt C.status_banner – Schriftfarbe UND Statuskante in EINER Regel je Status, damit auch
-    # Anzeigen, die nur die erste zutreffende Regel auswerten (LibreOffice), die Kante in Statusfarbe zeigen.
-    # Statisch: warme Kachelfläche TINT_XL, ruhige Akzentkante links, feine warme Kontur LINE2 (wie die Kacheln).
-    frame = side("thin", LINE2)
-    for c in iter_cells(ws, "K", 6, "L", 6):
-        c.fill = fill(TINT_XL)
-        c.border = Border(left=side("thick", ACCENT) if c.column == col("K") else None, top=frame, bottom=frame,
-                          right=frame if c.column == col("L") else None)
-    for cond, lvl in conds:
-        C.cf_rule(ws, "K6", cond, font_=Font(color=C.STATUS_COLORS[lvl][0], bold=True),
-                  border=Border(left=side("thick", C.STATUS_COLORS[lvl][0]), top=frame, bottom=frame))
-    safe_merge(ws, "K", 7, "L", 7)
-    meta = ws["K7"]
+    for r, h in H_HERO.items():
+        set_height(ws, r, h)
+    gold_rule = side("medium", C.GOLD)
+    for c in iter_cells(ws, "B", 5, "L", 6):
+        c.fill = fill(NAVY)
+        c.border = Border(bottom=gold_rule if c.row == 6 else None)
+    eyebrow, title = ws["B5"], ws["B6"]
+    eyebrow.value = '="COCKPIT"'     # Anzeigeformel: global_rules.breadcrumb_links färbt nur statische Krumen (BLUE)
+    eyebrow.font = font(C.T_LABEL, True, C.GOLD_LINE)
+    eyebrow.alignment = align("left", "bottom", HERO_TITLE_INDENT)
+    title.font = font(C.T_HERO, True, WHITE, C.DISPLAY)
+    title.alignment = align("left", "center", HERO_TITLE_INDENT)
+    # Objektzeile und „Erstellt für …“ unter dem Band (weiß)
+    safe_merge(ws, "B", 7, "I", 7)
+    sub = ws["B7"]
+    sub.font = font(T_BODY, False, MUTED)
+    sub.alignment = align("left", "center")
+    safe_merge(ws, "J", 7, "L", 7)
+    meta = ws["J7"]
     meta.value = '=IFERROR(IF(Erstellt_fuer="","","Erstellt für "&Erstellt_fuer),"")'
     meta.font = font(T_SMALL, False, MUTED)
-    meta.alignment = align("right", "top")
+    meta.alignment = align("right", "center")
+    # rechts: Gesamtbewertung (Label · Zähler · Urteil)
+    cap = ws["J5"]
+    set_text(cap, "GESAMTBEWERTUNG")
+    cap.font = font(C.T_LABEL, True, C.SKY)
+    cap.alignment = align("left", "bottom", HERO_PAD)
+    safe_merge(ws, "K", 5, "L", 5)
+    cnt = ws["K5"]
+    cnt.value = f'=IFERROR(COUNTIF({_check_range()},"erfüllt")&" von 6 Kennzahlen erfüllt","")'
+    cnt.font = font(C.T_LABEL, False, C.SKY)
+    cnt.alignment = align("right", "bottom", HERO_PAD)
+    safe_merge(ws, "J", 6, "L", 6)
+    verdict = ws["J6"]
+    verdict.value = f"={_verdict_ref()}"
+    verdict.number_format = "General"
+    verdict.font = font(C.T_KPI, True, WHITE, C.DISPLAY)
+    verdict.alignment = align("left", "center", HERO_PAD)
+    verdict.hyperlink = Hyperlink(ref="J6", location=C.link_loc(SHEET, C.link_row(SHEET, 49)),
+                                  tooltip="Zu den Prüfhinweisen und der steuerlichen Einordnung")
+    v = "$J$6"
+    conds = [(f'ISNUMBER(SEARCH("kritisch",{v}))', "red"), (f'ISNUMBER(SEARCH("Prüfpunkten",{v}))', "amber"),
+             (f'ISNUMBER(SEARCH("Solide",{v}))', "green")]
+    # statische Kante (vor der Neuberechnung / ohne Treffer): Gold; je Status EINE Regel mit Kante in Statusfarbe
+    for r in (5, 6):
+        c = ws[f"J{r}"]
+        c.border = Border(left=side("thick", C.GOLD), bottom=gold_rule if r == 6 else None)
+    for c in iter_cells(ws, "K", 6, "L", 6):
+        c.border = Border(bottom=gold_rule)
+    for cond, lvl in conds:      # je Zelle EINE Regel (LibreOffice wertet nur die erste zutreffende aus)
+        C.cf_rule(ws, "J5", cond, border=Border(left=side("thick", HERO_STATUS[lvl])))
+        C.cf_rule(ws, "J6", cond, border=Border(left=side("thick", HERO_STATUS[lvl]), bottom=gold_rule))
+    # Bildebene: Gold-Icon vor dem Titel, Stadtsilhouette zwischen Titel und Urteil
+    _icon(ws, "B6", HERO_ICON, C.GOLD, px=HERO_ICON_PX, dx=HERO_ICON_DX)
+    if ICN is not None:
+        try:
+            w = C.span_px(ws, "C", "I")
+            h = round((H_HERO[5] + H_HERO[6]) * 4 / 3)
+            ICN.place_image(ws, "C5", ICN.cover_art_path(w, h, background=False, focus="center", intensity=0.75),
+                            w, h)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  cockpit: Hero-Illustration übersprungen ({exc})")
 
 
 # --------------------------------------------------------------------------------------------- Kacheln
@@ -469,10 +531,16 @@ def _card_bottom(ws, row):
 
 
 def _block_head(ws, row, lab, edge, title, link):
-    """Blockkopf Ebene 1 mit Drill-down-Link rechts (P3-02)."""
+    """Blockkopf Ebene 1 mit Drill-down-Link rechts (P3-02). Runde 6: Icon links vor dem Titel (Nachtblau 20 px),
+    der Link sitzt im Verbund der beiden Wertspalten (die rechte Spalte ist bei Verlaufskarten nur 64 px breit)."""
     C.section(ws, row, lab, edge, title, level=1)
     text, target, tip = link
-    _link(ws[f"{edge}{row}"], text, target, tooltip=tip)
+    val = get_column_letter(col(lab) + 1)
+    safe_merge(ws, val, row, edge, row)
+    _link(ws[f"{val}{row}"], text, target, tooltip=tip)
+    name = BLOCK_ICON.get((row, lab))
+    if name and _icon(ws, f"{lab}{row}", name) is not None:
+        ws[f"{lab}{row}"].alignment = align("left", "center", ICON_INDENT)
 
 
 def blocks(ws):
@@ -489,7 +557,7 @@ def blocks(ws):
     for r in range(14, 31):
         set_height(ws, r, C.H_ROW)
     for lab, val, edge in BLOCKS:
-        _block(ws, UPPER[lab], lab, val, edge)
+        _block(ws, UPPER[lab], lab, val, edge, merge_values=(lab, "upper") not in LANE_CARDS)
     _card_bottom(ws, 30)
     set_height(ws, 31, GAP_SECTION)
 
@@ -519,17 +587,46 @@ def blocks(ws):
         d.alignment = align("right", "center", 1)
         if kind == "row":
             d.font = font(T_BODY, False, INK)
-    _block(ws, LOWER["F"], "F", "G", "H")
-    _block(ws, LOWER["J"], "J", "K", "L")
+    _block(ws, LOWER["F"], "F", "G", "H", merge_values=("F", "lower") not in LANE_CARDS)
+    _block(ws, LOWER["J"], "J", "K", "L", merge_values=("J", "lower") not in LANE_CARDS)
     _card_bottom(ws, 47)
     set_height(ws, 48, GAP_SECTION)
     # P3-02: „AUSBLICK FOLGEJAHR“ folgt direkt auf die Memo-Zeile – etwas Luft darüber (Titel unten ausgerichtet);
     # die Summenzeilen F45/J45 bleiben vertikal zentriert
     set_height(ws, 45, ROW_AUSBLICK)
     ws["B45"].alignment = align("left", "bottom", 1)
+    # Runde 6: Ausblick mit Verlaufsspalte – C = Jahr 2 pro Monat, D = Sparkline Cashflow Jahre 1–30
+    for ref, text in (("C45", "Jahr 2 / Monat"), ("D45", f"Jahre 1–{TREND_YEARS}")):
+        c = ws[ref]
+        set_text(c, text.upper() if not text.startswith("Jahr") else text)
+        c.font = font(C.T_LABEL, True, BLUE)
+        c.alignment = align("right", "bottom", 1)
 
     for ref, formula in DISPLAY_FORMULAS.items():
         ws[ref].value = formula
+
+
+def trends(ws):
+    """Runde 6: echte Excel-Sparklines (sparklines.py) in den Verlaufsspalten H/L und im Ausblick (D46:D47).
+    Zielzellen bleiben leer; Daten Projektion Jahre 1–30. Unter jeder Verlaufsspalte eine Achsnotiz (8 pt)."""
+    last = get_column_letter(col("D") + TREND_YEARS - 1)
+    for ref, prow, style, extra in TRENDS:
+        cell = ws[ref]
+        cell.value = None
+        cell.hyperlink = None
+        if SP is None:
+            continue
+        try:
+            SP.register(ws, ref, f"{PJ}!D{prow}:{last}{prow}", style=style, **extra)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  cockpit: Sparkline {ref} übersprungen ({exc})")
+    if SP is None:
+        return
+    for ref in LANE_CAPTIONS:
+        c = ws[ref]
+        set_text(c, LANE_CAPTION)
+        c.font = font(T_MICRO, False, MUTED)
+        c.alignment = align("right", "top", 1)
 
 
 def semantics(ws):
@@ -578,17 +675,21 @@ def hints(ws):
     for c in iter_cells(ws, "C", 49, "L", 49):
         c.value = None
     C.section(ws, 49, "B", "L", "Prüfhinweise & steuerliche Einordnung", level=1)
+    if _icon(ws, "B49", BLOCK_ICON[(49, "B")]) is not None:
+        ws["B49"].alignment = align("left", "center", ICON_INDENT)
     cnt_w = 'COUNTIF($AB$50:$AB$74,"⚠*")'
     cnt_i = 'COUNTIF($AB$50:$AB$74,"ℹ*")'
-    j49, k49 = ws["J49"], ws["K49"]
-    j49.value = f'=IF({cnt_w}=0,"",{cnt_w}&IF({cnt_w}=1," Warnung"," Warnungen"))'
-    j49.font = font(C.T_LABEL, True, RED)
-    j49.alignment = align("right", "center")
-    k49.value = (f'=IF({_N_HINT}=0,"keine Hinweise",IF({cnt_i}=0,"",IF({cnt_w}>0,"  ·  ","")'
-                 f'&{cnt_i}&IF({cnt_i}=1," Hinweis"," Hinweise")))')
-    k49.font = font(C.T_LABEL, False, MUTED)
-    k49.alignment = align("left", "center")
-    _up_link(ws["L49"])
+    # Runde 6: Zähler in EINER Zelle J49 (rechtsbündig, grau; mit Warnung rot fett per Regel) – der Rücksprung
+    # „↑ Übersicht“ braucht den Verbund K:L, weil L jetzt die schmale Verlaufsspalte ist
+    j49 = ws["J49"]
+    j49.value = (f'=IF({_N_HINT}=0,"keine Hinweise",IF({cnt_w}=0,"",{cnt_w}&IF({cnt_w}=1," Warnung"," Warnungen"))'
+                 f'&IF(AND({cnt_w}>0,{cnt_i}>0),"  ·  ","")'
+                 f'&IF({cnt_i}=0,"",{cnt_i}&IF({cnt_i}=1," Hinweis"," Hinweise")))')
+    j49.font = font(C.T_LABEL, False, MUTED)
+    j49.alignment = align("right", "center", 1)
+    C.cf_rule(ws, "J49", f"{cnt_w}>0", font_=Font(color=RED, bold=True))
+    safe_merge(ws, "K", 49, "L", 49)
+    _up_link(ws["K49"])
     top, bot = HINT_ROWS.start, HINT_ROWS.stop - 1
     white, close = side("thin", WHITE), side("thin", C.LINE_SUB)
     for k, r in enumerate(HINT_ROWS, start=1):
@@ -631,8 +732,11 @@ def charts(ws):
     for c in iter_cells(ws, "B", 57, "L", 57):
         c.value = None
     C.section(ws, 57, "B", "L", "Diagramme", level=1)
-    _link(ws["K57"], "Alle Diagramme ›", "Diagramme", tooltip="Alle Auswertungen auf dem Blatt Diagramme")
-    _up_link(ws["L57"])
+    if _icon(ws, "B57", BLOCK_ICON[(57, "B")]) is not None:
+        ws["B57"].alignment = align("left", "center", ICON_INDENT)
+    _link(ws["J57"], "Alle Diagramme ›", "Diagramme", tooltip="Alle Auswertungen auf dem Blatt Diagramme")
+    safe_merge(ws, "K", 57, "L", 57)
+    _up_link(ws["K57"])
     keep = sorted((ch for ch in ws._charts if ch.anchor._from.col < col("N") - 1),
                   key=lambda ch: ch.anchor._from.col)
     ws._charts = [ch for ch in ws._charts if ch in keep]
@@ -671,9 +775,11 @@ def apply(wb):
     _reset(ws, 4, FOOTER_ROW + 1)
     _hide_cols(ws, "N", "X")
     _hide_cols(ws, "Y", "AA")          # leere Randspalten (Hilfsspalten AB:AC sind bereits ausgeblendet)
+    grid(ws)
     header(ws)
     tiles(ws)
     blocks(ws)
+    trends(ws)
     semantics(ws)
     hints(ws)
     charts(ws)
