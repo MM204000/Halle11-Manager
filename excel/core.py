@@ -31,6 +31,12 @@ Z. 4/5/6/7 = 12/18/30/21,75 pt und kanonische Brotkrumen – P2-03/P2-04; Summen
 Formatbibliothek EUR/PCT1/PCT2/MULT2/EUR_M2/M2/YEARS mit Nullabschnitt „–“, fixed_m()/minus_text() für „−“ in
 Textverkettungen – P2-07/P3-15; Band-Meta immer rechts – P2-10; ScreenTips für jeden Zell-Link – P3-17;
 KPI_TILE_LABELS – P3-19; Eingabezustände inkl. „überschreibbar“ – P3-20.
+
+Runde 5 (Agent L, CORE_API.md „Runde 5 – Farbdesign“): Farbdesign „Midnight & Gold“ – Nachtblau 0E2238 / 1E4E8C,
+Edel-Gold C9A14A als Akzentkante (Abschnittskopf, Kachel-Kopflinie strong, Primär-Button-Rahmen, Formular-Band),
+warme Neutralflächen F7F6F2 / FBFAF7 / F1EEE6, warme Linien E4E1D8 / D6D2C6, Bronze-Brotkrume 7A5C1E;
+Diagramm-Palette CHART_CAT + Semantik CHART_SEMANTIC, chart_color() / chart_palette() / chart_dashed() / muted();
+Umfärbe-Tabelle OLD_TO_NEW für finish_sheets (Agent K); contrast() für WCAG-Prüfungen.
 """
 import math
 import re
@@ -41,30 +47,166 @@ from openpyxl.utils import column_index_from_string, get_column_letter
 from openpyxl.worksheet.hyperlink import Hyperlink
 
 # =============================================================================== Farben
-NAVY = "0B2A4A"      # Primär: Kopfleiste, Titel, Kachel-Label, Jahreskopf, Schlüsselergebnis
-BLUE = "1D4F8A"      # Sekundär: Primär-Button, Links, verknüpfte Werte, L2-Überschriften
-ACCENT = "4A86C8"    # Akzent: Linien, Akzentkanten, Schrittnummern
-SKY = "9CBBE2"
-MIST = "C8D7EB"
-TINT = "E7EEF7"      # L1-Band, Ergebniszeile
-TINT_XL = "F3F7FC"   # Kachelfläche, Blockergebnis, Info-Zeilen
-HEAD = "EEF3FA"      # Spaltenkopf
-INK = "1A1D21"
-INK2 = "3A3F45"
-MUTED = "5B6068"     # Sekundärtext (bis 9 pt immer diese Farbe)
+# Runde 5 – Farbdesign „Midnight & Gold“ (DECISIONS „Nutzerentscheidung Runde 5“, CORE_API.md „Runde 5 – Farbdesign“).
+# Die NAMEN der Tokens bleiben, die WERTE ändern sich. Kontraste (WCAG, gegen Weiß bzw. die jeweilige Fläche) im Kommentar.
+NAVY = "0E2238"      # Tinte/Primär (Nachtblau): Kopfleiste, Hero, Titel, Kachelkopf strong, Primär-Button – 16,1:1 auf Weiß
+NAVY_2 = "1B3553"    # zweite Nachtblau-Stufe: inaktive Reiter/Chips AUF Navy, Hero-Nebenfläche (Weiß darauf 12,4:1)
+BLUE = "1E4E8C"      # Sekundär: Links, verknüpfte Werte, Kachelkopf calm, Sekundär-Button – 8,3:1 auf Weiß
+ACCENT = "3B6A9E"    # Stahlblau: Tabellenkopf-/Unterlinien, gestrichelte Verknüpfung, Schrittnummern – 5,6:1 auf Weiß
+GOLD = "C9A14A"      # Edel-Gold – NUR Linien/Kanten/Flächen (Abschnittskante, Kachel-Kopflinie, Primär-Button-Kante,
+#                      aktiver Reiter, Hero-Linie); als Text nur ≥ 16 pt auf Navy (6,7:1), NIE Fließtext auf Hell
+GOLD_BG = "F6EFDF"   # helles Gold: Hervorhebung (Verkaufsjahr, Basisfall, Markierung) – Navy darauf 14,1:1
+GOLD_LINE = "E2CF9F" # zarte Goldlinie auf hellem Grund (Rahmen um GOLD_BG-Flächen)
+GOLD_INK = "7A5C1E"  # Bronze als TEXT (Brotkrume/Eyebrow 8,5 pt fett) – 6,2:1 auf Weiß
+SKY = "A9B8CC"       # Sekundärtext AUF Navy (8–9 pt) – 8,0:1 auf 0E2238
+MIST = "CBD5E1"      # kühle helle Linie / ruhige Kante
+ICE = "E8EDF4"       # kühle helle Fläche: Link-Chips, erledigte Schritte, Marker
+TINT = "F7F6F2"      # Band (warm): L1-Abschnitt, Endsumme, Kennzahlenband – Tinte 15,6:1, MUTED 7,0:1
+TINT_XL = "FBFAF7"   # sehr hell (warm): Kachelkörper, Einordnungs-Box, Info-Zeilen
+HEAD = "F1EEE6"      # Spaltenkopf (warm, eine Stufe dunkler als das Band) – BLUE darauf 7,2:1
+INK = "1A1D21"       # Text
+INK2 = "3A3F45"      # Fließtext in Boxen – 10,7:1 auf Weiß
+MUTED = "4E5561"     # Sekundärtext (bis 9 pt immer diese Farbe) – 7,5:1 auf Weiß, 7,0:1 auf TINT
 MUTED2 = "8A9099"    # nur Linien, inaktive Felder, Text ab 11 pt
-LINE = "E6E8EB"      # Haarlinie Datenzeile
-LINE2 = "D5D9DE"     # Trennlinie / inaktiver Rahmen
+LINE = "E4E1D8"      # Haarlinie Datenzeile (warm)
+LINE2 = "D6D2C6"     # Trennlinie / inaktiver Rahmen (warm)
 WHITE = "FFFFFF"
 GREEN, AMBER, RED = "1F7A4D", "B54708", "B42318"
 GREEN_BG, AMBER_BG, RED_BG = "EAF5EF", "FDF3E7", "FBECEB"
 GREEN_LINE, AMBER_LINE, RED_LINE = "B5DCC4", "F1CFA5", "E7B4AD"   # Status-Kanten/-Rahmen auf hellem Grund
-LINE_SUB = "D5DFEB"   # Oberlinie der Zwischensumme (sum_row 'sub', P12 / Runde 4 P2-06) – bläuliche Trennlinie
+LINE_SUB = "CFC9BA"   # Oberlinie der Zwischensumme (sum_row 'sub') – warme Trennlinie
 OVERRIDE_BG = "FFF9EA"   # Eingabezustand „aus Kalkulation, überschreibbar“ (P3-20): zarte Fläche, gestrichelter Rahmen
 NOTE_BG, NOTE_LINE = "FFF9EA", "E6CB77"   # Hinweis-Callout (note, P34): zarte Fläche, linke Kante wie Eingaberahmen
-NEUTRAL_DASH = "9AA4B1"   # „–“ für entfallende Werte (lesbar, aber zurückgenommen)
+NEUTRAL_DASH = "9AA3AF"   # „–“ für entfallende Werte (lesbar, aber zurückgenommen)
 INPUT_BG, INPUT_LINE, INPUT_FG = "FFF5D6", "E6CB77", BLUE
-INACTIVE_BG, INACTIVE_FG = "F3F4F6", MUTED2
+INACTIVE_BG, INACTIVE_FG = "F2F1ED", MUTED2
+
+# ------------------------------------------------------------------------------- Diagramm-Palette (Runde 5)
+# Kategorial, validiert (dataviz validate_palette, light): Helligkeitsband, Chroma, CVD ΔE ≥ 9,1, Normalsicht ΔE ≥ 22,9.
+# FESTE Reihenfolge, nie zyklisch: eine 7. Kategorie wird Neutral (bzw. „Sonstige“). Kontrast < 3:1 bei Aqua/Gold/Magenta
+# → Identität nie nur über Farbe: Legende + direkte Beschriftung; Werte-/Achsentexte in Tintenfarben (CHART_TEXT).
+C_BLUE, C_ORANGE, C_AQUA, C_GOLD, C_VIOLET, C_MAGENTA = "2A78D6", "EB6834", "1BAF7A", "EDA100", "7A4FC9", "E87BA4"
+C_NEUTRAL = "9AA3AF"          # Restschuld (gestrichelt), „nicht anwendbar“, Bestand
+C_NEUTRAL_LIGHT = "CDD2D9"    # gedämpfte Serien (AfA-Varianten, die nicht gelten)
+C_POS, C_NEG = "1BAF7A", "E34948"   # divergierend: Cashflow-Überschuss / Unterdeckung, Zufluss / Abfluss
+C_INK = NAVY                  # Nettovermögen / Summen / Ergebnis
+CHART_CAT = (C_BLUE, C_ORANGE, C_AQUA, C_GOLD, C_VIOLET, C_MAGENTA)
+CHART_TEXT, CHART_TEXT2, CHART_GRID, CHART_AXIS = INK, MUTED, LINE, LINE2   # Beschriftung · Achse/Legende · Gitter · Achslinie
+CHART_SEP = WHITE             # 2-px-Trennlinie zwischen Kreissegmenten/Stapeln
+CHART_MARK = GOLD             # Markierung (Verkaufsjahr/-punkt) – Marke, keine Serie
+
+# Semantik (mappenweit: gleiche Größe = gleiche Farbe). Reihenfolge = Prüfreihenfolge (erstes Muster gewinnt);
+# Muster: regulärer Ausdruck, ohne Groß/Klein, gegen den Serien- bzw. Kategorienamen. Wert None = Hilfsreihe (unsichtbar
+# lassen). dash: 'dash' für gestrichelte Linien (Restschuld).
+CHART_SEMANTIC = (
+    (r"^(basis|stand|summe|verbindung)\b|^basis [+−-]|^[+−-]?\d", None),     # Hilfsreihen (Wasserfall, Beschriftung)
+    (r"nettoverm|nettoerl|gesamtertrag|^= ?nach|ergebnis \(|^ergebnis$", C_INK),
+    (r"restschuld", C_NEUTRAL),
+    (r"nicht anwendbar|\(keine|\(keines|n\. ?v\.", C_NEUTRAL_LIGHT),
+    (r"verkaufs(preis|punkt|jahr)|^verkauf |ende zinsbindung", CHART_MARK),
+    (r"^boden", C_NEUTRAL),                                                   # nicht abschreibbar
+    (r"kumulierter cashflow", C_BLUE),
+    (r"unterdeckung|lücke|abfluss|zuschuss|negativ", C_NEG),
+    (r"überschuss|zufluss|cashflow kumuliert", C_POS),
+    (r"zins|finanzierungskosten", C_VIOLET),
+    (r"steuerliches ergebnis", C_BLUE),
+    (r"steuer(?!n\b)|grunderwerb", C_GOLD),                                 # nicht „nach/vor Steuern“
+    (r"tilgung|eigenkapital|immobilienwert|vermögen|anwendbar$", C_AQUA),
+    (r"miete|einnahm|kaltmiete|im modell|afa regul|neues objekt|darlehen i\b(?! ?i)|kaufpreis|gebäude|cashflow", C_BLUE),
+    (r"bewirtsch|kosten|hausgeld|verwaltung|instandh|mietausfall|werbungsk|ausgaben|kapitaldienst", C_ORANGE),
+    (r"darlehen ii|sonder", C_VIOLET),
+    (r"nebenkosten|sonstig|beweglich|inventar|rücklage|notar|makler|grundbuch", C_MAGENTA),
+    (r"bestehend", C_NEUTRAL),
+)
+CHART_DASH = (r"restschuld", r"ende zinsbindung", r"^ziel|schwelle")   # gestrichelt darstellen
+_CHART_RX = [(re.compile(p, re.I), c) for p, c in CHART_SEMANTIC]
+_CHART_HELPER = _CHART_RX[0][0]
+
+
+def _chart_key(name):
+    t = re.sub(r"\s+", " ", str(name or "")).strip()
+    return re.sub(r"\s*·\s*[\d.,]+\s*%$", "", t)        # Kreis-Kategorie „Makler · 34 %“ → „Makler“
+
+
+def chart_color(name, default=None):
+    """Farbe einer Diagrammserie/-kategorie nach der Semantik-Tabelle (Runde 5, für Agent H und G).
+    'Nettokaltmiete' → 2A78D6 · 'Kumulierte Zinsen' → 7A4FC9 · 'Restschuld' → 9AA3AF · 'Nettovermögen' → 0E2238 ·
+    'Überschuss n. St.' → 1BAF7A · 'Unterdeckung' → E34948. Hilfsreihen ('Basis', 'Summe', '+922') → None.
+    Kein Treffer → default (None)."""
+    t = _chart_key(name)
+    for rx, c in _CHART_RX:
+        if rx.search(t):
+            return c
+    return default
+
+
+def chart_dashed(name):
+    """True, wenn die Serie gestrichelt gezeichnet wird (Restschuld, Zinsbindungsende, Zielwerte)."""
+    return any(re.search(p, str(name or ""), re.I) for p in CHART_DASH)
+
+
+def chart_palette(names, semantic=True):
+    """Farben für eine Serien-/Kategorienliste EINES Diagramms: zuerst Semantik (chart_color), jede Serienfarbe höchstens
+    einmal; übrige Einträge erhalten die nächste freie Farbe aus CHART_CAT in fester Reihenfolge, danach C_NEUTRAL
+    (nie zyklisch). Hilfsreihen ('Basis', 'Summe', '+922') → None. Beispiel Kreis Bewirtschaftung ['Hausgeld',
+    'Rücklage WEG', 'Verwaltung', …] → Orange, Magenta, Blau, Aqua, Gold, Violett. Liefert eine Liste gleicher Länge."""
+    helper = [bool(semantic and _CHART_HELPER.search(_chart_key(n))) for n in names]
+    out, used = [], set()
+    for n, h in zip(names, helper):
+        c = None if (h or not semantic) else chart_color(n)
+        if c in used and c not in (C_NEUTRAL, C_NEUTRAL_LIGHT, C_INK, CHART_MARK):
+            c = None
+        out.append(c)
+        if c:
+            used.add(c)
+    for i, c in enumerate(out):
+        if c is None and not helper[i]:
+            out[i] = next((x for x in CHART_CAT if x not in used), C_NEUTRAL)
+            used.add(out[i])
+    return out
+
+
+def mix(hex_a, hex_b=WHITE, t=0.5):
+    """Farbmischung a→b (t = Anteil b): mix(C_BLUE, WHITE, 0.6) = gedämpfte Variante für nicht angewendete Serien."""
+    a = [int(hex_a[i:i + 2], 16) for i in (0, 2, 4)]
+    b = [int(hex_b[i:i + 2], 16) for i in (0, 2, 4)]
+    return "".join(f"{round(x + (y - x) * t):02X}" for x, y in zip(a, b))
+
+
+def muted(hex_c, t=0.55):
+    """Gedämpfte Serienfarbe (Richtung Weiß) – z. B. AfA-Varianten, die nicht angewendet werden."""
+    return mix(hex_c, WHITE, t)
+
+
+def contrast(fg, bg=WHITE):
+    """WCAG-Kontrastverhältnis zweier Hexfarben (Fließtext ≥ 4,5; große Schrift/Linien ≥ 3)."""
+    def lum(h):
+        r, g, b = [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+        f = lambda c: c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4  # noqa: E731
+        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+    la, lb = sorted((lum(fg), lum(bg)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+# Umfärbe-Tabelle für Agent K (finish_sheets: Styles, bedingte Formate, Zeichnungen – NICHT Diagramm-XML):
+# alle bisher (int7) genutzten Blau-/Grau-/Alt-Gold-Hexwerte → Runde-5-Token. Status-, Eingabe- und Weiß-Werte bleiben.
+OLD_TO_NEW = {
+    # Primär/Sekundär/Akzent
+    "0B2A4A": NAVY, "0F2D4F": NAVY, "173026": NAVY, "1A3F66": NAVY_2, "1A3F6B": NAVY_2,
+    "1D4F8A": BLUE, "2F6BAE": ACCENT, "2F6FB0": ACCENT, "4570A5": ACCENT, "4A86C8": ACCENT,
+    # helle Blautöne → kühle Linien/Flächen bzw. warme Bänder
+    "7FA7D6": SKY, "8DB3DE": SKY, "8FB3DE": SKY, "8FA9C9": SKY, "9CBBE2": SKY, "7F9BB8": SKY,
+    "B9CFE8": MIST, "C8D7EB": MIST, "C9D6E6": MIST, "C9D6E8": MIST, "C9DBEF": MIST, "C9D6E0": MIST,
+    "CEDDF0": ICE, "D5E3F3": ICE, "EAF1FA": TINT_XL,
+    "E7EEF7": TINT, "F3F7FC": TINT_XL, "F5F8FC": TINT_XL, "FBFCFE": TINT_XL, "EEF3FA": HEAD,
+    # Grau/Linien → warm neutral
+    "5B6068": MUTED, "E6E8EB": LINE, "D5D9DE": LINE2, "D5DFEB": LINE_SUB, "D5DEEA": LINE_SUB,
+    "F3F4F6": INACTIVE_BG, "F4F5F6": INACTIVE_BG, "F3F4F5": INACTIVE_BG, "F7F8F9": TINT_XL,
+    "98A2B3": NEUTRAL_DASH, "94A3B8": NEUTRAL_DASH, "9AA8B8": NEUTRAL_DASH, "9AA4B1": NEUTRAL_DASH,
+    "9AA5B4": NEUTRAL_DASH, "64748B": MUTED,
+    # Alt-Gold (Logo/Marke) → Edel-Gold
+    "C9A94A": GOLD, "C6A45C": GOLD, "A08A55": GOLD_INK,
+}
 
 SANS, DISPLAY = "Calibri", "Calibri"
 
@@ -926,10 +1068,11 @@ def fit_row(ws, row, c1, c2, base=H_ROW, pad=6, grid=True, max_lines=None, hints
 
 # =============================================================================== Überschriften
 def band_l1(ws, row, c1, c2, title=None, right=None, height=H_BAND):
-    """L1 Abschnitt: E7EEF7, Akzentkante links thick, Unterkante thin, 12,5 pt Display fett Navy."""
+    """L1 Abschnitt (Runde 5): Band F7F6F2, GOLDKANTE links 3 px (C9A14A), Unterkante thin D6D2C6,
+    12,5 pt fett Nachtblau."""
     for k, c in enumerate(iter_cells(ws, c1, row, c2, row)):
         c.fill = fill(TINT)
-        c.border = Border(left=side("thick", ACCENT) if k == 0 else None, bottom=side("thin", ACCENT))
+        c.border = Border(left=side("thick", GOLD) if k == 0 else None, bottom=side("thin", LINE2))
     first = ws.cell(row, col(c1))
     if title is not None:
         set_text(first, title)
@@ -944,10 +1087,10 @@ def band_l1(ws, row, c1, c2, title=None, right=None, height=H_BAND):
 
 
 def band_l1b(ws, row, c1, c2, title=None, right=None, height=H_BAND_B):
-    """L1b Tabellenabschnitt: E7EEF7, 9 pt fett Versalien Navy, Akzentkante links, Unterkante Blau."""
+    """L1b Tabellenabschnitt (Runde 5): Band F7F6F2, 9 pt fett Versalien Nachtblau, Goldkante links, Unterkante D6D2C6."""
     for k, c in enumerate(iter_cells(ws, c1, row, c2, row)):
         c.fill = fill(TINT)
-        c.border = Border(left=side("thick", ACCENT) if k == 0 else None, bottom=side("thin", BLUE))
+        c.border = Border(left=side("thick", GOLD) if k == 0 else None, bottom=side("thin", LINE2))
     first = ws.cell(row, col(c1))
     if title is not None:
         set_text(first, title)
@@ -963,12 +1106,12 @@ def band_l1b(ws, row, c1, c2, title=None, right=None, height=H_BAND_B):
 
 def band_form(ws, row, c1, c2, title=None, right=None, height=H_BAND_B + 2, extra=None):
     """Formular-Band (nur Eingaben/Konfiguration): Navy-Vollfläche, 10 pt fett weiß.
-    extra: Zusatz hinter dem Titel als Rich-Text (9 pt 9CBBE2), z. B. „· Pflichtangaben“.
+    extra: Zusatz hinter dem Titel als Rich-Text (9 pt A9B8CC), z. B. „· Pflichtangaben“.
     Hinweis Runde 2 (P1-12): Navy-Vollflächen sind Kopfleiste und Kachel-Labels vorbehalten –
     für neue Abschnitte section(level=1, extra=…) verwenden."""
     for c in iter_cells(ws, c1, row, c2, row):
         c.fill = fill(NAVY)
-        c.border = Border()
+        c.border = Border(bottom=side("medium", GOLD))      # Runde 5: Goldlinie unter dem Nachtblau-Band
     first = ws.cell(row, col(c1))
     if title is not None:
         set_text(first, title)
@@ -1000,7 +1143,7 @@ def subhead_l2(ws, row, c1, c2, title=None, height=H_HEAD):
 
 
 def table_head(ws, row, c1, c2, labels=None, height=H_HEAD):
-    """Spaltenkopf über volle Tabellenbreite: EEF3FA, 8,5 pt fett Versalien Blau (P40), Unterkante thin Akzent.
+    """Spaltenkopf über volle Tabellenbreite: F1EEE6, 8,5 pt fett Versalien Blau (P40), Unterkante thin Akzent.
     labels: {spalte: (text, 'left'|'right'|'center')} – Köpfe folgen der Ausrichtung ihrer Werte."""
     for c in iter_cells(ws, c1, row, c2, row):
         c.fill = fill(HEAD)
@@ -1024,12 +1167,12 @@ def hairline(ws, row, c1, c2):
 
 def total(ws, row, c1, c2, level=2):
     """Alt-Summenstufen, seit Runde 3 auf die EINE Summenhierarchie abgebildet (P12):
-    level 1/2 → sum_row('sub') (fett Navy, ohne Fläche, Oberlinie D5DEEA) · level 3 → sum_row('final')."""
+    level 1/2 → sum_row('sub') (fett Navy, ohne Fläche, Oberlinie CFC9BA) · level 3 → sum_row('final')."""
     sum_row(ws, row, c1, c2, "final" if level >= 3 else "sub", neg=False)
 
 
 def memo(ws, row, c1, c2, indent=2, clear_lines=False):
-    """Nachrichtliche Zeile / Memo (P12): 9 pt kursiv 5B6068, ohne Fläche und Zusatzlinien, Beschriftung Einzug 2.
+    """Nachrichtliche Zeile / Memo (P12): 9 pt kursiv 4E5561, ohne Fläche und Zusatzlinien, Beschriftung Einzug 2.
     clear_lines=True (sum_row('memo'), Runde 4 P1-10): auch ohne Rahmenlinien – die Doppellinie der Endsumme darüber
     bleibt der sichtbare Blockabschluss."""
     for k, c in enumerate(iter_cells(ws, c1, row, c2, row)):
@@ -1169,7 +1312,7 @@ def status_edge(ws, ref, kpi=None, value_ref=None, conditions=None, edge="left",
 
 def status_banner(ws, c1, r1, c2, r2, kpi=None, value_ref=None, conditions=None, pill_cell=None, words=None,
                   suffix=None, pill_formula=None):
-    """Signalfarben nicht als Fläche (P41): Banner/Hinweiszeile auf F3F7FC mit statischer 3-px-Akzentkante links,
+    """Signalfarben nicht als Fläche (P41): Banner/Hinweiszeile auf FBFAF7 mit statischer 3-px-Akzentkante links,
     die per bedingter Formatierung in die Statusfarbe wechselt; optional EINE Pill (pill_cell, leer) mit Status-Tint.
     Ersetzt rosa/grüne Vollflächen (Dashboard „Gesamtbewertung“, Cockpit-Prüfhinweise)."""
     c1i, c2i = col(c1), col(c2)
@@ -1187,7 +1330,7 @@ def status_banner(ws, c1, r1, c2, r2, kpi=None, value_ref=None, conditions=None,
 
 
 def status_legend(labels=("erfüllt", "prüfen", "kritisch"), size=T_MICRO):
-    """Rich-Text-Legende „● erfüllt · ● prüfen · ● kritisch“ (Punkte in Statusfarbe, Text 5B6068) – P21: nur diese drei Wörter."""
+    """Rich-Text-Legende „● erfüllt · ● prüfen · ● kritisch“ (Punkte in Statusfarbe, Text 4E5561) – P21: nur diese drei Wörter."""
     parts = []
     for i, (lvl, lab) in enumerate(zip(("green", "amber", "red"), labels)):
         if i:
@@ -1311,8 +1454,8 @@ def text_link(cell, text, target_sheet, target_cell=None, size=T_BODY, bold=True
 
 
 def callout(ws, c1, head_row, c2, body_r1, body_r2, title="Einordnung", status=None, status_col=None):
-    """Einordnung: ein Akzentbalken (thick 4A86C8) für Kopf und Text; Kopf 9 pt fett Navy,
-    Text 9,5→10 pt INK2 auf F3F7FC, umbrechend, vertikal zentriert."""
+    """Einordnung: ein Akzentbalken (thick 3B6A9E) für Kopf und Text; Kopf 9 pt fett Navy,
+    Text 9,5→10 pt INK2 auf FBFAF7, umbrechend, vertikal zentriert."""
     for r in range(head_row, body_r2 + 1):
         for c in iter_cells(ws, c1, r, c2, r):
             c.fill = fill(TINT_XL)
@@ -1346,8 +1489,8 @@ INACTIVE_PREFIX = "inaktiv – "   # einheitliches Präfix in der Hinweisspalte 
 
 def input_style(cell, state="required"):
     """Eingabezustände (P3-20): required (FFF5D6, Rahmen thin E6CB77) · optional (FFF5D6, Rahmen dashed) ·
-    override (aus Kalkulation, überschreibbar: FFF9EA, Rahmen dashed E6CB77, Schrift 1D4F8A normal) ·
-    inactive (F3F4F6, grau) · linked (weiß, dashed Akzent, Blau normal)."""
+    override (aus Kalkulation, überschreibbar: FFF9EA, Rahmen dashed E6CB77, Schrift 1E4E8C normal) ·
+    inactive (F2F1ED, grau) · linked (weiß, dashed Akzent, Blau normal)."""
     if state in ("required", "optional"):
         ln = side("thin" if state == "required" else "dashed", INPUT_LINE)
         cell.fill = fill(INPUT_BG)
@@ -1374,7 +1517,7 @@ def input_style(cell, state="required"):
 
 def input_legend(ws, row, cells, size=T_SMALL):
     """Legende der vier Eingabezustände (P3-20): cells = [(Musterzelle, Textzelle), …] in der Reihenfolge von
-    INPUT_STATES. Die Musterzelle erhält den Zustand (ohne Text, Blattschutz bleibt), die Textzelle das Wort 9 pt 5B6068."""
+    INPUT_STATES. Die Musterzelle erhält den Zustand (ohne Text, Blattschutz bleibt), die Textzelle das Wort 9 pt 4E5561."""
     for (swatch, label), (state, word) in zip(cells, INPUT_STATES):
         sw = ws[swatch] if isinstance(swatch, str) else swatch
         tx = ws[label] if isinstance(label, str) else label
@@ -1415,18 +1558,18 @@ def page_header(ws, c1, c2, eyebrow, title, subtitle=None, context=None, context
                 legend_col=None, context_rows=(6, 7), back=None, back_col=None, canonical=True):
     """Seitenkopf-Vorlage (Runde 3 P04, Runde 4 P2-03/P2-04) – für alle Blätter gleich:
       Zeilenhöhen FEST: Z. 4 = 12 pt · Z. 5 = 18 pt · Z. 6 = 30 pt · Z. 7 = 21,75 pt (H_HDR).
-      Z. 5 links Brotkrume „REITER  ›  BLATT“ (8,5 pt fett Versalien 1D4F8A). canonical=True setzt für die Blätter in
+      Z. 5 links Brotkrume „REITER  ›  BLATT“ (8,5 pt fett Versalien 1E4E8C). canonical=True setzt für die Blätter in
            CRUMBS (und S01–S12 mit Präfix „Leitfaden“) die kanonische Krume, egal was übergeben wird.
-           Rechts: Unterreiter (Formen) ODER Rücksprung back=„Start“ → „‹  Start“ (8,5 pt 1D4F8A, Zell-Link, rechtsbündig in
+           Rechts: Unterreiter (Formen) ODER Rücksprung back=„Start“ → „‹  Start“ (8,5 pt 1E4E8C, Zell-Link, rechtsbündig in
            back_col bzw. c2); back=True nimmt das Elternblatt aus PARENT.
-      Z. 6 links Titel 22 pt fett 0B2A4A; rechts context[0] (10 pt fett 0B2A4A, z. B. „Beispiel: …“).
-      Z. 7 links Untertitel 10 pt 5B6068; rechts context[1] („Erstellt für …“, 9 pt 5B6068) ODER right_legend (8,5 pt).
+      Z. 6 links Titel 22 pt fett 0E2238; rechts context[0] (10 pt fett 0E2238, z. B. „Beispiel: …“).
+      Z. 7 links Untertitel 10 pt 4E5561; rechts context[1] („Erstellt für …“, 9 pt 4E5561) ODER right_legend (8,5 pt).
     Alle rechten Elemente rechtsbündig OHNE Einzug in context_col/legend_col (Standard c2) – eine rechte Inhaltskante."""
     text = crumb(ws.title, eyebrow) if canonical else (
         "  ›  ".join(str(x) for x in eyebrow if x) if isinstance(eyebrow, (tuple, list)) else str(eyebrow)).upper()
     e, t, s = ws.cell(5, col(c1)), ws.cell(6, col(c1)), ws.cell(7, col(c1))
     set_text(e, text)
-    e.font = font(T_LABEL, True, BLUE)
+    e.font = font(T_LABEL, True, GOLD_INK)      # Runde 5: Bronze-Eyebrow (6,2:1)
     e.alignment = align("left", "bottom")
     if title is not None:
         if not is_formula(t.value) or not is_formula(title):
@@ -1513,17 +1656,17 @@ def section(ws, row, c1, c2, title=None, level=1, meta=None, extra=None, variant
             caps=True, keep_height=False):
     """Abschnittskopf – EIN Stil für alle Blätter (P1-12).
 
-    Ebene 1 (Abschnitt): Fläche E7EEF7, linke Akzentkante 3 px 4A86C8, Unterkante thin 4A86C8,
-      Titel 12,5 pt fett 0B2A4A in Titelschreibung, Zeilenhöhe 24; meta rechts 8 pt 1D4F8A;
-      extra: Zusatz hinter dem Titel als Rich-Text 9 pt 5B6068 (z. B. „· Pflichtangaben“).
-    Ebene 2 (Unterabschnitt / Tabellenkopf): 8 pt fett VERSALIEN 1D4F8A, Zeilenhöhe 20,
-      variant 'fill' = Fläche EEF3FA + Unterlinie 4A86C8 (Tabellenkopf; labels wie table_head),
-      variant 'line' = ohne Fläche, nur Unterlinie 4A86C8 (Unterabschnitt in ruhigen Blättern).
+    Ebene 1 (Abschnitt): Fläche F7F6F2, linke GOLDKANTE 3 px C9A14A, Unterkante thin D6D2C6,
+      Titel 12,5 pt fett 0E2238 in Titelschreibung, Zeilenhöhe 24; meta rechts 8 pt 1E4E8C;
+      extra: Zusatz hinter dem Titel als Rich-Text 9 pt 4E5561 (z. B. „· Pflichtangaben“).
+    Ebene 2 (Unterabschnitt / Tabellenkopf): 8 pt fett VERSALIEN 1E4E8C, Zeilenhöhe 20,
+      variant 'fill' = Fläche F1EEE6 + Unterlinie 3B6A9E (Tabellenkopf; labels wie table_head),
+      variant 'line' = ohne Fläche, nur Unterlinie 3B6A9E (Unterabschnitt in ruhigen Blättern).
     Navy-Vollflächen sind der Kopfleiste und den Kachel-Labels vorbehalten.
     Runde 3: Ebene-2-Titel und meta 8,5 pt (P40); keep_height=True lässt die Zeilenhöhe unverändert (Seitenleisten,
     die sich die Zeile mit Datenzeilen teilen – Wunsch E); Jahreslabels bleiben in Normalschreibung (Wunsch D)."""
     h0 = ws.row_dimensions[row].height
-    # Runde 4 (P2-10): Das Band trägt nur Titel und Meta; Meta steht IMMER rechtsbündig (8 pt 1D4F8A), nie inline.
+    # Runde 4 (P2-10): Das Band trägt nur Titel und Meta; Meta steht IMMER rechtsbündig (8 pt 1E4E8C), nie inline.
     # extra ohne meta wird deshalb zur rechten Meta, sofern die Bandzeile rechts frei ist (keine Spaltenköpfe/Jahre).
     if extra and meta is None and col(c2) > col(c1) and span_px(ws, c1, c2) <= 1700 and all(
             ws.cell(row, cc).value is None and type(ws.cell(row, cc)).__name__ != "MergedCell"
@@ -1573,11 +1716,13 @@ def section(ws, row, c1, c2, title=None, level=1, meta=None, extra=None, variant
 
 _TILE_FILLS = {NAVY, BLUE, TINT_XL}
 # Kachel-Kopffarbe (Runde 4, P1-02): genau zwei benannte Varianten, festgelegt durch die ROLLE des Blatts (DECISIONS 3):
-#   strong 0B2A4A – Start, Leitfaden, Dashboard, Cockpit, S08, S12 (kräftig / Fintech)
-#   calm   1D4F8A – alle Rechenschritte und ruhigen Blätter (S03–S11, AfA-Vergleich, Haushalt, Vermögen …)
+#   strong 0E2238 – Start, Leitfaden, Dashboard, Cockpit, S08, S12 (kräftig / Fintech)
+#   calm   1E4E8C – alle Rechenschritte und ruhigen Blätter (S03–S11, AfA-Vergleich, Haushalt, Vermögen …)
 TILE_STRONG_SHEETS = ("Start", "Leitfaden", "Dashboard", "Cockpit")
 TILE_STRONG_PREFIX = ("S08", "S12")
 TILE_HEAD = {"strong": NAVY, "calm": BLUE}
+# Runde 5: strong-Kacheln tragen unter dem Nachtblau-Kopf eine 2-px-Goldlinie (edle Kopflinie); calm bleibt ruhig ohne.
+TILE_HEAD_LINE = {"strong": side("medium", GOLD), "calm": None}
 
 
 def tile_variant(ws, variant=None):
@@ -1614,15 +1759,15 @@ def tile(ws, c1, c2, label_row, value_row, sub_row=None, label=None, value=None,
       Fußzeile 20 pt (H_TILE_SUB). Blätter vergeben keine eigenen Höhen: finalize_components() (läuft über cf_close in
       global_rules.final) setzt die Höhen zurück und legt Überhöhe der Wertzeile in die leere Abstandszeile unter der Kachel.
       Kopfstreifen: Label weiß 8,5 pt fett VERSALIEN (Kurzformen aus KPI_TILE_LABELS; nur im Notfall 8 pt) auf
-        'strong' = 0B2A4A (Start, Leitfaden, Dashboard, Cockpit, S08, S12) bzw. 'calm' = 1D4F8A (Rechenschritte, ruhige
+        'strong' = 0E2238 (Start, Leitfaden, Dashboard, Cockpit, S08, S12) bzw. 'calm' = 1E4E8C (Rechenschritte, ruhige
         Blätter) – die Rolle des Blatts bestimmt die Variante (tile_variant); variant='dark'/'light' wirkt nur auf
         unbekannten Blättern.
-      Wert: IMMER 20 pt fett (value_size > 20 wird auf 20 begrenzt) auf F3F7FC, links, Einzug 1.
+      Wert: IMMER 20 pt fett (value_size > 20 wird auf 20 begrenzt) auf FBFAF7, links, Einzug 1.
       sub/sub_right-Formeln: FIXED/TEXT automatisch mit typografischem Minus (minus_text).
       Wertfarbe = Status (P11): mit Status übernimmt der Wert per
-        bedingter Formatierung die Statusfarbe (grün/amber/rot), ohne Status 0B2A4A. value_status=False hält ihn neutral.
+        bedingter Formatierung die Statusfarbe (grün/amber/rot), ohne Status 0E2238. value_status=False hält ihn neutral.
         neg (Standard bei €-Formaten und KPI-Regel cf/neg): Beträge < 0 rot (P15).
-      Fußzeile: links Kontext/Ziel (8 pt 5B6068), rechts Status „● Wort“ (8 pt fett, Statusfarbe).
+      Fußzeile: links Kontext/Ziel (8 pt 4E5561), rechts Status „● Wort“ (8 pt fett, Statusfarbe).
     status: 'auto' | 'chip' | 'inline' | 'dot' | 'edge' | None
       auto   – chip bei Kacheln ≥ 2 Spalten, inline bei 1-spaltigen Kacheln mit Fußzeile, sonst edge
       chip   – Status in eigener Zelle rechts (status_col, Standard c2; Kontext über c1…status_col-1)
@@ -1632,7 +1777,7 @@ def tile(ws, c1, c2, label_row, value_row, sub_row=None, label=None, value=None,
     Rinnen (P10): gap='auto' setzt weiße 3-px-Kanten rechts (gap_right), links, wenn links eine Kachel angrenzt, und oben,
       wenn darüber eine Kachel endet (oder gap_top) – horizontal = vertikal. Mehr als 3 px kann Excel mit Rahmen nicht
       zeichnen; für ≥ 8 px eine schmale Rinnenspalte/-zeile (≈ 1,7 Zeichen / 6 pt) wie auf dem Dashboard verwenden.
-    value_span: letzte Spalte des Wertfelds; dahinter sub_right (8 pt 5B6068, rechtsbündig im Wertfeld).
+    value_span: letzte Spalte des Wertfelds; dahinter sub_right (8 pt 4E5561, rechtsbündig im Wertfeld).
     value=None lässt eine vorhandene Formel stehen. Nicht-Anker-Zellen der Verbünde müssen leer sein."""
     spec = KPI.get(kpi, {}) if kpi else {}
     c1i, c2i = col(c1), col(c2)
@@ -1645,6 +1790,7 @@ def tile(ws, c1, c2, label_row, value_row, sub_row=None, label=None, value=None,
         sub_right = minus_text(sub_right)
     rows = [label_row] + list(range(value_row, last_v + 1)) + ([sub_row] if sub_row else [])
     white3 = side("thick", WHITE)
+    head_line = TILE_HEAD_LINE.get(tile_variant(ws, variant))    # Runde 5: feine Goldlinie unter dem Kopf
     auto = gap == "auto" or gap is True
     left_gap = auto and c1i > 1 and _fill_rgb(ws.cell(label_row, c1i - 1)) in _TILE_FILLS
     top_gap = gap_top or (auto and label_row > 1 and _fill_rgb(ws.cell(label_row - 1, c1i)) in _TILE_FILLS)
@@ -1653,7 +1799,8 @@ def tile(ws, c1, c2, label_row, value_row, sub_row=None, label=None, value=None,
             c.fill = fill(head_bg if r == label_row else TINT_XL)
             c.border = Border(right=white3 if (gap_right and c.column == c2i) else None,
                               left=white3 if (left_gap and c.column == c1i) else None,
-                              top=white3 if (top_gap and r == label_row) else None)
+                              top=white3 if (top_gap and r == label_row) else None,
+                              bottom=head_line if (r == label_row and head_line is not None) else None)
     # Kopfstreifen
     safe_merge(ws, c1i, label_row, c2i, label_row)
     lab = ws.cell(label_row, c1i)
@@ -1753,9 +1900,9 @@ def tile(ws, c1, c2, label_row, value_row, sub_row=None, label=None, value=None,
 def note(ws, row, c1, c2, text=None, label="Hinweis", link_text=None, target_sheet=None, target_cell=None,
          link_col=None, row2=None, tooltip=None):
     """Hinweis-Callout – EINE Bauform (P34) für Leitfaden Z. 8, S01 C21, Start …:
-    Fläche FFF9EA, linke Kante 3 px E6CB77 (Eingabe-Gelb = „betrifft Ihre Eingaben“), Label fett 0B2A4A + Text 3A3F45
+    Fläche FFF9EA, linke Kante 3 px E6CB77 (Eingabe-Gelb = „betrifft Ihre Eingaben“), Label fett 0E2238 + Text 3A3F45
     (9 pt, Rich-Text bei statischem Text; der Text trägt KEINEN Link), Aktionslink „… ›“ in EIGENER Zelle rechts
-    (link_col … c2, 9 pt fett 1D4F8A, rechtsbündig). row2: letzte Zeile bei mehrzeiligem Hinweis (Text oben)."""
+    (link_col … c2, 9 pt fett 1E4E8C, rechtsbündig). row2: letzte Zeile bei mehrzeiligem Hinweis (Text oben)."""
     c1i, c2i = col(c1), col(c2)
     r2 = row2 or row
     lc = col(link_col) if (link_col and link_text) else None
@@ -1800,10 +1947,10 @@ def callout_box(ws, c1, head_row, c2, body_r1, body_r2, title="Einordnung", text
       pad_right=True: Innenabstand rechts ≥ links – statischer Text wird mit festen Zeilenumbrüchen auf
       Boxbreite − 2 × Einzug umbrochen (Formeltexte bleiben unverändert; dort wirkt nur der linke Einzug).
 
-    Kopf (20 pt): Fläche F3F7FC über c1…c2, Titel 10 pt fett 0B2A4A links (Einzug 1), Unterlinie thin C8D7EB,
+    Kopf (20 pt): Fläche FBFAF7 über c1…c2, Titel 10 pt fett 0E2238 links (Einzug 1), Unterlinie thin CBD5E1,
       rechts Status-Pill (9 pt fett, bei Status weiß mit 1-px-Rahmen in Statusfarbe) in pill_col (Standard c2).
-    Körper: immer F3F7FC, Text 9 pt 3A3F45, OBEN ausgerichtet, Einzug 1, umbrechend; Verbund c1…c2 × body_r1…body_r2.
-    Status: nur der linke Balken (3 px) wechselt von 4A86C8 in die Statusfarbe – keine Flächentönung.
+    Körper: immer FBFAF7, Text 9 pt 3A3F45, OBEN ausgerichtet, Einzug 1, umbrechend; Verbund c1…c2 × body_r1…body_r2.
+    Status: nur der linke Balken (3 px) wechselt von 3B6A9E in die Statusfarbe – keine Flächentönung.
       kpi/value_ref (KPI-Regel) oder conditions [(Bedingung, 'red'|'amber'|'green')]; pill: eigene Formel für
       das Pill-Wort (Standard „● erfüllt/prüfen/kritisch“), pill=False unterdrückt die Pill.
     fit: Körperhöhe nach Textlänge (Calibri-Metrik; höchstens ≈ 12 px Luft unten).
@@ -1824,7 +1971,7 @@ def callout_box(ws, c1, head_row, c2, body_r1, body_r2, title="Einordnung", text
         for c in iter_cells(ws, c1i, r, c2i, r):
             c.fill = fill(TINT_XL)
             c.border = Border(left=bar if c.column == c1i else None,
-                              bottom=side("thin", MIST) if (head and r == head_row) else None)
+                              bottom=side("thin", LINE2) if (head and r == head_row) else None)
     conds = status_conditions(kpi, value_ref, conditions) if (kpi or conditions) else []
     if head:
         pc = col(pill_col) if pill_col else c2i
@@ -1913,11 +2060,12 @@ def hard_wrap(text, width_px, size=T_SMALL, bold=False, indent=1, right_pad=None
 
 
 BTN = {  # kind: (Fläche, Rahmen, Schrift, fett, Höhe) – Runde 4 (P1-03): DREI Button-Typen, alle 25,5 pt, 10 pt fett
-    "primary": (BLUE, BLUE, WHITE, True, H_BTN),         # Hauptaktion „Weiter …  ›“ – immer rechts, genau eine je Reihe
-    "secondary": (WHITE, BLUE, BLUE, True, H_BTN),       # „‹  Zurück …“ – immer links, weiß mit Rahmen 1D4F8A
-    "tertiary": (TINT_XL, TINT, BLUE, True, H_BTN),      # Mitte („Übersicht: Leitfaden“, „Dashboard“) – F3F7FC, Rahmen E7EEF7
-    "chip": (TINT, ACCENT, BLUE, True, H_BTN),           # Link-/Kontext-Chip („Kauf als: Privat · ändern  ›“) – E7EEF7, nie Gelb
-    "ghost": (BLUE, ACCENT, WHITE, True, H_BTN),         # Sekundär auf Navy (Start-Hero)
+    # Runde 5 „Midnight & Gold“
+    "primary": (NAVY, GOLD, WHITE, True, H_BTN),         # Hauptaktion „Weiter …  ›“ – Nachtblau, GOLDRAHMEN, Schrift weiß
+    "secondary": (WHITE, BLUE, BLUE, True, H_BTN),       # „‹  Zurück …“ – immer links, weiß mit Rahmen 1E4E8C
+    "tertiary": (TINT_XL, LINE2, BLUE, True, H_BTN),     # Mitte („Übersicht: Leitfaden“, „Dashboard“) – FBFAF7, Rahmen D6D2C6
+    "chip": (ICE, MIST, BLUE, True, H_BTN),              # Link-/Kontext-Chip („Kauf als: Privat · ändern  ›“) – E8EDF4, nie Gelb
+    "ghost": (NAVY_2, "3A5578", WHITE, True, H_BTN),     # Sekundär auf Navy (Start-Hero) – 1B3553, Rahmen 3A5578
 }
 # Alt-Arten (Runde 2/3) → Runde-4-Typen. Gelb FFF5D6 gehört nur echten Eingabezellen, deshalb wird 'input' zum Link-Chip.
 BTN_ALIAS = {"soft": "tertiary", "back": "secondary", "input": "chip", "outline": "secondary"}
@@ -1935,10 +2083,10 @@ def btn_kind(kind):
 def btn(ws, c1, row, c2, text, target_sheet=None, kind="primary", target_cell=None, tooltip=None, height=None,
         size=T_BODY, set_row=True):
     """Button-System (Runde 4, P1-03) – drei Typen, alle 25,5 pt hoch, 10 pt fett, zentriert, Rahmen 1 px:
-      primary   1D4F8A gefüllt, Schrift weiß      – „Weiter …  ›“, immer rechts (bündig an der Hauptspalte)
-      secondary weiß, Rahmen 1D4F8A, Schrift 1D4F8A – „‹  Zurück …“, immer links, gleich breit wie Weiter
-      tertiary  F3F7FC, Rahmen E7EEF7, Schrift 1D4F8A – Mitte („Übersicht: Leitfaden“)
-    Dazu 'chip' (E7EEF7, Rahmen 4A86C8 – Link-/Kontext-Chip statt gelbem Eingabe-Look) und 'ghost' (auf Navy).
+      primary   0E2238 gefüllt, Goldrahmen C9A14A, Schrift weiß     – „Weiter …  ›“, immer rechts (bündig an der Hauptspalte)
+      secondary weiß, Rahmen 1E4E8C, Schrift 1E4E8C – „‹  Zurück …“, immer links, gleich breit wie Weiter
+      tertiary  FBFAF7, Rahmen D6D2C6, Schrift 1E4E8C – Mitte („Übersicht: Leitfaden“)
+    Dazu 'chip' (E8EDF4, Rahmen CBD5E1 – Link-/Kontext-Chip statt gelbem Eingabe-Look) und 'ghost' (auf Navy).
     Alte Arten werden abgebildet: soft → tertiary, back → secondary, input → chip. 'link' = Textlink (Alt-API).
     Jeder Button trägt einen ScreenTip (tooltip oder auto_tooltip, P3-17)."""
     if kind == "link":
@@ -1980,7 +2128,7 @@ def btn_row(ws, row, items, height=None, tiers=True, trim=True):
     """Button-Reihe (Runde 4, P1-03): EINE Höhe 25,5 pt, Reihenfolge Zurück (links) · Mitte · Weiter (rechts).
     items: [dict(c1=…, c2=…, text=…, target=…, kind=…, tooltip=…, cell=…)]. Liefert [(text, breite_px, passt)].
     tiers=True: Enthält die Reihe einen Primär-Button, bleibt nur „‹ Zurück …“ sekundär; jeder weitere Sekundär-Button
-      wird tertiär (F3F7FC-Fläche, Rahmen E7EEF7).
+      wird tertiär (FBFAF7-Fläche, Rahmen D6D2C6).
     trim=True: Stößt ein tertiärer Button/Chip ohne Zwischenspalte an einen Nachbarn, gibt er seine Randspalten ab
       (sofern der Text dann noch mit Reserve passt) – so bleibt zwischen allen Buttons eine weiße Fuge.
     Gleiche Breiten entstehen über gleiche Spaltenraster (Zurück C:D ≈ Weiter H:I auf den Schritt-Seiten)."""
@@ -2024,17 +2172,17 @@ def btn_row(ws, row, items, height=None, tiers=True, trim=True):
 def sum_row(ws, row, c1, c2, stage="sub", value_from=None, neg=None, keep_size=True, top=True):
     """Summen- und Kennzahlenhierarchie (Runde 3 P12, Runde 4 P2-06/P1-10) – pro Block GENAU EINE Endsumme.
     Die Zeilenbeschriftung trägt das Rechenzeichen („– Zinsen“, „= Cashflow …“).
-      'final'  (Alias 'result', 2): die EINE Endsumme: fett 0B2A4A, Fläche E7EEF7, Oberlinie thin 1D4F8A,
-                    Doppellinie unten 0B2A4A, Mindesthöhe 18 pt
-      'sub'    (1): Zwischensumme: fett 0B2A4A, OHNE Fläche, feine Oberlinie D5DFEB (top=False: ohne Linie, z. B. für
+      'final'  (Alias 'result', 2): die EINE Endsumme: fett 0E2238, Fläche F7F6F2, Oberlinie thin 1E4E8C,
+                    Doppellinie unten 0E2238, Mindesthöhe 18 pt
+      'sub'    (1): Zwischensumme: fett 0E2238, OHNE Fläche, feine Oberlinie CFC9BA (top=False: ohne Linie, z. B. für
                     eine zweite Zwischensumme direkt darunter)
-      'kpi'       : Kennzahlzeile: Beschriftung regulär 1A1D21, Wert(e) 0B2A4A NICHT fett, keine Fläche/Zusatzlinie
-      'kpi_band'  : Kennzahlenpaar im Band (Steuern IRR/Multiplikator): Fläche E7EEF7, Beschriftung regulär 0B2A4A,
-                    Wert fett 1D4F8A, ohne Linien (die Doppellinie trägt nur die letzte Zeile des Paars: danach
+      'kpi'       : Kennzahlzeile: Beschriftung regulär 1A1D21, Wert(e) 0E2238 NICHT fett, keine Fläche/Zusatzlinie
+      'kpi_band'  : Kennzahlenpaar im Band (Steuern IRR/Multiplikator): Fläche F7F6F2, Beschriftung regulär 0E2238,
+                    Wert fett 1E4E8C, ohne Linien (die Doppellinie trägt nur die letzte Zeile des Paars: danach
                     ws.cell(...).border mit bottom=double oder die Endsumme 'final')
       'plain'     : Nebenzeile: regulär 10 pt 1A1D21, ohne Fläche/Zusatzlinien (Label ohne „=“)
       'deduct' (0): Abzugs-/Teilzeile „–“: nur fett, keine Fläche, keine Zusatzlinie
-      'memo'   (3): nachrichtlich: 9 pt kursiv 5B6068, Beschriftung Einzug 2, OHNE Fläche und Rahmenlinien
+      'memo'   (3): nachrichtlich: 9 pt kursiv 4E5561, Beschriftung Einzug 2, OHNE Fläche und Rahmenlinien
     neg (Standard: an bei 'sub'/'final' – Negativ-Rot-Regel P15): negative Beträge ab value_from (Standard: zweite
     Spalte) rot B42318; neg=False schaltet ab (z. B. Steuerwirkung im Format tax_effect)."""
     stage = {0: "deduct", 1: "sub", 2: "final", 3: "memo", "result": "final", "total": "final"}.get(stage, stage)
