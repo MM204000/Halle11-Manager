@@ -18,7 +18,8 @@ from openpyxl.worksheet.hyperlink import Hyperlink
 
 import core as C
 from core import AMBER, BLUE, GREEN, INK2, MUTED, WHITE, align, font, side
-from layouts.start import TILE_SUB, cells_of, clear_rows, drop_cf, heights, rich, set_widths, unmerge_in, wipe
+from layouts.start import (TILE_ICON, TILE_SUB, cells_of, clear_rows, drop_cf, heights, icon, rich, section_icon,
+                           set_widths, tile_icon, unmerge_in, wipe)
 
 SHEET = "Leitfaden"
 # Runde 4: rechte Inhaltskante = S01–S12 (Ende I ≈ 1 417 px) → Kacheln C:D | E | F | H:I je ≈ 346 px
@@ -40,6 +41,10 @@ CONTENT = [
     "Cashflow nach Steuern, Eigenkapitalrendite, Vermögensaufbau und Rente nach Volltilgung.",
 ]
 FIRST_ROW, N_STEPS = 18, 12
+# Linien-Icon je Schritt (icons.py, Runde 6) – helle Badge GOLD_BG mit Nachtblau-Icon vor „01  Objekt ›“
+STEP_ICON = ("haus", "euro", "dokument", "gebaeude", "werkzeug", "rechner", "bank", "diagramm", "paragraf",
+             "kalender", "trend", "ziel")
+STEP_BADGE = 24
 OPT_MARK, OPT_GREY = "◌", C.NEUTRAL_DASH             # Status „optional“ (Schritt 05, P3-11) – Token 9AA3AF
 
 
@@ -97,6 +102,7 @@ def tiles(ws):
     for c1, c2, key, val in GI_TILES:
         C.tile(ws, c1, c2, 9, 10, 11, kpi=key, value=val, value_ref=(val or "=CF_nSt_Monat_J1")[1:],
                label=C.kpi_label(key, caps=True), sub=TILE_SUB[key], gap_right=c1 in ("C", "E"))
+        tile_icon(ws, c1, 9, TILE_ICON[key])
     # zweite Kachelreihe der Vorlage (Namensziele) ausblenden – Formeln bleiben unverändert
     clear_rows(ws, 12, 13, "B", "I")
     C.hide_rows(ws, 12, 13)
@@ -108,6 +114,7 @@ def steps(ws):
     wb = ws.parent
     unmerge_in(ws, "C", 16, "F", 31)
     C.section(ws, 16, "C", "F", "Die zwölf Schritte")
+    section_icon(ws, 16, "C", "check")
     # Legende der Statussymbole (P3-11: ehrlich – ✓ heißt nur „Angaben vorhanden“), rechtsbündig über E:F
     C.safe_merge(ws, "E", 16, "F", 16)
     lg = ws["E16"]
@@ -136,7 +143,7 @@ def steps(ws):
         d.hyperlink = Hyperlink(ref=d.coordinate, location=C.link_loc(name), display=long,
                                 tooltip=f"Schritt {num:02d} · {long} öffnen")
         d.font = font(C.T_BODY, True, BLUE)
-        d.alignment = align("left", "center", 1)
+        d.alignment = align("left", "center", 5)
         d.number_format = "General"
         f = ws[f"F{r}"]
         f.value = None
@@ -148,6 +155,8 @@ def steps(ws):
         e.fill = C.NOFILL
         C.hairline(ws, r, "C", "F")
         C.set_height(ws, r, C.H_BAND)
+        if i < len(STEP_ICON):
+            icon(ws, f"D{r}", STEP_ICON[i], C.NAVY, STEP_BADGE, dx=8, valign="middle", bg=C.GOLD_BG)
     last = FIRST_ROW + N_STEPS - 1
     # Häkchen-Semantik (P25): ✓ nur für echten Status. Schritt 05 hat keine Pflichtangaben („optional“),
     # Schritt 12 ist vollständig, wenn alle vorherigen Schritte vollständig sind (reine Anzeigeformeln).

@@ -2,17 +2,23 @@
 
 Das Blatt liest ausschließlich vorhandene Namen und Ergebniszellen der Vorlage (Projektion, Steuern,
 Cockpit-Prüfhinweise, Ampel-Schwellen der Konfiguration) und verändert keine bestehende Berechnung.
-Alle Komponenten kommen aus core.py (Runde 2: EINE Komponentensprache):
-  Seitenkopf C.page_header · Link-Reihe C.btn(soft/chip) · Kacheln C.tile (Wert neutral, Status-Chip) ·
-  Abschnittsköpfe C.section · Statusspalte C.status_cf · Summenzeilen C.sum_row · Rot nur C.neg_red.
+
+Runde 6 („Wow-Paket“):
+  · Hero – nachtblaues Band über die Inhaltsbreite wie das Deckblatt eines Investment-Reports: Objekt, Adresse,
+    „Erstellt für“, Kauf als, darunter das Gesamturteil groß in Weiß mit Status-Pill; rechts die goldene
+    Linienzeichnung (icons.cover_art_path), unten eine feine Goldlinie.
+  · Kennzahl-Tachos – drei flache Doughnut-Tachos (DSCR, Bruttomietrendite, IRR n. St.): 240°-Skala, Zonen
+    rot/amber/grün aus den Ampel-Namen (erreichter Teil satt, Rest zart), Zeiger als schmales Tinten-Segment,
+    Wert groß in der Öffnung, Ziel darunter. Hilfsdaten in ausgeblendeten Spalten (nur Anzeigeformeln).
+  · Sparklines – Spalte „Verlauf 40 J.“ in der Zeitverlaufstabelle (sparklines.register auf Projektion/Steuern).
+  · Icons (icons.py) in Abschnittsköpfen, Kachelköpfen und Tacho-Karten.
+Alle Farben aus core-Tokens / chart_color.
 
 Raster: A = Rand · sechs Spaltenpaare (B:C, E:F, H:I, K:L, N:O, Q:R) mit fünf Abstandsspalten
-(D, G, J, M, P = 12 px). Jedes Paar ist 180 px breit, aufgeteilt 84 | 96 px: So liegen die rechten Kanten
-der zehn Jahresspalten der Zeitverlaufstabelle in exakt gleichen Abständen (96 px, P3-01), während
-Kacheln, Buttons und Panels das 180-px-Raster behalten. Linkes Panel B:I, rechtes Panel K:R.
-Hilfsdaten (Wasserfall, Sortierung der Prüfhinweise, Verkaufsmarke) liegen in ausgeblendeten Spalten T:AK.
+(D, G, J, M, P = 12 px). Jedes Paar ist 180 px breit, aufgeteilt 84 | 96 px. Linkes Panel B:I, rechtes Panel K:R,
+Tacho-Karten B:F · H:L · N:R (je 372 px). Hilfsdaten in ausgeblendeten Spalten T:AP.
 """
-from openpyxl.chart import BarChart, LineChart, Reference
+from openpyxl.chart import BarChart, DoughnutChart, LineChart, Reference
 from openpyxl.chart.axis import ChartLines
 from openpyxl.chart.data_source import StrRef
 from openpyxl.chart.label import DataLabel, DataLabelList
@@ -30,30 +36,46 @@ from openpyxl.worksheet.pagebreak import Break, RowBreak
 
 import core as C
 
+try:                                               # Runde 6: Icon-System und Sparklines (Stufe 1, Agenten M/K)
+    import icons as IC
+except Exception:                                  # pragma: no cover – Blatt bleibt ohne Icons baubar
+    IC = None
+try:
+    import sparklines as SP
+except Exception:                                  # pragma: no cover
+    SP = None
+
 SHEET = "Dashboard"
 
 # ------------------------------------------------------------------------------------------ Raster
 W_A, W_B, GAP_W, EDGE_W = 12.0, 13.71, 1.7, 4.5   # 84 px · 96 px · 12 px · 31 px (Paar = 180 px)
 PAIRS = [("B", "C"), ("E", "F"), ("H", "I"), ("K", "L"), ("N", "O"), ("Q", "R")]
 GAPS = ["D", "G", "J", "M", "P"]
-YEAR_COLS = ["E", "F", "H", "I", "K", "L", "N", "O", "Q", "R"]
-YEARS = [1, 2, 3, 5, 10, 15, 20, 25, 30, 40]
-FIRST_HELP, LAST_HELP = "T", "AL"                  # ausgeblendete Hilfsspalten
+SPARK_COL = "E"                                    # „Verlauf 40 J.“ direkt hinter der Beschriftung
+YEAR_COLS = ["F", "H", "I", "K", "L", "N", "O", "Q", "R"]
+YEARS = [1, 2, 3, 5, 10, 15, 20, 30, 40]
+FIRST_HELP, LAST_HELP = "T", "AP"                  # ausgeblendete Hilfsspalten
 CHROME_COLS = 19                                   # Kopfleiste A:S – endet mit der Randspalte S an der Inhaltskante (P01)
 
 # ------------------------------------------------------------------------------------------ Zeilen
-R_EYEBROW, R_H1, R_SUB = 5, 6, 7
-R_LINKS = 9
-R_VERDICT = 11                                     # 11 Label · 12 Status (cockpit.py liest B{R_VERDICT+1})
-R_TILE = 14                                        # 14 Label · 15 Wert · 16 Kontextzeile
-R_BAND1 = 18                                       # Kennzahlen-Check | Cashflow Jahr 1
-R_CHECK_HEAD = 19
-R_CHECK = 20                                       # 20–25
-R_CHECK_NOTE = 26
-R_BAND2 = 28                                       # Vermögensentwicklung (volle Breite)
-R_CHART2 = (29, 40)
-R_BAND3 = 42                                       # Kennzahlen im Zeitverlauf
-R_YEAR, R_CAL = 43, 44                             # Kopf: Projektjahr · Kalenderjahr
+R_HERO = 5                                         # Hero 5–14, Goldlinie 15
+R_EYEBROW, R_OBJ, R_ADDR, R_META, R_RULE = 5, 6, 7, 8, 9
+R_VERDICT = 10                                     # 10 Label · 11 Urteil (cockpit.py liest B{R_VERDICT+1}) · 12 Pill
+R_PILL, R_REASONS, R_HERO_END, R_GOLD = 12, 13, 14, 15
+R_LINKS = 17
+R_TILE = 19                                        # 19 Label · 20 Wert · 21 Kontextzeile
+R_GAUGE_BAND = 23                                  # Kennzahl-Tachos
+R_GAUGE_HEAD = 25                                  # Kartenkopf · 26–32 Tacho · 33 Zonenlegende
+R_GAUGE_CHART = (26, 32)
+R_GAUGE_LEGEND = 33
+R_BAND1 = 35                                       # Kennzahlen-Check | Cashflow Jahr 1
+R_CHECK_HEAD = 36
+R_CHECK = 37                                       # 37–42
+R_CHECK_NOTE = 43
+R_BAND2 = 45                                       # Vermögensentwicklung (volle Breite)
+R_CHART2 = (46, 57)
+R_BAND3 = 59                                       # Kennzahlen im Zeitverlauf
+R_YEAR, R_CAL = 60, 61                             # Kopf: Projektjahr · Kalenderjahr
 
 # Wasserfall-Hilfstabelle (ausgeblendet): Zeilen 20–26
 W_ROW = 20
@@ -65,6 +87,8 @@ HINT_KEY_COL, HINT_KEY_ROW = "AJ", 20              # Sortierschlüssel der 25 Pr
 MARK_COL, MARK_ROW = "AK", 20                      # Verkaufsmarke (Säulenhöhe im Verkaufsjahr, sonst #NV)
 DOT_COL = "AL"                                     # Punkt auf der Nettovermögenslinie (Zeilen 20–59, #NV)
 MARK_LABEL = "AK62"                                # Beschriftung der Verkaufsmarke (Reihenname)
+GAUGE_COLS = ("AN", "AO", "AP")                    # Tacho-Hilfsdaten (je Tacho eine Spalte, Zeilen 19–42)
+GAUGE_ROW = 19
 N_HINTS = 6
 
 TOTAL = C.C_INK                                    # Summen („= vor/nach Steuern“) in Tinte (Runde 5)
@@ -75,6 +99,23 @@ WF_COLORS = {"Miete": C.chart_color("Miete"), "Bewirtschaftung": C.chart_color("
 BAR_CHAR, BAR_STEPS = "█", 10                      # Erreichungsbalken als Textbalken in Statusfarbe (P1-14)
 MARK_FILL = C.GOLD_LINE                            # Verkaufsmarke: zarte Goldsäule (Hervorhebung Verkaufsjahr, Runde 5)
 WARN_SYM, INFO_SYM = "▲", "•"                      # monochrome Kennzeichnung (ⓘ fehlt in Calibri)
+
+# Icons (icons.py): Abschnittsköpfe Navy 18 px, Kachelköpfe Gold 14 px auf Navy, Tacho-Karten Navy 18 px
+SECTION_ICONS = {"Kennzahl-Tachos": "ziel", "Kennzahlen-Check": "schild", "Cashflow Jahr 1": "muenzen",
+                 "Vermögensentwicklung": "trend", "Kennzahlen im Zeitverlauf": "kalender",
+                 "Prüfhinweise & steuerliche Einordnung": "lupe"}
+TILE_ICONS = {"GI": "haus", "EK": "schluessel", "CF": "muenzen", "BMR": "prozent", "DSCR": "bank", "IRR": "trend"}
+ICON_INDENT = 4                                    # Titel-Einzug hinter dem Icon (≈ 36 px)
+
+# Tachos: (KPI, Ist-Name, Label, Icon)
+GAUGES = [("DSCR", "DSCR_J1", "DSCR (Jahr 1)", "bank"),
+          ("BMR", "Bruttomietrendite", "Bruttomietrendite", "prozent"),
+          ("IRR", "EK_IRR", None, "trend")]           # IRR: Label als Anzeigeformel mit Haltedauer
+GAUGE_SPAN = 240                                   # sichtbarer Bogen (°): 8 Uhr → 4 Uhr, unten 120° frei für den Wert
+GAUGE_START = 240                                  # firstSliceAng: Beginn bei 8 Uhr
+GAUGE_NEEDLE = 0.022                               # Zeigerbreite als Anteil der Skala (≈ 5°)
+GAUGE_ZONE_STRONG = (C.RED, C.AMBER, C.GREEN)      # erreichter Teil der Zone
+GAUGE_ZONE_SOFT = (C.RED_LINE, C.AMBER_LINE, C.GREEN_LINE)   # noch nicht erreichter Teil
 
 
 def build(wb, T=None):
@@ -88,11 +129,11 @@ def build(wb, T=None):
 
     _grid(ws)
     _chrome(ws)
-    _header(ws)
     _link_row(ws)
     rows = _check_table(ws)
-    _verdict(ws, rows)
+    _hero(ws, rows)
     _tiles(ws)
+    _gauges(ws)
     _waterfall(ws)
     _wealth_chart(ws, wb)
     last = _timeline(ws)
@@ -101,6 +142,7 @@ def build(wb, T=None):
     C.hide_cols(ws, FIRST_HELP, LAST_HELP)
     _page(ws, last + 3)
     C.cf_close(ws)
+    _section_icons(ws)
     return ws
 
 
@@ -113,9 +155,9 @@ def _grid(ws):
     for g in GAPS:
         ws.column_dimensions[g].width = GAP_W
     ws.column_dimensions["S"].width = EDGE_W
-    for r in range(4, 90):
+    for r in range(4, 100):
         ws.row_dimensions[r].height = 15
-    for r, h in ((4, 15), (8, 8), (10, C.H_GAP), (13, C.H_GAP), (17, 20), (27, 20), (41, 20)):
+    for r, h in ((4, C.H_GAP), (16, C.H_GAP), (18, C.H_GAP), (22, 20), (24, 6), (34, 20), (44, 20), (58, 20)):
         C.set_height(ws, r, h)
 
 
@@ -129,26 +171,98 @@ def _chrome(ws):
             c.border = Border()
 
 
-def _header(ws):
-    """Seitenkopf nach der Vorlage core.page_header (P04): Z. 5 Dachzeile = Kategorie (P37, nie der Blattname),
-    Z. 6 Titel links · Objekt rechts (10 pt fett), Z. 7 Untertitel links · Adresse und „Erstellt für …“ rechts
-    (9 pt grau) – wortgleich mit den Schrittseiten. Alle rechten Elemente bündig an der Inhaltskante R."""
+def _row_px(ws, r):
+    h = ws.row_dimensions[r].height
+    return round((15 if h is None else h) / 0.75)
+
+
+def _hero(ws, rows):
+    """Hero (Runde 6): nachtblaues Band B:R, Zeilen 5–14, darunter eine feine Goldlinie (Z. 15) – das Deckblatt
+    eines Investment-Reports. Links die Textsäule (B:H, 468 px), rechts die goldene Linienzeichnung (Cover-Motiv,
+    transparent über der Navy-Fläche, läuft nach links weich aus):
+      Z. 5  Dachzeile „DASHBOARD · INVESTMENT-ÜBERSICHT“ (8,5 pt fett SKY; als Anzeigeformel, damit die mappenweite
+            Brotkrumen-Regel sie nicht in Blau umfärbt) · rechts „‹  Start“ (SKY)
+      Z. 6  Objekt 16 pt fett Weiß · Z. 7 Adresse · Bundesland · Z. 8 „Erstellt für …  ·  Kauf als …  ·  Kauf am …“
+      Z. 9  kurze Goldregel (180 px) als Trenner zwischen Objekt und Urteil
+      Z. 10 „GESAMTURTEIL“ · Z. 11 Urteil 30 pt fett Weiß · Z. 12 Status-Pill · Z. 13 Begründung (3 Zeilen, SKY)
+    cockpit.py liest das Urteil aus B{R_VERDICT + 1} (Wörter „kritisch“ / „Prüfpunkten“ / „Solide“ bleiben)."""
+    heights = {5: 24, 6: 24, 7: 18, 8: 18, 9: 12, 10: 20, 11: C.H_ROW3, 12: C.H_PILL, 13: C.text_row_height(3),
+               14: C.H_GAP}
+    for r, h in heights.items():
+        C.set_height(ws, r, h)
+    ws.row_dimensions[R_GOLD].height = 2.25
+    navy = C.fill(C.NAVY)
+    for r in range(R_HERO, R_HERO_END + 1):
+        for c in C.iter_cells(ws, "B", r, "R", r):
+            c.fill = navy
+            c.border = Border()
+    for c in C.iter_cells(ws, "B", R_GOLD, "R", R_GOLD):
+        c.fill = C.fill(C.GOLD)
+        c.border = Border()
+    ind = 2
+
+    def put(row, c2, value, size, bold, color, v="center", wrap=False):
+        C.safe_merge(ws, "B", row, c2, row)
+        cell = ws[f"B{row}"]
+        cell.value = value
+        cell.font = C.font(size, bold, color)
+        cell.alignment = C.align("left", v, ind, wrap=wrap)
+        return cell
+
+    put(R_EYEBROW, "L", '="DASHBOARD  ·  INVESTMENT-ÜBERSICHT"', C.T_LABEL, True, C.SKY, "bottom")
+    back = ws[f"R{R_EYEBROW}"]
+    C.text_link(back, "‹  Start", "Start", size=C.T_LABEL, bold=False, tooltip="Zurück zur Startseite")
+    back.font = C.font(C.T_LABEL, False, C.SKY)
+    back.alignment = C.align("right", "bottom", 1)
+    put(R_OBJ, "R", "=Obj_Name", C.T_H2, True, C.WHITE, "bottom")
+    put(R_ADDR, "R", '=Obj_Adresse&"  ·  "&Bundesland', C.T_SMALL, False, C.SKY)
     kaufdatum = 'IFERROR(TEXT(DAY(Kaufdatum),"00")&"."&TEXT(MONTH(Kaufdatum),"00")&"."&YEAR(Kaufdatum),"–")'
-    subtitle = C.minus_text('="Kaufpreis "&FIXED(Kaufpreis,0)&" €  ·  Kauf am "&' + kaufdatum +
-                            '&"  ·  Haltedauer "&Haltedauer&" Jahre  ·  "&Bundesland')
-    context = ("=Obj_Name",
-               '=Obj_Adresse&IFERROR(IF(Erstellt_fuer="","","  ·  Erstellt für "&Erstellt_fuer),"")')
-    # kanonische Brotkrume „DASHBOARD“ (P2-04) · Rücksprung „‹  Start“ rechts in Z. 5 wie auf allen Blättern ohne Unterreiter
-    C.page_header(ws, "B", "R", "Dashboard", "Dashboard", subtitle, context=context, context_col="K",
-                  back=True, back_col="R")
-    C.safe_merge(ws, "B", R_H1, "I", R_H1)
-    C.safe_merge(ws, "B", R_SUB, "I", R_SUB)
-    for r in (R_H1, R_SUB):
-        C.safe_merge(ws, "K", r, "R", r)
-    ws.cell(R_H1, 2).alignment = C.align("left", "bottom")
-    ws.cell(R_SUB, 2).alignment = C.align("left", "top")
-    ws.cell(R_H1, 11).alignment = C.align("right", "bottom")
-    ws.cell(R_SUB, 11).alignment = C.align("right", "top")
+    put(R_META, "R", C.minus_text(
+        '=IFERROR(IF(Erstellt_fuer="","","Erstellt für "&Erstellt_fuer&"  ·  "),"")&"Kauf als "&'
+        f'{C.RECHTSFORM_SHORT}&"  ·  Kaufpreis "&FIXED(Kaufpreis,0)&" €  ·  Kauf am "&{kaufdatum}'
+        '&"  ·  Haltedauer "&Haltedauer&" Jahre"'), C.T_SMALL, False, C.SKY)
+    # kurze Goldregel unter dem Objektblock (Einzug wie der Text: beginnt in B, 180 px)
+    for c in C.iter_cells(ws, "B", R_RULE, "C", R_RULE):
+        c.border = Border(bottom=C.side("medium", C.GOLD))
+
+    # Gesamturteil
+    b = f"$B${R_VERDICT + 1}"
+    conds = [(f'ISNUMBER(SEARCH("kritisch",{b}))', "red"),
+             (f'ISNUMBER(SEARCH("Prüfpunkten",{b}))', "amber"),
+             (f'{b}="Solide"', "green")]
+    status_rng = f"$H${R_CHECK}:$H${R_CHECK + 5}"
+    lab = put(R_VERDICT, "H", None, C.T_LABEL, True, C.SKY, "bottom")
+    C.set_text(lab, "GESAMTURTEIL")
+    st = put(R_VERDICT + 1, "L", None, C.T_HERO, True, C.WHITE, "center")
+    st.value = (f'=IF(OR($H${rows["DSCR"]}="kritisch",$H${rows["CF"]}="kritisch"),"Liquidität kritisch",'
+                f'IF(COUNTIF({status_rng},"kritisch")>0,"Rendite kritisch",'
+                f'IF(COUNTIF({status_rng},"prüfen")>0,"Solide mit Prüfpunkten","Solide")))')
+    st.number_format = "General"
+    # Status-Pill: zarter Status-Tint mit Statusschrift – hebt sich als heller Chip von der Navy-Fläche ab
+    C.safe_merge(ws, "B", R_PILL, "E", R_PILL)
+    pill = ws[f"B{R_PILL}"]
+    C.status_pill(ws, pill, conditions=conds, style="pill",
+                  suffix=f'COUNTIF({status_rng},"erfüllt")&" von 6 Kennzahlen erfüllt"')
+    pill.font = C.font(C.T_SMALL, True, C.WHITE)          # Grundschrift (ohne Status) hell auf Navy
+    pill.fill = C.fill(C.NAVY_2)
+    pill.alignment = C.align("left", "center", 1)
+    ex = put(R_REASONS, "L", None, C.T_SMALL, False, C.SKY, "center", wrap=True)
+    ex.value = C.minus_text('="–  DSCR (Jahr 1) "&FIXED(DSCR_J1,2)&"×"&IF(DSCR_J1<Ampel_DSCR_gruen," statt mindestens "," bei Ziel ")'
+                            '&FIXED(Ampel_DSCR_gruen,2)&"×"'
+                            '&CHAR(10)&"–  IRR n. St. "&FIXED(EK_IRR*100,1)&" % über "&Haltedauer&" Jahre (Ziel "'
+                            '&FIXED(Ampel_IRR_gruen*100,1)&" %)"'
+                            '&CHAR(10)&"–  Cashflow n. St. "&FIXED(CF_nSt_Monat_J1,0)&" € / Monat im Jahr 1, ab Jahr 2 "'
+                            f'&FIXED({C.CF_YEAR2},0)&" € / Monat"')
+    ex.alignment = C.align("left", "center", ind + 1, wrap=True)
+    # Cover-Motiv (Agent M): transparente Goldlinien über der Navy-Fläche, Motiv rechts
+    if IC is not None:
+        try:
+            w = C.span_px(ws, "B", "R")
+            h = sum(_row_px(ws, r) for r in range(R_HERO + 1, R_HERO_END + 1))
+            IC.place_image(ws, f"B{R_HERO + 1}", IC.cover_art_path(w, h, background=False, focus="right",
+                                                                    intensity=0.9), w, h)
+        except Exception as exc:                                   # pragma: no cover
+            print("Dashboard: Hero-Motiv fehlt:", exc)
 
 
 def _link_row(ws):
@@ -172,71 +286,11 @@ def _link_row(ws):
     C.set_height(ws, R_LINKS, C.H_BTN)
 
 
-# ========================================================================================== Gesamtbewertung
-def _verdict(ws, rows):
-    """Gesamturteil als stärkstes Element – ohne Signalfläche (P41, C.status_banner): Band F3F7FC, linke 3-px-Kante
-    in Statusfarbe, EINE Pill „● kritisch · 1 von 6 erfüllt“. Das Urteil (20 pt fett) trägt wie ein Kachelwert die
-    Statusfarbe (P11), die Begründung steht rechts als kurze „–“-Aufzählung (9 pt).
-    cockpit.py liest das Urteil aus B{R_VERDICT + 1} (Wörter „kritisch“ / „Prüfpunkten“ / „Solide“ bleiben)."""
-    r1, r2 = R_VERDICT, R_VERDICT + 1
-    C.set_height(ws, r1, C.H_ROW)
-    C.set_height(ws, r2, C.H_ROW3)
-    b = f"$B${r2}"
-    conds = [(f'ISNUMBER(SEARCH("kritisch",{b}))', "red"),
-             (f'ISNUMBER(SEARCH("Prüfpunkten",{b}))', "amber"),
-             (f'{b}="Solide"', "green")]
-    C.safe_merge(ws, "B", r1, "C", r1)
-    lab = ws[f"B{r1}"]
-    C.set_text(lab, "GESAMTBEWERTUNG")
-    C.safe_merge(ws, "E", r1, "I", r1)
-    status_rng = f"$H${R_CHECK}:$H${R_CHECK + 5}"
-    # Urteil in Statusfarbe (wie ein Kachelwert, P11) – Regel VOR der Kante anlegen und ohne stopIfTrue,
-    # sonst stoppt die Kantenregel (B12) die Schriftfarbe
-    # B12 trägt Schrift UND Statuskante in derselben Regel: LibreOffice wendet je Zelle nur die erste zutreffende Regel an,
-    # sonst bliebe die Kante in Z. 12 blau, während Z. 11 schon rot ist
-    for cond, lvl in conds:
-        fg = C.STATUS_COLORS[lvl][0]
-        C.cf_rule(ws, f"B{r2}", cond, font_=Font(color=fg, bold=True), border=Border(left=C.side("thick", fg)),
-                  stop=False)
-        C.cf_rule(ws, f"C{r2}:I{r2}", cond, font_=Font(color=fg, bold=True), stop=False)
-    C.status_banner(ws, "B", r1, "R", r2, conditions=conds)
-    # Status rechts in der Label-Zeile – wie die Kachel-Anatomie: links Beschriftung, rechts „● Wort“ (Statusfarbe)
-    pill = ws[f"E{r1}"]
-    C.status_pill(ws, pill, conditions=conds, style="chip",
-                  suffix=f'COUNTIF({status_rng},"erfüllt")&" von 6 Kennzahlen erfüllt"')
-    pill.font = C.font(C.T_SMALL, True, C.MUTED)
-    pill.alignment = C.align("right", "bottom", 1)
-    lab.font = C.font(C.T_LABEL, True, C.BLUE)
-    lab.alignment = C.align("left", "bottom", 1)
-    C.safe_merge(ws, "B", r2, "I", r2)
-    st = ws[f"B{r2}"]
-    st.value = (f'=IF(OR($H${rows["DSCR"]}="kritisch",$H${rows["CF"]}="kritisch"),"Liquidität kritisch",'
-                f'IF(COUNTIF({status_rng},"kritisch")>0,"Rendite kritisch",'
-                f'IF(COUNTIF({status_rng},"prüfen")>0,"Solide mit Prüfpunkten","Solide")))')
-    st.number_format = "General"
-    st.font = C.font(C.T_KPI, True, C.NAVY, C.DISPLAY)
-    st.alignment = C.align("left", "center", 1)
-    # Begründung rechts: feine Trennlinie links (LINE2) statt zweiter Fläche
-    C.safe_merge(ws, "K", r1, "R", r2)
-    ex = ws[f"K{r1}"]
-    ex.value = C.minus_text('="–  DSCR (Jahr 1) "&FIXED(DSCR_J1,2)&"×"&IF(DSCR_J1<Ampel_DSCR_gruen," statt mindestens "," bei Ziel ")'
-                '&FIXED(Ampel_DSCR_gruen,2)&"×"'
-                '&CHAR(10)&"–  IRR n. St. "&FIXED(EK_IRR*100,1)&" % über "&Haltedauer&" Jahre (Ziel "'
-                '&FIXED(Ampel_IRR_gruen*100,1)&" %)"'
-                '&CHAR(10)&"–  Cashflow n. St. "&FIXED(CF_nSt_Monat_J1,0)&" € / Monat im Jahr 1, ab Jahr 2 "'
-                f'&FIXED({C.CF_YEAR2},0)&" € / Monat"')
-    ex.font = C.font(C.T_SMALL, False, C.INK2)
-    ex.alignment = C.align("left", "center", 1, wrap=True)
-    for r in (r1, r2):
-        ws.cell(r, C.col("K")).border = Border(left=C.side("thin", C.LINE2))
-
-
 # ========================================================================================== Kacheln
 def _tiles(ws):
     """Sechs Kacheln in kanonischer Reihenfolge und mit kanonischen Labels (P20: C.KPI_ORDER / C.kpi_label) –
     EINE Anatomie (P11, C.tile dark): Kopfstreifen · Wert 20 pt (Wertfarbe = Status) · Fußzeile links Kontext,
-    rechts Status-Chip. Nebenkennzahlen (Faktor, Rate, Multiple) stehen in der Fußzeile, nie in der Wertzeile;
-    die Zielwerte zeigt der Kennzahlen-Check direkt darunter (Spalte „Ziel“)."""
+    rechts Status-Chip. Runde 6: rechts im Kopfstreifen ein feines Gold-Icon (14 px) je Kennzahl."""
     t = R_TILE, R_TILE + 1, R_TILE + 2
     subs = {
         "GI": '="Kaufpreis "&FIXED(Kaufpreis,0)&" €  ·  NK "&FIXED(NK_Quote*100,1)&" %"',
@@ -257,6 +311,187 @@ def _tiles(ws):
         if C.is_formula(label):                # Label als Anzeigeformel (Haltedauer)
             lab.value = label
             lab.data_type = "f"
+        _icon(ws, f"{b}{R_TILE}", TILE_ICONS.get(key), C.GOLD, 14, align="right", dx=-8)
+
+
+def _icon(ws, cell, name, color, px, align=None, dx=0, dy=0, valign="middle"):
+    if IC is None or not name:
+        return None
+    try:
+        return IC.place_icon(ws, cell, name, color, px=px, dx=dx, dy=dy, align=align, valign=valign)
+    except Exception as exc:                                       # pragma: no cover
+        print("Dashboard: Icon fehlt:", name, exc)
+        return None
+
+
+def _section_icons(ws):
+    """Icons vor den Titeln der Abschnittsköpfe (Ebene 1): Navy 18 px, Titel mit Einzug dahinter."""
+    for (r, c), cell in list(ws._cells.items()):
+        if c != 2 or not isinstance(cell.value, str) or C.is_formula(cell.value):
+            continue
+        name = SECTION_ICONS.get(cell.value.strip())
+        if not name or cell.font is None or (cell.font.sz or 0) < C.T_H3:
+            continue
+        cell.alignment = C.align("left", "center", ICON_INDENT)
+        _icon(ws, cell.coordinate, name, C.NAVY, 18, dx=11)
+    for a, rr in (("K", R_BAND1),):
+        cell = ws[f"{a}{rr}"]
+        name = SECTION_ICONS.get(str(cell.value or "").strip())
+        if name:
+            cell.alignment = C.align("left", "center", ICON_INDENT)
+            _icon(ws, cell.coordinate, name, C.NAVY, 18, dx=11)
+
+
+# ========================================================================================== Kennzahl-Tachos
+def _gauges(ws):
+    """Drei Kennzahl-Tachos (Runde 6) in Karten zu je 372 px (B:F · H:L · N:R).
+
+    Karte: Kopf (Icon Navy + Kennzahl 10 pt fett, rechts Status-Chip) · Tacho (flacher Doughnut, 7 × 20 pt) ·
+    Zonenlegende „● < 1,00×  ● 1,00–1,20×  ● ≥ 1,20×“ in Statusfarben. Die Karte ist hell (FBFAF7) mit Goldkante oben.
+
+    Tacho (DoughnutChart, zwei Ringe, 240°-Bogen von 8 bis 4 Uhr, firstSliceAng 240):
+      äußerer Ring (2. Reihe): Zonen rot/amber/grün nach den Ampel-Namen – bis zum Zeiger satt (erreicht), danach
+        zart (*_LINE); dazwischen der Zeiger als schmales Tinten-Segment, weiße 1,5-pt-Fugen zwischen den Segmenten;
+      innerer Ring (1. Reihe): nur der Zeiger (Tinte) – er reicht so von der Zone bis tief in die Öffnung wie eine Nadel;
+      unten 120° unsichtbar: dort stehen der Wert (20 pt fett Tinte, Beschriftung des inneren Rings = Reihenname aus
+      einer Anzeigezelle) und darunter das Ziel (8 pt, Beschriftung des äußeren Rings).
+    Skala 0 … 1,5 × Zielwert (grün); Werte außerhalb werden am Skalenende angezeigt. Alle Hilfszellen sind
+    Anzeigeformeln in den ausgeblendeten Spalten AN:AP (nichts verweist auf sie außer den Tachos)."""
+    C.section(ws, R_GAUGE_BAND, "B", "R", "Kennzahl-Tachos",
+              meta="Zeiger = Istwert  ·  Zonen aus den Ampel-Schwellen der Konfiguration")
+    C.set_height(ws, R_GAUGE_HEAD, C.H_STEP_ROW)
+    for r in range(R_GAUGE_CHART[0], R_GAUGE_CHART[1] + 1):
+        C.set_height(ws, r, 20)
+    C.set_height(ws, R_GAUGE_LEGEND, 20)
+    spans = [("B", "F"), ("H", "L"), ("N", "R")]
+    for (c1, c2), hc, (kpi, name, label, icon) in zip(spans, GAUGE_COLS, GAUGES):
+        _gauge_card(ws, c1, c2, hc, kpi, name, label, icon)
+
+
+def _gauge_data(ws, hc, kpi, name):
+    """Hilfsdaten eines Tachos in Spalte hc ab GAUGE_ROW. Rückgabe: {rolle: zeile}."""
+    spec = C.KPI[kpi]
+    g, y = spec["green"], spec["yellow"]
+    r0 = GAUGE_ROW
+    rows = {}
+    k = [r0]
+
+    def put(role, formula, text=False):
+        r = k[0]
+        k[0] += 1
+        rows[role] = r
+        cell = ws[f"{hc}{r}"]
+        cell.value = formula
+        cell.number_format = "General" if text else "0.0000"
+        return r
+
+    lbl = ws[f"{hc}{r0 - 1}"]
+    C.set_text(lbl, f"Tacho {C.kpi_label(kpi)} (Anzeige)")
+    M = put("max", f"=MAX(1.5*{g},1.2*{y},0.0001)")
+    W = put("w", f"={hc}{M}*{GAUGE_NEEDLE}")
+    V = put("v", f"=IFERROR(MIN(MAX({name},0),{hc}{M}),0)")
+    P0 = put("p0", f"=MIN(MAX({hc}{V}-{hc}{W}/2,0),{hc}{M}-{hc}{W})")
+    P1 = put("p1", f"={hc}{P0}+{hc}{W}")
+    m, w, p0, p1 = (f"{hc}{x}" for x in (M, W, P0, P1))
+    # äußerer Ring: Zonen (erreicht) · Zeiger · Zonen (offen) · unsichtbarer Rest (120° von 360° = halbe Skala)
+    outer = [f"=MIN({p0},{y})", f"=MAX(0,MIN({p0},{g})-{y})", f"=MAX(0,{p0}-{g})", f"={w}",
+             f"=MAX(0,{y}-{p1})", f"=MAX(0,{g}-MAX({p1},{y}))", f"=MAX(0,{m}-MAX({p1},{g}))",
+             f"={m}*{(360 - GAUGE_SPAN) / GAUGE_SPAN}"]
+    rows["outer"] = [put(f"o{i}", f) for i, f in enumerate(outer)]
+    inner = [f"={p0}", f"={w}", f"=MAX(0,{m}-{p1})", f"={m}*{(360 - GAUGE_SPAN) / GAUGE_SPAN}"]
+    rows["inner"] = [put(f"i{i}", f) for i, f in enumerate(inner)]
+    val_expr = C._fmt_expr(kpi, name) if hasattr(C, "_fmt_expr") else f"FIXED({name},2)"
+    put("val_txt", C.minus_text(f'=IFERROR({val_expr},"–")'), text=True)
+    put("goal_txt", "=" + C.threshold_text(kpi), text=True)
+    return rows
+
+
+def _gauge_card(ws, c1, c2, hc, kpi, name, label, icon):
+    rows = _gauge_data(ws, hc, kpi, name)
+    spec = C.KPI[kpi]
+    g, y = spec["green"], spec["yellow"]
+    head, (ch1, ch2), leg = R_GAUGE_HEAD, R_GAUGE_CHART, R_GAUGE_LEGEND
+    # Kartenfläche
+    for r in range(head, leg + 1):
+        for c in C.iter_cells(ws, c1, r, c2, r):
+            c.fill = C.fill(C.TINT_XL)
+            c.border = Border(top=C.side("medium", C.GOLD) if r == head else None,
+                              bottom=C.side("thin", C.LINE) if r == head else None)
+    cols = [C.L(k) for k in range(C.col(c1), C.col(c2) + 1)]     # 5 Spalten: 84 · 96 · 12 · 84 · 96
+    # Kopf: Icon + Kennzahl (links, B:D) · Status-Chip (rechts, E:F)
+    C.safe_merge(ws, cols[0], head, cols[2], head)
+    lab = ws[f"{cols[0]}{head}"]
+    if label is None:
+        lab.value = C.kpi_label(kpi, formula=True)
+        lab.data_type = "f"
+    else:
+        C.set_text(lab, label)
+    lab.font = C.font(C.T_BODY, True, C.NAVY)
+    lab.alignment = C.align("left", "center", 3)
+    _icon(ws, lab.coordinate, icon, C.NAVY, 18, dx=8)
+    C.safe_merge(ws, cols[3], head, cols[4], head)
+    chip = ws[f"{cols[3]}{head}"]
+    C.status_pill(ws, chip, kpi=kpi, value_ref=name, style="chip")
+    chip.alignment = C.align("right", "center", 1)
+    # Zonenlegende
+    fx = C._fmt_expr(kpi, y), C._fmt_expr(kpi, g)
+    lo = ws[f"{cols[0]}{leg}"]
+    lo.value = C.minus_text(f'="●  < "&{fx[0]}')
+    lo.font = C.font(C.T_MICRO, True, C.RED)
+    lo.alignment = C.align("left", "center", 1)
+    C.safe_merge(ws, cols[1], leg, cols[3], leg)
+    mid = ws[f"{cols[1]}{leg}"]
+    mid.value = C.minus_text(f'="●  "&{fx[0].replace(" %", "")}&" – "&{fx[1]}')
+    mid.font = C.font(C.T_MICRO, True, C.AMBER)
+    mid.alignment = C.align("center", "center")
+    hi = ws[f"{cols[4]}{leg}"]
+    hi.value = C.minus_text(f'="●  ≥ "&{fx[1]}')
+    hi.font = C.font(C.T_MICRO, True, C.GREEN)
+    hi.alignment = C.align("right", "center", 1)
+
+    # Doughnut
+    ch = DoughnutChart(holeSize=50, firstSliceAng=GAUGE_START)
+    ch.varyColors = True
+    inner, outer = rows["inner"], rows["outer"]
+    ch.add_data(Reference(ws, min_col=C.col(hc), min_row=inner[0], max_row=inner[-1]), titles_from_data=False)
+    ch.add_data(Reference(ws, min_col=C.col(hc), min_row=outer[0], max_row=outer[-1]), titles_from_data=False)
+    s_in, s_out = ch.series
+    s_in.tx = SeriesLabel(strRef=StrRef(f=f"'{SHEET}'!${hc}${rows['val_txt']}"))
+    s_out.tx = SeriesLabel(strRef=StrRef(f=f"'{SHEET}'!${hc}${rows['goal_txt']}"))
+    zones = [GAUGE_ZONE_STRONG[0], GAUGE_ZONE_STRONG[1], GAUGE_ZONE_STRONG[2], C.NAVY,
+             GAUGE_ZONE_SOFT[0], GAUGE_ZONE_SOFT[1], GAUGE_ZONE_SOFT[2], None]
+    _slices(s_out, zones)
+    _slices(s_in, [None, C.NAVY, None, None])
+    s_in.dLbls = _slice_label(3, C.T_KPI, C.NAVY, True)
+    s_out.dLbls = _slice_label(7, C.T_MICRO, C.MUTED, False)
+    ch.legend = None
+    ch.title = None
+    ch.visible_cells_only = False                  # Hilfsdaten liegen in ausgeblendeten Spalten
+    ch.graphical_properties = _no_fill()
+    ch.plot_area.graphicalProperties = _no_fill()
+    _anchor(ch, c1, ch1, c2, ch2)
+    ws.add_chart(ch)
+
+
+def _slices(ser, colors):
+    for i, colr in enumerate(colors):
+        pt = DataPoint(idx=i)
+        if colr is None:
+            pt.graphicalProperties = _no_fill()
+        else:
+            gp = GraphicalProperties(solidFill=colr)
+            gp.line = LineProperties(solidFill=C.CHART_SEP, w=19050)
+            pt.graphicalProperties = gp
+        ser.dPt.append(pt)
+    ser.graphicalProperties = _no_fill()
+
+
+def _slice_label(idx, size, color, bold):
+    dl = DataLabel(idx=idx, showLegendKey=False, showVal=False, showCatName=False, showSerName=True,
+                   showPercent=False, showBubbleSize=False)
+    dl.txPr = _txpr(size, color, bold)
+    return DataLabelList(dLbl=[dl], showLegendKey=False, showVal=False, showCatName=False, showSerName=False,
+                         showPercent=False, showBubbleSize=False)
 
 
 # ========================================================================================== Kennzahlen-Check
@@ -639,6 +874,14 @@ def _timeline(ws):
     C.set_text(cal, "Kalenderjahr")
     cal.alignment = C.align("left", "top", 1)
     ws[f"B{hr}"].alignment = C.align("left", "bottom", 1)
+    # Sparkline-Spalte „Verlauf 40 J.“ (Runde 6): Kopf zentriert, Zellen darunter bleiben leer (Sparkline-Ziel)
+    sp = ws[f"{SPARK_COL}{hr}"]
+    C.set_text(sp, "VERLAUF")
+    sp.font = C.font(C.T_MICRO, True, C.BLUE)
+    sp.alignment = C.align("center", "bottom")
+    spk = ws[f"{SPARK_COL}{R_CAL}"]
+    C.set_text(spk, "40 Jahre")
+    spk.alignment = C.align("center", "top")
     for y, cc in zip(YEARS, YEAR_COLS):
         c = ws[f"{cc}{hr}"]
         c.value = y
@@ -649,32 +892,34 @@ def _timeline(ws):
         k.value = f"=INDEX(Projektion!$D$10:$AQ$10,{cc}${hr})"
         k.number_format = C.NUMFMT["year"]
         k.alignment = C.align("right", "top", 1)
+    # (Art, Beschriftung, Blatt, Zeile, Vorzeichen, Format, Negativ-Rot, Sparkline-Vorlage bzw. dict)
     groups = [
         ("Cashflow", [
-            ("row", "Nettokaltmiete Ist", "Projektion", 15, 1, None, False),
-            ("row", "Bewirtschaftungskosten", "Projektion", 26, -1, None, False),
-            ("row", "Kapitaldienst", "Projektion", 32, -1, None, False),
-            ("davon", "davon Zinsen", "Projektion", 30, -1, None, False),
-            ("davon", "davon Tilgung", "Projektion", 31, -1, None, False),
-            ("sub", "= Cashflow vor Steuern", "Projektion", 33, 1, None, True),
-            ("row", "± Steuerwirkung (Cash-Sicht)", "Projektion", 35, -1, C.NUMFMT["eur_plain_signed"], False),
-            ("result", "= Cashflow nach Steuern", "Projektion", 36, 1, None, True),
-            ("row", "Kumulierter Cashflow n. St.", "Projektion", 38, 1, None, True)]),
+            ("row", "Nettokaltmiete Ist", "Projektion", 15, 1, None, False, "rent"),
+            ("row", "Bewirtschaftungskosten", "Projektion", 26, -1, None, False, "costs"),
+            ("row", "Kapitaldienst", "Projektion", 32, -1, None, False, "costs"),
+            ("davon", "davon Zinsen", "Projektion", 30, -1, None, False, dict(kind="column", color=C.chart_color("Zinsen"))),
+            ("davon", "davon Tilgung", "Projektion", 31, -1, None, False, dict(kind="column", color=C.chart_color("Tilgung"))),
+            ("sub", "= Cashflow vor Steuern", "Projektion", 33, 1, None, True, "cashflow"),
+            ("row", "± Steuerwirkung (Cash-Sicht)", "Projektion", 35, -1, C.NUMFMT["eur_plain_signed"], False, None),
+            ("result", "= Cashflow nach Steuern", "Projektion", 36, 1, None, True, "cashflow"),
+            ("row", "Kumulierter Cashflow n. St.", "Projektion", 38, 1, None, True, "cashflow")]),
         ("Steuer", [
-            ("row", "Abschreibungen (AfA)", "Steuern", 56, 1, None, False),
-            ("row", "Steuerliches Ergebnis", "Steuern", 67, 1, None, True)]),
+            ("row", "Abschreibungen (AfA)", "Steuern", 56, 1, None, False, dict(kind="column", color=C.chart_color("Steuer"))),
+            ("row", "Steuerliches Ergebnis", "Steuern", 67, 1, None, True,
+             dict(kind="column", color=C.chart_color("Steuerliches Ergebnis"), neg=C.C_NEG))]),
         ("Vermögen", [
-            ("row", "Immobilienwert (Jahresende)", "Projektion", 41, 1, None, False),
-            ("row", "Restschuld", "Projektion", 42, -1, None, False),
-            ("result", "= Nettovermögen", "Projektion", 43, 1, None, False),
-            ("pct", "EK-Rendite", "Projektion", 45, 1, C.NUMFMT["pct1"], False)]),
+            ("row", "Immobilienwert (Jahresende)", "Projektion", 41, 1, None, False, "value"),
+            ("row", "Restschuld", "Projektion", 42, -1, None, False, "debt"),
+            ("result", "= Nettovermögen", "Projektion", 43, 1, None, False, "wealth"),
+            ("pct", "EK-Rendite", "Projektion", 45, 1, C.NUMFMT["pct1"], False, dict(style="trend", markers=True))]),
     ]
     r = R_CAL
     for title, items in groups:
         r += 1
         C.section(ws, r, "B", "R", title, level=2, variant="line", height=C.H_STEP_ROW)
         ws.cell(r, 2).alignment = C.align("left", "bottom", 1)
-        for kind, label, sheet, prow, sign, fmt, neg_red in items:
+        for kind, label, sheet, prow, sign, fmt, neg_red, spark in items:
             r += 1
             C.set_height(ws, r, C.H_ROW)            # eine Höhe je Tabelle, davon-Zeilen nie höher (P3-16)
             C.safe_merge(ws, "B", r, "D", r)
@@ -693,9 +938,10 @@ def _timeline(ws):
                 C.style_range(ws, "B", r, "R", r, fnt=C.font(C.T_BODY, False, C.INK))
                 lab.alignment = C.align("left", "center", 1)
             if kind in ("sub", "result"):
-                C.sum_row(ws, r, "B", "R", stage=kind, value_from="E")   # setzt Negativ-Rot selbst (P15)
+                C.sum_row(ws, r, "B", "R", stage=kind, value_from="F")   # setzt Negativ-Rot selbst (P15)
             elif neg_red:
-                C.neg_red(ws, f"E{r}:R{r}")
+                C.neg_red(ws, f"F{r}:R{r}")
+            _spark(ws, f"{SPARK_COL}{r}", f"{_q(sheet)}!D{prow}:AQ{prow}", spark)
     r += 1
     C.set_height(ws, r, 20)
     C.safe_merge(ws, "B", r, "L", r)
@@ -710,6 +956,17 @@ def _timeline(ws):
                 tooltip="Vollständige Jahresrechnung")
     lk.alignment = C.align("right", "center", 1)
     return r
+
+
+def _spark(ws, cell, data, spec):
+    """Sparkline „Verlauf 40 J.“ (sparklines.register): Vorlage (str) oder Einzelargumente (dict)."""
+    if SP is None or spec is None:
+        return
+    kw = {"style": spec} if isinstance(spec, str) else dict(spec)
+    try:
+        SP.register(ws, cell, data, **kw)
+    except Exception as exc:                                       # pragma: no cover
+        print("Dashboard: Sparkline fehlt:", cell, exc)
 
 
 def _q(sheet):

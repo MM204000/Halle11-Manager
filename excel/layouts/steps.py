@@ -24,6 +24,48 @@ from openpyxl.worksheet.hyperlink import Hyperlink
 
 import core as C
 
+try:   # Runde 6: Icon-System (Agent M) – fehlt es, bleiben die Seiten unverändert (nur ohne Icons)
+    import icons as ICN
+except Exception:  # noqa: BLE001
+    ICN = None
+
+# ============================================================================ Icons (Runde 6)
+# Ein Motiv je Schritt – dasselbe Motiv steht im Ergebnis-Band der Seite, in der „Als Nächstes“-Karte der Vorseite
+# und in den Link-Listen von S08/S12 (ein Blatt = ein Icon). Einheitlich 20 px, feine Linie, überall Nachtblau
+# (Gold auf hellem Grund ist für feine Linien zu kontrastarm).
+STEP_ICON = {1: "haus", 2: "euro", 3: "dokument", 4: "waage", 5: "werkzeug", 6: "schluessel", 7: "bank",
+             8: "muenzen", 9: "paragraf", 10: "kalender", 11: "trend", 12: "ziel"}
+# Blätter außerhalb des Leitfadens: dieselben Motive wie die Reiterleiste (navigation.TAB_ICONS, Agent I)
+PAGE_ICON = {"Dashboard": "ziel", "Cockpit": "uhr", "Diagramme": "diagramm", "AfA-Vergleich": "kalender",
+             "Sensitivität": "waage", "Bankgespräch": "bank", "Leitfaden": "check"}
+INPUT_ICON = "stift"
+NEXT_DY = 1            # „Als Nächstes“: Icon mittig auf der ersten Textzeile (10 pt fett, oben ausgerichtet)
+NEXT_COLOR = C.NAVY     # „Als Nächstes“: Nachtblau (Gold auf Weiß wirkte in der Sichtprüfung zu blass)
+ICON_PX = 20
+ICON_DX = 10           # Abstand zur Zellkante (hinter der 3-px-Goldkante des Bands)
+ICON_INDENT = 4        # Texteinzug hinter dem Icon (4 × 9 px ≈ 36 px → 6–9 px Luft zum Icon)
+
+
+def place_icon(ws, cell, name, color=C.NAVY, valign="middle", dy=0, dx=ICON_DX, px=ICON_PX, bg=None):
+    """Icon (icons.place_icon) – Zeilenhöhen/Spaltenbreiten müssen vorher stehen. Fehler → Seite ohne Icon."""
+    if ICN is None or not name:
+        return None
+    try:
+        return ICN.place_icon(ws, cell, name, color, px=px, dx=dx, dy=dy, valign=valign, bg=bg)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  steps: Icon „{name}“ in {ws.title}!{cell} übersprungen ({exc})")
+        return None
+
+
+def band_icon(ws, row, c1, name):
+    """Icon links im Abschnittsband (Ebene 1), Titel rückt hinter das Icon."""
+    if ICN is None:
+        return
+    cell = ws.cell(row, C.col(c1))
+    cell.alignment = C.align("left", "center", ICON_INDENT)
+    place_icon(ws, f"{c1}{row}", name)
+
+
 # ============================================================================ Raster und Namen
 # Schrittseiten: C Position · D Eingabe (einheitlich breit) · E nur Einheit · F Hinweis · G Rinne · H:I Ergebnis
 # Runde 3 (P13/P39/P02): ein Drittelraster für alle zwölf Seiten – C:D = E:F(+G) = H:I = 65 Zeichen (455 px).
@@ -868,11 +910,12 @@ def next_card(ws, heights, head, n, names):
         c.fill, c.border = C.NOFILL, Border()
     cell = ws.cell(body, 8)
     # Runde 5: feste Umbrüche mit Innenabstand rechts (wie die Einordnungs-Boxen)
-    avail = C.cell_inner_px(C.span_px(ws, "H", "I"), 1) * 0.98 - 9
+    ind = ICON_INDENT if ICN is not None else 1       # Runde 6: Icon des nächsten Schritts links, Text dahinter
+    avail = C.cell_inner_px(C.span_px(ws, "H", "I"), ind) * 0.98 - 9
     runs, n_l = wrap_runs([(LONG[n], C.T_BODY, True, C.NAVY), (f"  ·  {desc}", C.T_SMALL, False, C.MUTED)], avail)
     cell.value = C.rich(runs)
     cell.font = C.font(C.T_SMALL, False, C.MUTED)
-    cell.alignment = C.align("left", "top", 1, wrap=True)
+    cell.alignment = C.align("left", "top", ind, wrap=True)
     need = C.grid_height(n_l * C.line_pt(C.T_BODY) + 5)
     return body, need
 
@@ -1235,6 +1278,10 @@ def standard_page(ws, n, sp, names):
     content_end = max(left_end, results_end, right_end, chart_end)
     for r, h in heights.items():
         ws.row_dimensions[r].height = h
+    # Runde 6: Icons erst nach den endgültigen Zeilenhöhen (Zentrierung rechnet mit den aktuellen Maßen)
+    band_icon(ws, 10, "C", INPUT_ICON)
+    band_icon(ws, 10, "H", STEP_ICON[n])
+    place_icon(ws, f"H{cbody}", STEP_ICON[n + 1], NEXT_COLOR, valign="top", dy=NEXT_DY)
     return nav_and_footer(ws, n, content_end + 3, names)
 
 
@@ -1266,11 +1313,28 @@ def result_rows(ws, heights, labels, r_head, row_h=C.H_STEP_ROW):
 
 
 def link_list(ws, row, links):
-    """Linkliste rechts (H:I) – eine Zeile je Ziel, gleiche Zeilenhöhe wie die Herleitung links."""
-    for i, (word, rest, target) in enumerate(links):
+    """Linkliste rechts (H:I) – eine Zeile je Ziel, gleiche Zeilenhöhe wie die Herleitung links. Liefert je Zeile
+    (Zelle, Icon-Name) für link_icons (Runde 6)."""
+    out = []
+    for i, (word, rest, target, icon) in enumerate(links):
         cell = ws.cell(row + i, 8)
         rich_link(cell, word, rest, target, tooltip=f"Weiter: {word}")
+        if ICN is not None and icon:
+            cell.alignment = C.align("left", "center", ICON_INDENT)
+            out.append((cell.coordinate, icon))
         row_line(ws, row + i, "H", "I")
+    return out
+
+
+def link_icons(ws, items):
+    """Icons der Link-Liste – nach dem Setzen der Zeilenhöhen."""
+    for coord, icon in items:
+        place_icon(ws, coord, icon)
+
+
+def link_icon(target):
+    """Icon eines Link-Ziels: Schrittnummer → Motiv des Schritts, sonst Motiv des Blatts."""
+    return STEP_ICON.get(target) if isinstance(target, int) else PAGE_ICON.get(target)
 
 
 def tiles_block(ws, tiles):
@@ -1334,9 +1398,11 @@ def page_s08(ws, names):
     chart = charts.get(7)
     if chart is not None:
         set_anchor(chart, "E", 18, "F", 23)
-    link_list(ws, 18, [(w, r, names[t] if isinstance(t, int) else t) for w, r, t in LINKS_S08])
+    links = link_list(ws, 18, [(w, r, names[t] if isinstance(t, int) else t, link_icon(t)) for w, r, t in LINKS_S08])
     for r, hh in heights.items():
         h[r].height = hh
+    band_icon(ws, 10, "C", STEP_ICON[n])
+    link_icons(ws, links)
     return nav_and_footer(ws, n, 26, names)
 
 
@@ -1421,9 +1487,11 @@ def page_s12(ws, names):
     chart = charts.get(7)
     if chart is not None:
         set_anchor(chart, "E", 21, "F", 26)
-    link_list(ws, 21, LINKS_S12)
+    links = link_list(ws, 21, [(w, r, t, link_icon(t)) for w, r, t in LINKS_S12])
     for r, hh in heights.items():
         h[r].height = hh
+    band_icon(ws, 10, "C", STEP_ICON[n])
+    link_icons(ws, links)
     return nav_and_footer(ws, n, 29, names)
 
 

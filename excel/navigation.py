@@ -107,20 +107,20 @@ NAV_GROUPS = [
      ("Tilgungsplan", "Finanzierung", "Tilgungsplan · Zins und Tilgung der Darlehen Jahr für Jahr "
       "(Eingaben dazu: Schritt 07 Finanzierung)"),
      ("Sensitivität", "Sensitivität", "Sensitivität · Break-even, Miete × Zins, IRR-Matrix")],
-    [("Bank", "Bankgespräch", "Bank · Investitionsübersicht, Haushaltsrechnung, Vermögensaufstellung"),
+    [("Bank", "Bankgespräch", "Bank · Investitionsübersicht, Haushaltsrechnung, Vermögensaufstellung, Exposé"),
      ("Anhang", "Hinweise", "Anhang · Hinweise und Konfiguration")],
 ]
 NAV = [(label, target) for grp in NAV_GROUPS for label, target, _ in grp]
 NAV_TIP = {label: tip for grp in NAV_GROUPS for label, _, tip in grp}
 ACTIVE = {"Steuern": "Steuer-Tabelle", "AfA-Vergleich": "Steuer-Tabelle", "Finanzierung": "Tilgungsplan",
           "Haushaltsrechnung": "Bank", "Vermögensaufstellung": "Bank",
-          "Bankgespräch": "Bank", "Hinweise": "Anhang", "Konfiguration": "Anhang"}
+          "Bankgespräch": "Bank", "Exposé": "Bank", "Hinweise": "Anhang", "Konfiguration": "Anhang"}
 
 # Unterreiter der Gruppenblätter: (Beschriftung, Zielblatt)
 SUBNAV = {
     "Steuer-Tabelle": [("Steuer-Tabelle", "Steuern"), ("AfA-Vergleich", "AfA-Vergleich")],
     "Bank": [("Bankgespräch", "Bankgespräch"), ("Haushaltsrechnung", "Haushaltsrechnung"),
-             ("Vermögensaufstellung", "Vermögensaufstellung")],
+             ("Vermögensaufstellung", "Vermögensaufstellung"), ("Exposé", "Exposé")],   # Exposé: Runde 6 (N)
     "Anhang": [("Hinweise", "Hinweise"), ("Konfiguration", "Konfiguration")],
 }
 
@@ -369,6 +369,19 @@ class Geo:
             edges.append(self.x(end + 1))
         return max(edges) if edges else None
 
+    def hero_box(self, styles, fills=(NAVY,)):
+        """Deckblatt-Hero: (links, rechts, erste Zeile) der nachtblauen Zellfläche unter der Kopfleiste – erste Zeile
+        ab Z. 5 (Z. 4 ist die von chrome.py vorgelegte Fuge) mit mindestens 800 px breiter Navy-Fläche; sonst None."""
+        rows = {}
+        for r, c, st, _hv in self.body:
+            if 5 <= r <= 8 and self.row_px(r) and self.col_px(c) and styles.fill(st) in fills:
+                rows.setdefault(r, set()).add(c)
+        for r in sorted(rows):
+            left, right = self.x(min(rows[r])), self.x(max(rows[r]) + 1)
+            if right - left >= 800:
+                return left, right, r
+        return None
+
     def split_px(self):
         return self.x(self.x_split + 1) if self.x_split else 0
 
@@ -432,6 +445,7 @@ class Canvas:
         self.next_id = first_id
         self.shapes = []
         self.rels = []
+        self.media = {}                    # Paketpfad → Bytes (Icons der Reiterleiste, Runde 6)
         self._grp = None
 
     def rid(self, sheet, cell=None):
@@ -440,6 +454,37 @@ class Canvas:
         # interne Ziele ohne TargetMode="External" – so speichert Excel Formen-Links selbst
         self.rels.append(f'<Relationship Id="{rid}" Type="{REL_HYPER}" Target="{xattr(target)}"/>')
         return rid
+
+    def image_rid(self, path):
+        """Bild (PNG) als Medium der Zeichnung anmelden → Beziehungs-ID. Gleiche Bilder teilen sich eine Mediendatei
+        (Name aus der Prüfsumme), je Zeichnung genügt eine Beziehung."""
+        import hashlib
+        with open(path, "rb") as fh:
+            data = fh.read()
+        media = f"xl/media/nav_{hashlib.sha1(data).hexdigest()[:12]}.png"
+        rid = f"rIdNavImg{hashlib.sha1(media.encode()).hexdigest()[:8]}"
+        if media not in self.media:
+            self.media[media] = data
+            self.rels.append(f'<Relationship Id="{rid}" Type="{REL_IMAGE}" Target="../media/{posixpath.basename(media)}"/>')
+        return rid
+
+    def pic(self, name, x, y, w, h, path, link=None, tooltip=None):
+        """Bild (Icon) als xdr:pic – in einer Gruppe wie eine Form; link wie bei add() (klickbar wie der Reiter)."""
+        x, y, w, h = int(round(x)), int(round(y)), int(round(w)), int(round(h))
+        hl = ""
+        if link:
+            tip = f' tooltip="{xattr(tooltip)}"' if tooltip else ""
+            hl = f'<a:hlinkClick r:id="{self.rid(*link)}"{tip}/>'
+        sp = (f'<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="{self.sid()}" name="{xattr(name)}" descr="">{hl}</xdr:cNvPr>'
+              f'<xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>'
+              f'<xdr:blipFill><a:blip r:embed="{self.image_rid(path)}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>'
+              f'<xdr:spPr><a:xfrm><a:off x="{x * EMU}" y="{y * EMU}"/><a:ext cx="{w * EMU}" cy="{h * EMU}"/></a:xfrm>'
+              f'<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>')
+        if self._grp is not None:
+            self._grp[1].append(sp)
+            self._grp[2].append((x, y, w, h))
+        else:
+            self.shapes.append(self._wrap(sp, x, y, w, h, False))
 
     def sid(self):
         self.next_id += 1
@@ -566,6 +611,8 @@ class Frame:
 
     def __init__(self, geos, styles, drawings):
         self.box, self.band, self.head = {}, {}, {}
+        self.sheets = set(geos)
+        self.cover = {}                    # Deckblatt: {blatt: (links, rechts, erste Hero-Zeile)} – s. Geo.hero_box
         for name, g in geos.items():
             left, right = g.content_box(styles, drawings.get(name, ""))
             self.box[name] = [left, right]
@@ -576,6 +623,11 @@ class Frame:
             if ctx:
                 self.band[name] = max(self.band[name], max(ctx))
             self.head[name] = g.header_right(styles) or min(right, NAV_END)
+            if name == COVER and styles is not None:
+                hb = g.hero_box(styles)
+                if hb:
+                    self.cover[name] = hb
+                    self.band[name] = hb[1]
 
     def edges(self, name):
         return self.box.get(name, (NAV_X, NAV_END))
@@ -589,6 +641,31 @@ def tab_positions():
     """Feste Reiterpositionen [(x, Beschriftung, Ziel, QuickInfo)] – auf allen Blättern identisch (P1-08)."""
     seq = [(label, target, tip) for grp in NAV_GROUPS for label, target, tip in grp]
     return [(TAB_X0 + k * (TAB_W + TAB_GAP), label, target, tip) for k, (label, target, tip) in enumerate(seq)]
+
+
+# Runde 6: feine Linien-Icons (icons.py) vor den Reiterbeschriftungen – ein Motiv je Bereich, 12 px, inaktiv MIST,
+# aktiv GOLD. Die Icons sind Bilder in derselben Formgruppe und tragen denselben Link wie der Reiter.
+TAB_ICONS = {"Start": "haus", "Leitfaden": "check", "Dashboard": "ziel", "Cockpit": "uhr", "Diagramme": "diagramm",
+             "Eingaben": "stift", "Projektion": "trend", "Steuer-Tabelle": "paragraf", "Tilgungsplan": "kalender",
+             "Sensitivität": "waage", "Bank": "bank", "Anhang": "dokument"}
+NAV_ICONS = os.environ.get("NAV_ICONS", "1") != "0"
+ICON_PX, ICON_GAP = 12, 4
+
+# Deckblatt (Runde 6, Cover „Start“): Kopfleiste und Hero bilden EINE nachtblaue Fläche – das Kopfband wird exakt auf
+# die Hero-Kanten zugeschnitten (chrome.py legt Z. 3/4 dort navy mit feiner Trennlinie vor), die Reiter stehen als
+# „Ghost“-Reiter (ohne Fläche, Schrift MIST, aktiv Weiß fett mit Goldstrich) frei auf dem Nachtblau.
+COVER = "Start"
+COVER_INSET = 16                           # Marke rückt von der Hero-Kante ein (Innenabstand wie die Hero-Inhalte)
+
+
+def _icon(name, color):
+    """Pfad eines Reiter-Icons (3× Auflösung) oder None, wenn icons.py fehlt/fehlschlägt."""
+    try:
+        import icons
+        return icons.icon_path(name, color, px=ICON_PX, res=3)
+    except Exception as exc:                # Icons sind Schmuck – ohne sie bleibt die Leiste vollständig
+        print(f"navigation: Icon {name} nicht verfügbar ({exc})")
+        return None
 
 
 def tab_bar(cv, name, frame):
@@ -606,12 +683,14 @@ def tab_bar(cv, name, frame):
     active = area_of(name)
     pos = tab_positions()
     split = g.split_px()
-    brand_w = TAB_X0 - BRAND_GAP - NAV_X
+    cover = name in frame.cover
+    brand_x = NAV_X + (COVER_INSET if cover and frame.cover[name][0] >= NAV_X - 2 else 0)
+    brand_w = TAB_X0 - BRAND_GAP - brand_x
     here = HERE_LABEL.get(name) if split else None
     if here:
         brand_w = int(text_px("Immobilien-Kalkulation", 8)) + 4
     cv.begin("Reiterleiste")
-    cv.add("Marke", NAV_X, ty - 3, brand_w, TAB_H + 6, None,
+    cv.add("Marke", brand_x, ty - 3, brand_w, TAB_H + 6, None,
            [para([("MM HOLDING", 10, WHITE, True, 60)], "l", 90000),
             para([("Immobilien-Kalkulation", 8, MIST, False)], "l", 90000)],
            link=("Start", None), tooltip="Zur Startseite", lins=0, rins=0)
@@ -630,12 +709,25 @@ def tab_bar(cv, name, frame):
         w = TAB_W
         if cut is not None and k == cut - 1 and x + w > split:
             w = split - x                          # Fixierlinie wenige px im Reiter (AfA-Vergleich): Reiter endet dort
-        cv.add(f"Reiter {label}", x, ty, w, TAB_H, TAB_ON if on else TAB_IDLE,
-               [para([(label, TAB_SIZE, TAB_ON_TXT if on else TAB_TXT, on)])],
-               link=(target, None), tooltip=tip + (" (aktueller Bereich)" if on else ""),
-               lins=0, rins=0)
-        if on:                                 # Goldkante des aktiven Reiters: Unterstrich unter der Beschriftung
-            mw = min(w - 16, int(text_px(label, TAB_SIZE, True)) + 16)
+        tw = text_px(label, TAB_SIZE, on)
+        ico = None
+        if NAV_ICONS and label in TAB_ICONS and tw + ICON_PX + ICON_GAP <= w - 6:
+            ico = _icon(TAB_ICONS[label], TAB_MARK if on else TAB_TXT)
+        shift = ICON_PX + ICON_GAP if ico else 0
+        if cover:
+            bg, txt = None, WHITE if on else TAB_TXT
+        else:
+            bg, txt = TAB_ON if on else TAB_IDLE, TAB_ON_TXT if on else TAB_TXT
+        link = (target, None)
+        ltip = tip + (" (aktueller Bereich)" if on else "")
+        cv.add(f"Reiter {label}", x, ty, w, TAB_H, bg, [para([(label, TAB_SIZE, txt, on)])],
+               link=link, tooltip=ltip, lins=shift * EMU, rins=0)
+        gx = x + (w - (tw + shift)) / 2               # linke Kante der Einheit Icon + Beschriftung
+        if ico:
+            cv.pic(f"Reiter {label} Icon", round(gx), round(ty + (TAB_H - ICON_PX) / 2), ICON_PX, ICON_PX, ico,
+                   link=link, tooltip=ltip)
+        if on:                                 # Goldkante des aktiven Reiters: Unterstrich unter Icon + Beschriftung
+            mw = min(w - 12, int(tw + shift) + 12)
             cv.add(f"Reiter {label} aktiv", x + (w - mw) / 2, ty + TAB_H - 5, mw, 2, TAB_MARK, prst="rect")
     cv.end(TAB_ANCHOR)
     return NAV_END
@@ -734,8 +826,8 @@ def sub_nav(cv, name, frame):
     (Z. 6/7: „Beispiel: …“ / „Erstellt für …“; Bankgespräch: Spalte I), senkrecht mittig in Zeile 5. Links in
     derselben Zeile steht die Brotkrume. Verankerung editAs="absolute"."""
     area = area_of(name)
-    grp = SUBNAV.get(area)
-    if not grp:
+    grp = [(lab, t) for lab, t in SUBNAV.get(area, ()) if t in frame.sheets or not frame.sheets]
+    if not grp or name not in (t for _lab, t in grp):
         return
     g = cv.geo
     right = frame.head.get(name) or frame.edges(name)[1]
@@ -751,10 +843,11 @@ def sub_nav(cv, name, frame):
 BAND_TO = CONTENT_EDGE
 
 
-def trim_band(sxml, geo, styles, end_px):
+def trim_band(sxml, geo, styles, end_px, start_px=None, rows=3):
     """Navy-/Akzentzellen der Kopfleiste (Z. 1–3) rechts von end_px auf das Standardformat zurücksetzen.
 
     Die Zellfläche endet an der letzten Spaltengrenze ≤ end_px; den Rest ergänzt band_extension als Form.
+    Deckblatt (Runde 6): zusätzlich links von start_px, über die Zeilen 1…rows (Kopfleiste + Fuge zum Hero).
     Nur leere Zellen werden angefasst (Werte und Formeln bleiben unberührt)."""
     def fix_row(m):
         row = m.group(0)
@@ -763,14 +856,17 @@ def trim_band(sxml, geo, styles, end_px):
             c = col_index(cm.group(2))
             sm = re.search(r'\bs="(\d+)"', cm.group(3))
             st = int(sm.group(1)) if sm else None
-            if cm.group(4) != "/>" or styles.fill(st) not in BAND_FILLS or geo.x(c + 1) <= end_px + 2:
+            if cm.group(4) != "/>" or styles.fill(st) not in BAND_FILLS:
+                return cm.group(0)
+            if geo.x(c + 1) <= end_px + 2 and (start_px is None or geo.x(c) >= start_px - 2):
                 return cm.group(0)
             r = int(cm.group(1)[len(cm.group(2)):])
             geo.cells[(r, c)] = (0, False)
             attrs = re.sub(r'\s*\bs="\d+"', "", cm.group(3))
             return f'<c r="{cm.group(1)}"{attrs} s="0"/>'
         return re.sub(r'<c r="(([A-Z]+)\d+)"([^>]*?)(/>|>)', fix_cell, row)
-    return re.sub(r'<row r="[123]"[^>]*[^/]>.*?</row>', fix_row, sxml, flags=re.S)
+    rx = "|".join(str(r) for r in range(1, rows + 1))
+    return re.sub(rf'<row r="(?:{rx})"[^>]*[^/]>.*?</row>', fix_row, sxml, flags=re.S)
 
 
 def band_extension(cv, styles, end_px):
@@ -778,12 +874,11 @@ def band_extension(cv, styles, end_px):
     Goldlinie Z. 3) bis end_px verlängert (absolut verankert; wird nicht gedruckt)."""
     g = cv.geo
     navy_cols = [c for (r, c), (st, _) in g.cells.items() if r == 2 and styles.fill(st) == NAVY]
-    if not navy_cols:
-        return
-    end = g.x(max(navy_cols) + 1)
+    # Rückfall (Runde 6): ein nach chrome.py angelegtes Blatt ohne Navy-Zellen erhält das Band vollständig als Form
+    end = g.x(max(navy_cols) + 1) if navy_cols else 0
     if end >= end_px:
         return
-    start = max(0, end - 3)            # 3 px Überlappung: keine Haarfuge zwischen Zellfläche und Form
+    start = max(0, end - 3) if navy_cols else 0   # 3 px Überlappung: keine Haarfuge zwischen Zelle und Form
     h12 = g.row_px(1) + g.row_px(2)
     cv.begin("Kopfleiste Verlängerung")
     cv.add("Kopfleiste Fläche", start, 0, end_px - start, h12, NAVY, prst="rect")
@@ -839,6 +934,8 @@ def ensure_drawing(files, spath, used):
         tm = re.search(r'Type="([^"]+)"', rel)
         if tm and tm.group(1) == REL_DRAWING:  # nicht legacyDrawing/vmlDrawing (Kommentare)
             target = re.search(r'Target="([^"]+)"', rel).group(1)
+            if target.startswith("/"):     # absolutes Ziel (openpyxl-gespeicherte Mappen)
+                return target.lstrip("/")
             return posixpath.normpath(posixpath.join(posixpath.dirname(spath), target))
     n = 1
     while f"xl/drawings/drawing{n}.xml" in files or n in used:
@@ -911,7 +1008,7 @@ def prune_media(files):
             base = posixpath.dirname(posixpath.dirname(n))
             for t in re.findall(r'Target="([^"]+)"', data.decode("utf-8", "ignore")):
                 if "media/" in t:
-                    used.add(posixpath.normpath(posixpath.join(base, t)))
+                    used.add(posixpath.normpath(posixpath.join(base, t)).lstrip("/"))
     for n in [n for n in files if n.startswith("xl/media/")]:
         if n not in used:
             del files[n]
@@ -961,7 +1058,11 @@ def inject(path):
         cv = Canvas(geos[name], max(ids) + 100, name)
 
         end_px = frame.band[name]
-        files[spath] = trim_band(files[spath].decode(), geos[name], styles, end_px).encode()
+        if name in frame.cover:            # Deckblatt: Kopfband = Hero-Breite, Fuge Z. 3…Hero-Oberkante inklusive
+            left, _right, top = frame.cover[name]
+            files[spath] = trim_band(files[spath].decode(), geos[name], styles, end_px, left, max(4, top - 1)).encode()
+        else:
+            files[spath] = trim_band(files[spath].decode(), geos[name], styles, end_px).encode()
         band_extension(cv, styles, end_px)
         tab_bar(cv, name, frame)
         if name in STEP_OF_SHEET:
@@ -977,8 +1078,14 @@ def inject(path):
             dxml = re.sub(r"<xdr:wsDr([^>]*)/>", lambda m: f"<xdr:wsDr{m.group(1)}>{''.join(cv.shapes)}</xdr:wsDr>", dxml)
         files[dpath] = dxml.encode()
         files[drels_p] = drels.replace("</Relationships>", "".join(cv.rels) + "</Relationships>").encode()
-        n_links += len(cv.rels)
+        n_links += sum(1 for r in cv.rels if REL_HYPER in r)
+        for media, data in cv.media.items():
+            files[media] = data
 
+    ct = files["[Content_Types].xml"].decode()
+    if 'Extension="png"' not in ct:
+        files["[Content_Types].xml"] = ct.replace(
+            "<Override ", '<Default Extension="png" ContentType="image/png"/><Override ', 1).encode()
     prune_media(files)
     names = [i.filename for i in infos]
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zout:

@@ -5,11 +5,11 @@ als Formen darüber. Hier wird nur die Zellfläche vorbereitet (Farben, Zeilenh�
 """
 import re
 
-from openpyxl.styles import Border
+from openpyxl.styles import Border, Side
 
 from openpyxl.utils import column_index_from_string, get_column_letter
 
-from core import CONTENT_EDGE, GOLD, H_GAP, NAVY, NOFILL, col_px, fill
+from core import CONTENT_EDGE, GOLD, H_GAP, NAVY, NOFILL, SKY, col_px, fill, mix
 
 # Runde 4 (P1-08): Die Reiterleiste hat auf allen Blättern dieselbe feste Pixelgeometrie (navigation.NAV_X …
 # NAV_END); das Navy-Band reicht bis navigation.BAND_END (rechts derselbe Innenabstand wie links), bei etwas
@@ -19,6 +19,11 @@ from core import CONTENT_EDGE, GOLD, H_GAP, NAVY, NOFILL, col_px, fill
 JUMP_ROW_SHEETS = ("Eingaben", "Diagramme")  # Zeile 8 trägt die Sprungleiste (navigation.jump_bar)
 BAND_TO = CONTENT_EDGE                       # Kompatibilität für Altaufrufer
 BAND_PREFILL_PX = 1800                       # Vorlage der Navy-Fläche; Zuschnitt auf die Inhaltskante: navigation.py
+# Deckblatt (Runde 6): auf „Start“ gehen Kopfleiste und Hero ineinander über – keine Goldlinie in Z. 3, stattdessen
+# eine feine Trennlinie auf Nachtblau (dieselbe Mischung wie die Hero-Haarlinien) und Z. 4 als navy Fuge bis zum Hero.
+# navigation.py schneidet Z. 1–4 danach exakt auf die Hero-Kanten zu (eine durchgehende Fläche, kein Absatz).
+COVER = "Start"
+COVER_RULE = mix(NAVY, SKY, 0.3)
 
 
 def band_end_col(ws):
@@ -53,12 +58,19 @@ def masthead(ws):
             c.value = None
         c.hyperlink = None
     last_col = band_end_col(ws)
+    cover = ws.title == COVER
     for r, h in ((1, 6), (2, 33), (3, 3)):
         ws.row_dimensions[r].height = h
         for cc in range(1, max(last_col, ws.max_column) + 1):
             c = ws.cell(r, cc)
-            c.fill = fill(GOLD if r == 3 else NAVY) if cc <= last_col else NOFILL
-            c.border = Border()
+            c.fill = fill(GOLD if r == 3 and not cover else NAVY) if cc <= last_col else NOFILL
+            c.border = Border(bottom=Side("thin", color=COVER_RULE)) if cover and r == 3 and cc <= last_col \
+                else Border()
+    if cover:                                  # Fuge Z. 4 navy (Höhe setzt die Kopfschablone), nur leere Zellen
+        for cc in range(1, last_col + 1):
+            c = ws.cell(4, cc)
+            if c.value is None:
+                c.fill = fill(NAVY)
 
 
 def remove_monogram(ws):

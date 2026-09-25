@@ -33,7 +33,7 @@ import core as C  # noqa: E402
 import dashboard  # noqa: E402
 
 # Blatt-Layout-Module (excel/layouts/<name>.py, je Modul eine Funktion apply(wb)) in dieser Reihenfolge
-LAYOUTS = ["chrome", "start", "leitfaden", "steps", "cockpit", "calc", "forms", "bank", "sensitivity", "diagramme"]
+LAYOUTS = ["chrome", "start", "leitfaden", "steps", "cockpit", "calc", "forms", "bank", "expose", "sensitivity", "diagramme"]
 STRICT = os.environ.get("DESIGN_STRICT") == "1"
 MODULE_ERRORS = []
 

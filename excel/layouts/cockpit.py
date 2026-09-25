@@ -27,6 +27,15 @@ from openpyxl.utils.cell import range_boundaries
 from openpyxl.worksheet.hyperlink import Hyperlink
 
 import core as C
+
+try:                                   # Runde 6: Icon-System (M) und Sparklines (K) – fehlt ein Modul, bleibt das Blatt ohne
+    import icons as ICN
+except Exception:  # noqa: BLE001
+    ICN = None
+try:
+    import sparklines as SP
+except Exception:  # noqa: BLE001
+    SP = None
 from core import (ACCENT, BLUE, INK, INK2, LINE, LINE2, MUTED, NAVY, NOFILL, NUMFMT, RECHTSFORM_SHORT, RED,
                   RED_BG, RED_LINE, T_BODY, T_MICRO, T_SMALL, TINT_XL, WHITE, align, col, fill, font, is_formula,
                   iter_cells, safe_merge, set_height, set_text, side)
@@ -151,8 +160,10 @@ LOWER = {
 # Anzeigeformeln (nicht referenziert): Trennzeichen „ · “ statt „|“, Rechtsform kurz (P1-19, P2-06)
 DISPLAY_FORMULAS = {
     # Textverkettungen mit Zahlen: typografisches Minus über C.minus_text (Runde 4, P2-07)
-    "K15": C.minus_text('=FIXED(Darlehen_I,0)&" € · "&IF(Darlehen_II=0,"kein Darlehen II",FIXED(Darlehen_II,0)&" €")'),
-    "G26": C.minus_text('=FIXED(Mietsteigerung*100,1)&" % · "&FIXED(Kostensteigerung*100,1)&" % · "'
+    # Runde 6: kompakt für die Wertspalte neben der Verlaufsspalte („250.000 € · –“ bzw. „200.000 · 50.000 €“)
+    "K15": C.minus_text('=IF(Darlehen_II=0,FIXED(Darlehen_I,0)&" € · –",'
+                        'FIXED(Darlehen_I,0)&" · "&FIXED(Darlehen_II,0)&" €")'),
+    "G26": C.minus_text('=FIXED(Mietsteigerung*100,1)&" · "&FIXED(Kostensteigerung*100,1)&" · "'
                         '&FIXED(Wertsteigerung*100,1)&" %"'),
     "G27": C.minus_text('=FIXED(Mietausfall_Pct*100,1)&" % · "&Leerstand_Monate&IF(Leerstand_Monate=1," Monat"," Monate")'),
     "G35": "=" + RECHTSFORM_SHORT,

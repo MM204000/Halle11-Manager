@@ -82,6 +82,7 @@ ORDER = {
     "areaChart": ["grouping", "varyColors", "ser", "dLbls", "dropLines", "axId", "extLst"],
     "pieChart": ["varyColors", "ser", "dLbls", "firstSliceAng", "extLst"],
     "pie3DChart": ["varyColors", "ser", "dLbls", "extLst"],
+    "doughnutChart": ["varyColors", "ser", "dLbls", "firstSliceAng", "holeSize", "extLst"],
     "bar_ser": ["idx", "order", "tx", "spPr", "invertIfNegative", "pictureOptions", "dPt", "dLbls", "trendline",
                 "errBars", "cat", "val", "shape", "extLst"],
     "line_ser": ["idx", "order", "tx", "spPr", "marker", "dPt", "dLbls", "trendline", "errBars", "cat", "val", "smooth",
@@ -304,7 +305,7 @@ CAT_SHORT = {
 PIE_KINDS = {"invest", "finanz", "kpa", "kanc", "bewirt", "exit"}
 DIRECT_LABELS = {"jahr1", "afa_summe", "hh", "va"}
 HBAR_KINDS = {"afa_summe", "hh", "va"}
-TIME_KINDS = {"bestand", "restschuld", "cashflow", "cf_nach", "cf_kum", "kumzins", "afa", "steuer"}
+TIME_KINDS = {"bestand", "restschuld", "cashflow", "cf_nach", "cf_kum", "kumzins", "afa", "steuer", "expo_verm"}
 
 # Einheitliche Titel „Kennzahl (Zeitraum, Einheit)“ – {n} = Anzahl Jahre im Diagramm (Horizont steht im Titel)
 TITLES = {
@@ -479,6 +480,8 @@ def ref_rows(ref):
 def chart_kind(sheet, root):
     if sheet == "Dashboard":
         return "dash"
+    if sheet == EXPO_SHEET:
+        return expo_kind(root)
     # blattbezogene Diagramme zuerst (ihre Hilfsreihen liegen teils auf „Diagramme“)
     if sheet.startswith("S03"):
         return "kanc"
@@ -1594,6 +1597,326 @@ def legend_hidden(plot, kind, hidden):
     return out
 
 
+# ============================================================================ Runde 6: Tachos (Dashboard) und Exposé
+# Kennzahl-Tacho (Agent G, Dashboard): Doughnut 180° – Zonenring rot/amber/grün + (optional) Zeigerring, untere Hälfte
+# unsichtbar. Rollen je Segment aus dem Kategorien- bzw. Reihennamen („Tacho DSCR Zone rot“, „… Zeiger“, „unsichtbar“);
+# ohne Namen: Segment ≥ 49,5 % der Summe = unsichtbare Hälfte, im Zeigerring das kleinste Segment = Zeiger.
+# LibreOffice verwirft beim Roundtrip holeSize (→ 50) – hier fest gesetzt. Kein 3D, keine Legende, keine Beschriftung.
+TACHO_HOLE_1 = 64        # Lochgröße (%) mit nur einem Ring (Zonen + Zeiger im Ring)
+TACHO_HOLE_2 = 46        # zwei Ringe: innen der Zeiger (Nadel vom Zentrum zum Zonenring), außen die Zonen
+TACHO_MUTE = 0.6         # Zonen, in denen der Wert NICHT liegt: zurückgenommen (Richtung Weiß) – aktive Zone kräftig
+TACHO_SEP = 1.25         # weiße Fuge zwischen den Zonen (pt)
+TACHO_NEEDLE = 1.75      # Kontur der Zeigernadel in Tinte (pt) – sichtbar auch bei sehr schmalem Zeigersegment
+TACHO_RX = [
+    ("hidden", r"unsichtbar|ausgeblendet|leer|blind|hidden|dummy|platzhalter|untere|h(ä|ae)lfte|unten|^rest\b|füll"),
+    ("pointer", r"zeiger|nadel|pointer|needle|marker|markierung"),
+    ("red", r"\brot\b|kritisch|\bred\b"),
+    ("amber", r"amber|gelb|pr(ü|ue)fen|orange"),
+    ("green", r"gr(ü|ue)n|erf(ü|ue)llt|green"),
+]
+TACHO_ZONE = {"red": K.RED, "amber": K.AMBER, "green": K.GREEN}
+
+
+def _role(text):
+    t = (text or "").strip().lower()
+    for role, pat in TACHO_RX:
+        if re.search(pat, t):
+            return role
+    return None
+
+
+def is_tacho(sheet, plot):
+    """Doughnut auf dem Dashboard oder mit Reihenname „Tacho …“ (auch mit unsichtbarer Hälfte ≥ 49,5 %)."""
+    dc = plot.find(q("c:doughnutChart"))
+    if dc is None:
+        return False
+    if sheet == "Dashboard":
+        return True
+    for s in dc.findall(q("c:ser")):
+        if ser_name(s).strip().lower().startswith("tacho"):
+            return True
+    return False
+
+
+def _seg_fill(ser, idx):
+    """Vorhandene Füllung eines Segments (dPt) – für unbekannte Rollen bleibt G's Farbe erhalten."""
+    for p_ in ser.findall(q("c:dPt")):
+        if int(p_.find(q("c:idx")).get("val")) == idx:
+            sp = p_.find(q("c:spPr"))
+            if sp is not None:
+                if sp.find(q("a:noFill")) is not None:
+                    return None
+                clr = sp.find(q("a:solidFill") + "/" + q("a:srgbClr"))
+                if clr is not None:
+                    return clr.get("val").upper()
+    return "keep"
+
+
+def tacho_roles(ser, pointer_ring):
+    """Rollen je Segment einer Tacho-Reihe: hidden / pointer / red / amber / green / None (unbekannt)."""
+    vals = cache_values(ser)
+    n = len(ser.xpath("./c:val//c:pt", namespaces=NS)) or len(vals)
+    cats = categories(ser)
+    tot = sum(max(0.0, v) for v in vals) or 1.0
+    roles = []
+    for i in range(n):
+        r_ = _role(cats[i] if i < len(cats) else "")
+        if pointer_ring and r_ in ("red", "amber", "green"):
+            r_ = None                               # Zeigerring übernimmt die Kategorien des Zonenrings (Excel)
+        roles.append(r_)
+    for i in range(n):
+        v = vals[i] if i < len(vals) else 0
+        if roles[i] is None and v >= 0.495 * tot:
+            roles[i] = "hidden"
+    if pointer_ring and "pointer" not in roles:
+        cand = [i for i in range(n) if roles[i] != "hidden" and i < len(vals) and vals[i] > 0]
+        if cand:
+            roles[min(cand, key=lambda i: vals[i])] = "pointer"
+    if pointer_ring:
+        roles = [r_ if r_ in ("pointer",) else "hidden" for r_ in roles]
+    return roles
+
+
+def _arc(vals, roles, want):
+    """Winkelbereich (Anteil des sichtbaren Halbkreises) der Segmente mit Rolle want: [(Start, Ende, idx)]."""
+    vis = sum(max(0.0, v) for v, r_ in zip(vals, roles) if r_ != "hidden") or 1.0
+    out, acc = [], 0.0
+    for i, (v, r_) in enumerate(zip(vals, roles)):
+        v = max(0.0, v)
+        if r_ == "hidden":
+            continue
+        if r_ in want:
+            out.append((acc / vis, (acc + v) / vis, i))
+        acc += v
+    return out
+
+
+def tacho_style(root, size=None):
+    """Tacho: Zonen in Statusfarben (aktive Zone kräftig, übrige zurückgenommen), Zeiger Tinte mit weißer Kante,
+    unsichtbare Hälfte noFill, Nadel innen; keine Legende/Beschriftung/3D, Kreis oben im Rahmen (Wert in den Zellen
+    darunter bleibt durch die transparente untere Hälfte sichtbar)."""
+    chart = root.find(q("c:chart"))
+    plot = chart.find(q("c:plotArea"))
+    dc = plot.find(q("c:doughnutChart"))
+    for tag in ("view3D", "floor", "sideWall", "backWall", "legend"):
+        drop(chart, tag)
+    sers = dc.findall(q("c:ser"))
+    ptr_sers = [s for s in sers if _role(ser_name(s)) == "pointer"]
+    if not ptr_sers and len(sers) > 1:
+        ptr_sers = [s for s in sers[1:] if len(cache_values(s)) == len(cache_values(sers[0]))][-1:]
+    zone_sers = [s for s in sers if s not in ptr_sers]
+    # Nadel innen: Zeigerring als erste (innerste) Reihe
+    if ptr_sers and zone_sers:
+        order = ptr_sers + zone_sers
+        anchor = sers[0].getprevious()
+        for s in sers:
+            dc.remove(s)
+        for i, s in enumerate(order):
+            s.find(q("c:idx")).set("val", str(i))
+            s.find(q("c:order")).set("val", str(i))
+        for s in reversed(order):
+            if anchor is not None:
+                anchor.addnext(s)
+            else:
+                dc.insert(list(dc).index(dc.find(q("c:varyColors"))) + 1, s)
+    # Wertposition (Anteil des Halbkreises) aus dem Zeiger
+    pos = None
+    all_roles = {}
+    for s in sers:
+        ring_ptr = s in ptr_sers
+        roles = tacho_roles(s, ring_ptr)
+        all_roles[id(s)] = roles
+        arc = _arc(cache_values(s), roles, ("pointer",))
+        if arc:
+            pos = (arc[0][0] + arc[0][1]) / 2
+    so = ORDER["pie_ser"]
+    for s in sers:
+        roles = all_roles[id(s)]
+        vals = cache_values(s)
+        zones = _arc(vals, roles, ("red", "amber", "green"))
+        active = None
+        if pos is not None:
+            active = next((roles[i] for a, b, i in zones if a - 1e-9 <= pos <= b + 1e-9), None)
+            if active is None and zones:               # Zeiger im Zonenring: Zone mit dem nächsten Rand
+                active = roles[min(zones, key=lambda z: min(abs(pos - z[0]), abs(pos - z[1])))[2]]
+        ptr_idx = {i for i, r_ in enumerate(roles) if r_ == "pointer"}
+        near_ptr = {i + d_ for i in ptr_idx for d_ in (-1, 1)}
+        keep = {i: _seg_fill(s, i) for i in range(len(roles))}
+        drop(s, "dPt", "dLbls", "explosion")
+        put(s, sppr(nofill=True, ln=line(nofill=True)), so)
+        for i, r_ in enumerate(roles):
+            if r_ == "hidden":
+                p_ = E("c:dPt")
+                SE(p_, "c:idx", i)
+                SE(p_, "c:bubble3D", 0)
+                p_.append(sppr(nofill=True, ln=line(nofill=True)))
+                put(s, p_, so)
+            elif r_ == "pointer":
+                put(s, dpt(i, K.C_INK, ln=line(TACHO_NEEDLE, K.C_INK)), so)   # Tintenkante: Nadel bleibt auch schmal kräftig
+            elif r_ in TACHO_ZONE:
+                col = TACHO_ZONE[r_]
+                if active is not None and r_ != active:      # Zone geteilt durch den Zeiger: gleiche Rolle = aktiv
+                    col = K.muted(col, TACHO_MUTE)
+                # neben dem Zeiger keine weiße Fuge (sie würde die Nadel überdecken)
+                put(s, dpt(i, col, ln=line(nofill=True) if i in near_ptr else line(TACHO_SEP, K.WHITE)), so)
+            else:
+                f_ = keep.get(i)
+                if f_ is None:
+                    p_ = E("c:dPt")
+                    SE(p_, "c:idx", i)
+                    SE(p_, "c:bubble3D", 0)
+                    p_.append(sppr(nofill=True, ln=line(nofill=True)))
+                    put(s, p_, so)
+                elif f_ != "keep":
+                    put(s, dpt(i, f_, ln=line(TACHO_SEP, K.WHITE)), so)
+        put(s, dlbls_off(), so)
+    put_val(dc, "varyColors", 1, ORDER["doughnutChart"])
+    drop(dc, "dLbls")
+    put(dc, dlbls_off(), ORDER["doughnutChart"])
+    put_val(dc, "firstSliceAng", 270, ORDER["doughnutChart"])
+    put_val(dc, "holeSize", TACHO_HOLE_2 if (ptr_sers and zone_sers) else TACHO_HOLE_1, ORDER["doughnutChart"])
+    # Kreis so groß wie möglich, oben im Rahmen, waagerecht mittig
+    w, h = size if size else (220, 180)
+    d = max(40.0, min(w - 8, h - 6))
+    drop(plot, "layout")
+    plot.insert(0, manual_layout("inner", round((w - d) / 2 / w, 4), round(3 / h, 4), round(d / w, 4), round(d / h, 4)))
+    put_val(chart, "autoTitleDeleted", 1, ORDER["chart"])
+    drop(chart, "title")
+
+
+# ---- Exposé (Agent N): Donut Finanzierungsstruktur + Linie Vermögensentwicklung, druckfertig (A4 hoch)
+EXPO_SHEET = "Exposé"
+EXPO_HOLE = 62           # wie Agent N (Kennzahl „Fremdkapital“ in der Zelle hinter dem Loch)
+EXPO_MIN_LBL = 0.06      # Anteil, ab dem ein Segment seine Prozentzahl im Ring trägt
+
+
+def expo_kind(root):
+    plot = root.find(".//" + q("c:plotArea"))
+    if plot.find(q("c:doughnutChart")) is not None or plot.find(q("c:pieChart")) is not None \
+            or plot.find(q("c:pie3DChart")) is not None:
+        return "expo_fin"
+    if plot.find(q("c:lineChart")) is not None or plot.find(q("c:areaChart")) is not None:
+        return "expo_verm"
+    return "expo"
+
+
+def expo_donut(root, size=None):
+    """Finanzierungsstruktur als flacher Donut: Segmentfarben nach Semantik (Eigenkapital Aqua, Darlehen I Blau,
+    Darlehen II Violett …), 2-px-weiße Fugen, Prozent im Ring (weiß/Tinte je Fläche, ab 6 %), Legende rechts mit Namen."""
+    chart = root.find(q("c:chart"))
+    plot = chart.find(q("c:plotArea"))
+    for tag in ("view3D", "floor", "sideWall", "backWall"):
+        drop(chart, tag)
+    pc = plot.find(q("c:pieChart")) if plot.find(q("c:pieChart")) is not None else plot.find(q("c:pie3DChart"))
+    if pc is not None:                               # Kreis → Donut (Exposé: flach, Magazin-Stil)
+        pc.tag = q("c:doughnutChart")
+        for ch_ in list(pc):
+            if local(ch_) not in ("varyColors", "ser", "dLbls", "firstSliceAng", "holeSize", "extLst"):
+                pc.remove(ch_)
+    dc = plot.find(q("c:doughnutChart"))
+    if dc is None:
+        return
+    so = ORDER["pie_ser"]
+    sers = dc.findall(q("c:ser"))
+    for s in sers[1:]:                               # nur ein Ring
+        dc.remove(s)
+    s = sers[0]
+    cats = categories(s)
+    vals = cache_values(s)
+    tot = sum(max(0.0, v) for v in vals) or 1.0
+    colors = pie_colors("finanz", cats, vals)
+    drop(s, "dPt", "dLbls", "explosion")
+    put(s, sppr(solid(K.C_NEUTRAL), line(SEP_PT, K.CHART_SEP)), so)
+    for i, col in enumerate(colors):
+        put(s, dpt(i, col, ln=line(SEP_PT, K.CHART_SEP)), so)
+    w, h = size if size else (320, 200)
+    wide = w >= 1.6 * h           # breiter Rahmen: Legende rechts im Diagramm; sonst Legende in den Zellen (Agent N)
+    if wide:
+        d = E("c:dLbls")
+        for i, col in enumerate(colors):
+            v = vals[i] if i < len(vals) else 0
+            if v <= 0 or v / tot < EXPO_MIN_LBL:
+                d.append(dlbl_delete(i))
+                continue
+            lb = SE(d, "c:dLbl")
+            SE(lb, "c:idx", i)
+            lb.append(num_fmt("0 %"))
+            lb.append(sppr(nofill=True, ln=line(nofill=True)))
+            lb.append(txpr(8.5, text_on(col), True, wrap="none"))
+            _flags(lb, showPercent=True)
+        d.append(num_fmt("0 %"))
+        d.append(sppr(nofill=True, ln=line(nofill=True)))
+        d.append(txpr(8.5, K.WHITE, True, wrap="none"))
+        _flags(d, showPercent=True)
+    else:
+        d = dlbls_off()
+    put(s, d, so)
+    drop(dc, "dLbls")
+    put_val(dc, "varyColors", 1, ORDER["doughnutChart"])
+    put_val(dc, "firstSliceAng", 0, ORDER["doughnutChart"])
+    put_val(dc, "holeSize", EXPO_HOLE, ORDER["doughnutChart"])
+    drop(chart, "legend", "title")
+    put_val(chart, "autoTitleDeleted", 1, ORDER["chart"])
+    drop(plot, "layout")
+    if not wide:
+        # Donut mittig im Rahmen (Kennzahl in der Zelle dahinter sitzt im Loch)
+        dd = max(40.0, min(w, h) - 8)
+        plot.insert(0, manual_layout("inner", round((w - dd) / 2 / w, 4), round((h - dd) / 2 / h, 4),
+                                     round(dd / w, 4), round(dd / h, 4)))
+        return
+    # Legende rechts: Kurzname je Segment (Segmente ohne Wert ausgeblendet), Donut links im Rahmen
+    lg = E("c:legend")
+    SE(lg, "c:legendPos", "r")
+    for i, v in enumerate(vals):
+        if v <= 0:
+            le = SE(lg, "c:legendEntry")
+            SE(le, "c:idx", i)
+            SE(le, "c:delete", 1)
+    names = [short_cat("finanz", c) for c in cats]
+    lw = max([K.text_width(n_, 8.5) for n_ in names] + [60]) + 26
+    dd = max(60.0, min(h - 16, w - lw - 24))
+    lg.append(manual_layout(x=round(min(0.98, (dd + 26) / w), 4), y=round(max(0.0, (h - 18 * len(names)) / 2 / h), 4),
+                            w=round(min(0.98, lw / w), 4), h=round(min(0.98, (18 * len(names) + 6) / h), 4)))
+    SE(lg, "c:overlay", 0)
+    lg.append(sppr(nofill=True, ln=line(nofill=True)))
+    lg.append(txpr(8.5, K.INK2))
+    put(chart, lg, ORDER["chart"])
+    # Kategorien im Cache: Kurznamen (Legende) – Formelbezug bleibt
+    for pt_ in s.xpath("./c:cat//c:pt", namespaces=NS):
+        v_ = pt_.find(q("c:v"))
+        if v_ is not None and v_.text:
+            v_.text = short_cat("finanz", v_.text)
+    plot.insert(0, manual_layout("inner", round(10 / w, 4), round((h - dd) / 2 / h, 4), round(dd / w, 4),
+                                 round(dd / h, 4)))
+
+
+def expo_line(root, size=None):
+    """Vermögensentwicklung (Exposé): Nettovermögen als Tintenlinie über zarter Aqua-Fläche, Immobilienwert Aqua,
+    Restschuld grau gestrichelt; Endwert Nettovermögen direkt am Linienende."""
+    plot = root.find(".//" + q("c:plotArea"))
+    lc = plot.find(q("c:lineChart"))
+    if lc is None:
+        return []
+    nv = next((s for s in lc.findall(q("c:ser")) if ser_name(s).strip().lower().startswith("nettoverm")), None)
+    if nv is None:
+        return []
+    pts = nv.xpath("./c:val//c:pt", namespaces=NS)
+    if not pts:
+        return []
+    last = max(pts, key=lambda p_: int(p_.get("idx")))
+    d = E("c:dLbls")
+    lb = _end_label(int(last.get("idx")), '#,##0," T€"', K.NAVY, True, "t", bg=K.WHITE)
+    d.append(lb)
+    _flags(d)
+    set_ser_dlbls(nv, d, ORDER["line_ser"])
+    w, h = size if size else (360, 220)
+    drop(plot, "layout")
+    # Legende oben (einzeilig), darunter Luft für den Endwert; rechts Luft für den Endwert, unten die Jahresachse
+    plot.insert(0, manual_layout("inner", round(46 / w, 4), round(46 / h, 4), round(1 - 46 / w - 30 / w, 4),
+                                 round(1 - 46 / h - 24 / h, 4)))
+    return []
+
+
 # ============================================================================ Hauptfunktion je Diagramm
 LAST_PIE_D = [None]
 TOP_ROW_PIES = {"invest", "finanz", "kpa"}      # obere Reihe „Diagramme“: gleicher Kreis (P1-01)
@@ -1612,11 +1935,16 @@ def style_chart(xml, sheet=None, mark=None, size=None, pie_d=None):
     width_px = size[0] if size else None
     hidden = []
     del PIE_SMALL[:]
-    if kind == "bestand":
-        hidden = bestand_extras(root, mark)
+    if is_tacho(sheet, plot):
+        # Kennzahl-Tacho (Runde 6): eigene Regel, danach nur die gemeinsame Zeichenfläche
+        tacho_style(root, size)
+        return _canvas(root, plot, kind)
+    expo = (kind or "").startswith("expo")
+    if kind == "bestand" or kind == "expo_verm":
+        hidden = bestand_extras(root, mark if kind == "bestand" else None)
     if kind == "afa_kum":
         afa_prepare(root)
-    kind3d = None if dashboard else make_3d(root, n_cat, kind)
+    kind3d = None if (dashboard or expo) else make_3d(root, n_cat, kind)
     if kind == "restschuld":
         hidden += restschuld_extras(root)
     horizontal = plot.find(".//" + q("c:barDir")) is not None and plot.find(".//" + q("c:barDir")).get("val") == "bar"
@@ -1624,7 +1952,7 @@ def style_chart(xml, sheet=None, mark=None, size=None, pie_d=None):
 
     # Titel: Schrittseiten und Dashboard tragen den Panel-Kopf in der Zelle darüber; Einheit = Achsenformat (P09)
     # „Diagramme“: Titel steht als Unterabschnitt in der Zelle über dem Diagramm (P2-10)
-    delete_title = dashboard or bool(re.match(r"S\d\d ", sheet or "")) or sheet == "Diagramme"
+    delete_title = dashboard or bool(re.match(r"S\d\d ", sheet or "")) or sheet in ("Diagramme", EXPO_SHEET)
     title = TITLES.get(kind)
     if title:
         title = title.format(n=n_cat, u=value_format(root, kind, n_cat, size)[1])
@@ -1632,22 +1960,29 @@ def style_chart(xml, sheet=None, mark=None, size=None, pie_d=None):
 
     if dashboard:
         dashboard_series(root)
+    elif kind == "expo_fin":
+        expo_donut(root, size)
     else:
         hidden += style_series(root, kind, n_cat, size)
+        if kind == "expo_verm":
+            hidden += expo_line(root, size)
     for s in root.iter(q("c:ser")):
         if "helper" in s.attrib:
             del s.attrib["helper"]
 
     # Legende: immer unten (Reihenfolge = Stapelreihenfolge); Kreise rechts nur mit den Kleinstsegmenten
     has_pie_legend = False
-    if is_pie:
+    if kind == "expo_fin":
+        pass                           # Legende rechts setzt expo_donut
+    elif is_pie:
         has_pie_legend = set_pie_legend(root, n_cat, list(PIE_SMALL), size)
     elif not dashboard:
         hidden = legend_hidden(plot, kind, hidden)
         visible = [s for s in plot.xpath("./*/c:ser", namespaces=NS)
                    if int(s.find(q("c:idx")).get("val")) not in hidden]
         # Balken (Haushalt/Vermögen): Legende direkt unter dem Titel (P2-09)
-        set_legend(root, kind != "cf_nach" and len(visible) > 1, hidden, "t" if kind in ("hh", "va") else "b")
+        set_legend(root, kind != "cf_nach" and len(visible) > 1, hidden,
+                   "t" if kind in ("hh", "va", "expo_verm") else "b")
     else:
         lg = chart.find(q("c:legend"))
         if lg is not None:
@@ -1657,7 +1992,9 @@ def style_chart(xml, sheet=None, mark=None, size=None, pie_d=None):
     if dashboard and plot.find(q("c:barChart")) is None:
         ax_kind = "dash_line"
     style_axes(root, ax_kind, n_cat, size, horizontal)
-    if is_pie:
+    if kind == "expo_fin":
+        pass
+    elif is_pie:
         pie_layout(root, size, titled=not delete_title, legend=has_pie_legend, fixed_d=pie_d)
     elif kind in ("hh", "va"):
         # Plotfläche über die volle Rahmenhöhe (P2-09): Titel + Legende oben, darunter die Balken
@@ -1681,6 +2018,12 @@ def style_chart(xml, sheet=None, mark=None, size=None, pie_d=None):
         for a_ in ("afa_cls", "afa_name", "afa_halo", "afa_top"):
             if a_ in s_.attrib:
                 del s_.attrib[a_]
+    return _canvas(root, plot, kind)
+
+
+def _canvas(root, plot, kind):
+    """Gemeinsame Zeichenfläche aller Diagramme: ohne Füllung/Rahmen, Grundschrift 8 pt, Calibri."""
+    chart = root.find(q("c:chart"))
     put_val(chart, "plotVisOnly", 0, ORDER["chart"])
     put_val(chart, "dispBlanksAs", "gap", ORDER["chart"])
     # Plot- und Diagrammfläche ohne Füllung und Rahmen (weiß), Grundschrift 8 pt grau; Sensitivität im Panelstil F3F7FC
