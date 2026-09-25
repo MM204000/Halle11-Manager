@@ -241,12 +241,12 @@ def _hero(ws, rows):
                 f'IF(COUNTIF({status_rng},"prüfen")>0,"Solide mit Prüfpunkten","Solide")))')
     st.number_format = "General"
     # Status-Pill: zarter Status-Tint mit Statusschrift – hebt sich als heller Chip von der Navy-Fläche ab
-    C.safe_merge(ws, "B", R_PILL, "E", R_PILL)
+    C.safe_merge(ws, "B", R_PILL, "C", R_PILL)            # 180 px – so breit wie die Goldregel darüber
     pill = ws[f"B{R_PILL}"]
     C.status_pill(ws, pill, conditions=conds, style="pill",
-                  suffix=f'COUNTIF({status_rng},"erfüllt")&" von 6 Kennzahlen erfüllt"')
+                  suffix=f'COUNTIF({status_rng},"erfüllt")&" von 6 erfüllt"')
     pill.font = C.font(C.T_SMALL, True, C.WHITE)          # Grundschrift (ohne Status) hell auf Navy
-    pill.fill = C.fill(C.NAVY_2)
+    pill.fill = C.fill(C.NAVY)
     pill.alignment = C.align("left", "center", 1)
     ex = put(R_REASONS, "L", None, C.T_SMALL, False, C.SKY, "center", wrap=True)
     ex.value = C.minus_text('="–  DSCR (Jahr 1) "&FIXED(DSCR_J1,2)&"×"&IF(DSCR_J1<Ampel_DSCR_gruen," statt mindestens "," bei Ziel ")'

@@ -109,7 +109,7 @@ PCT2_CELLS = {"S09 Steuern": ["I11:I14"], "Cockpit": ["G36"], "AfA-Vergleich": [
 # Ganzzahlige Prozente (Wunsch B: S05 „Wertsteigernder Anteil“ 100 %)
 PCT0_CELLS = {"S05 Maßnahmen & Reserve": ["D18"], "Eingaben": ["C69"]}
 # DSCR überall mit Faktorzeichen (0,00×); Dashboard F22 (Ziel „≥ 1,20×“) behält sein eigenes Format (Wunsch G)
-DSCR_CELLS = {"Start": ["E31"], "Leitfaden": ["F13"], "S08 Zwischenergebnis": ["D23"], "Dashboard": ["N15", "E23"],
+DSCR_CELLS = {"Start": ["E31"], "Leitfaden": ["F13"], "S08 Zwischenergebnis": ["D23"], "Dashboard": ["N20", "E41"],
               "Cockpit": ["K24"], "Bankgespräch": ["C35"], "Sensitivität": ["D35:J41"], "Konfiguration": ["C78:D78"]}
 # Formeln/Koeffizienten mit zwei Stellen einheitlich (Konfiguration C32:C35)
 NUM2_CELLS = {"Konfiguration": ["C32:C35"]}
