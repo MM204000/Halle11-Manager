@@ -605,7 +605,22 @@ def recolor_png(data):
     return out.getvalue()
 
 
-def postprocess(tmp, dst):
+def _template_pngs(src):
+    """Prüfsummen der Bilder der Vorlage: nur sie werden auf die Markenfarben umgefärbt (Runde 6). Neue Bilder –
+    Icons, Cover-Illustration, Monogramm – sind bereits in Token-Farben gezeichnet; die Nächste-Farbe-Umfärbung
+    würde ihre Verläufe und Kantenglättung zerstören."""
+    import hashlib
+    try:
+        with zipfile.ZipFile(src) as z:
+            return {hashlib.sha1(z.read(n)).hexdigest() for n in z.namelist()
+                    if n.startswith("xl/media/") and n.endswith(".png")}
+    except Exception:
+        return None
+
+
+def postprocess(tmp, dst, src=None):
+    import hashlib
+    keep = _template_pngs(src) if src else None
     with zipfile.ZipFile(tmp) as zin, zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:
         for item in zin.infolist():
             data = zin.read(item.filename)
@@ -614,7 +629,8 @@ def postprocess(tmp, dst):
                 s = re.sub(r'(<a:majorFont><a:latin typeface=")[^"]*"', rf'\1{DISPLAY}"', s)
                 s = re.sub(r'(<a:minorFont><a:latin typeface=")[^"]*"', rf'\1{SANS}"', s)
                 data = s.encode("utf-8")
-            elif item.filename.startswith("xl/media/") and item.filename.endswith(".png"):
+            elif item.filename.startswith("xl/media/") and item.filename.endswith(".png") \
+                    and (keep is None or hashlib.sha1(data).hexdigest() in keep):
                 data = recolor_png(data)
             zout.writestr(item, data)
 
@@ -623,9 +639,20 @@ if __name__ == "__main__":
     src, dst = sys.argv[1], sys.argv[2]
     apply_theme(sys.argv[3] if len(sys.argv) > 3 else "blau")
     tmp = dst + ".tmp.xlsx"
+    import sparklines
+    sparklines.clear()
     design_workbook(src, tmp)
-    postprocess(tmp, dst)
+    postprocess(tmp, dst, src)
     os.remove(tmp)
+    # Runde 6: angemeldete Sparklines als Seitendatei neben die Stage-Mappe; finish_sheets fügt sie ganz am Ende
+    # der Pipeline (nach Neuberechnung, Navigation und Umfärbung) ins Blatt-XML ein
+    try:
+        n_sp = sparklines.save_for(dst)
+        if n_sp:
+            print(f"sparklines: {n_sp} Gruppen angemeldet → {os.path.basename(sparklines.sidecar(dst))}")
+    except Exception:
+        MODULE_ERRORS.append("sparklines (Registry)")
+        traceback.print_exc()
     if MODULE_ERRORS:
         print("Module mit Fehlern:", ", ".join(MODULE_ERRORS), file=sys.stderr)
     print(f"gespeichert: {dst}")

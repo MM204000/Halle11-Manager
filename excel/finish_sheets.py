@@ -14,6 +14,8 @@ fix(files) erhält das entpackte Paket als dict {pfad: bytes} und ändert es an 
   in styles.xml (Schriften, Füllungen, Rahmen, dxfs), sharedStrings (Rich-Text), Blatt-XML (bedingte Formate,
   Datenbalken, Farbskalen, Register) und Zeichnungen – Diagramm-XML ausgenommen (färbt finish_pro nach Semantik);
   Designfarben der Mappe (theme1.xml) = Midnight & Gold + Diagrammpalette, damit neue Diagramme/Formen passen
+- Runde 6: echte Excel-Sparklines (x14:sparklineGroups) aus der Registry von sparklines.py – eingesetzt im
+  Aufruf „recolor“, dem letzten Schritt der Pipeline (siehe sparklines.py / scratchpad SPARK_API.md)
 """
 import os
 import posixpath
@@ -353,5 +355,16 @@ def recolor_file(path):
 if __name__ == "__main__":   # python finish_sheets.py recolor <datei.xlsx>
     if len(sys.argv) == 3 and sys.argv[1] == "recolor":
         print(f"finish_sheets: {recolor_file(sys.argv[2])} Altfarben umgefärbt")
+        # Runde 6: letzter Schritt vor dem Kopieren – Sparklines aus der Seitendatei von design_pro einsetzen
+        # (nach Neuberechnung, finish_pro, navigation.py, ScreenTips und Umfärbung; nichts schreibt das Blatt-XML danach)
+        try:
+            import sparklines
+            n_sp = sparklines.inject_file(sys.argv[2])
+            if n_sp:
+                total, issues = sparklines.check(sys.argv[2])
+                print(f"finish_sheets: {n_sp} Sparklines eingefügt"
+                      + ("" if not issues else " – Befunde: " + "; ".join(issues)))
+        except Exception as exc:
+            print(f"WARNUNG finish_sheets Sparklines: {exc!r}", file=sys.stderr)
     else:
         print("Aufruf: python finish_sheets.py recolor <datei.xlsx>")

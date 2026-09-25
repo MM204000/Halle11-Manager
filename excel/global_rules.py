@@ -24,13 +24,13 @@ import core as C
 # =============================================================================== Blattgruppen
 STEP_RE = re.compile(r"S\d\d ")
 FORM_SHEETS = ("Eingaben", "Konfiguration")
-BANK_SHEETS = ("Bankgespräch", "Haushaltsrechnung", "Vermögensaufstellung")
+BANK_SHEETS = ("Bankgespräch", "Haushaltsrechnung", "Vermögensaufstellung", "Exposé")   # Exposé: Runde 6 (Agent N)
 CALC_SHEETS = ("Projektion", "Steuern", "Finanzierung", "AfA-Vergleich", "Sensitivität")
 PRESENTATION = ("Start", "Leitfaden", "Dashboard", "Cockpit") + BANK_SHEETS   # + S01–S12 (ohne Zeilen-/Spaltenköpfe)
 
 ORDER = ["Start", "Leitfaden"] + [None] * 12 + [
     "Dashboard", "Cockpit", "Diagramme", "Eingaben", "Projektion", "Steuern", "AfA-Vergleich", "Finanzierung",
-    "Sensitivität", "Bankgespräch", "Haushaltsrechnung", "Vermögensaufstellung", "Hinweise", "Konfiguration"]
+    "Sensitivität", "Bankgespräch", "Haushaltsrechnung", "Vermögensaufstellung", "Exposé", "Hinweise", "Konfiguration"]
 
 # Registerfarben (Runde 5 „Midnight & Gold“): Einstieg Nachtblau · Schritte Blau · Ergebnisse Gold · Berechnung/Eingaben
 # Stahlblau · Bank Sky · Anhang Neutral – nur core-Tokens.
@@ -38,7 +38,7 @@ TAB_COLOR = {"Start": C.NAVY, "Leitfaden": C.NAVY,
              "Dashboard": C.GOLD, "Cockpit": C.GOLD, "Diagramme": C.GOLD,
              "Eingaben": C.ACCENT, "Projektion": C.ACCENT, "Steuern": C.ACCENT, "AfA-Vergleich": C.ACCENT,
              "Finanzierung": C.ACCENT, "Sensitivität": C.ACCENT,
-             "Bankgespräch": C.SKY, "Haushaltsrechnung": C.SKY, "Vermögensaufstellung": C.SKY,
+             "Bankgespräch": C.SKY, "Haushaltsrechnung": C.SKY, "Vermögensaufstellung": C.SKY, "Exposé": C.SKY,
              "Hinweise": C.NEUTRAL_DASH, "Konfiguration": C.NEUTRAL_DASH}
 
 
@@ -912,7 +912,7 @@ def input_look(ws):
 # ANHANG → Start, LEITFADEN → Leitfaden …). Einteilige Krumen („DASHBOARD“, „COCKPIT“) sind reine Überzeilen ohne Link.
 CRUMB_TARGET = {"BANK": "Bankgespräch", "STEUERN": "Steuern", "LEITFADEN": "Start", "EINSTIEG": "Start",
                 **getattr(C, "CRUMB_PARENT", {})}
-SUBNAV_SHEETS = ("Steuern", "AfA-Vergleich", "Bankgespräch", "Haushaltsrechnung", "Vermögensaufstellung",
+SUBNAV_SHEETS = ("Steuern", "AfA-Vergleich", "Bankgespräch", "Haushaltsrechnung", "Vermögensaufstellung", "Exposé",
                  "Hinweise", "Konfiguration")
 BACK_EDGE = {"Leitfaden": "I", "Diagramme": "P", "Sensitivität": "M", "Eingaben": "L"}   # rechte Inhaltskante
 
@@ -1417,6 +1417,11 @@ def print_setup(ws):
         _smart(ws, "A", "M", _footer_row(ws, 1, 13) or 118)
     elif t == "Bankgespräch":  # hoch, eine Seite
         _print(ws, f"A1:I{max(_footer_row(ws, 1, 9) or 0, 67)}", "portrait", 1, 1)
+    elif t == "Exposé":  # Runde 6: Investment-Exposé – A4 hoch, genau eine Seite, Druckbereich bis zum Fuß
+        last = _footer_row(ws) or ws.max_row
+        _print(ws, f"A1:{_expose_right(ws, last)}{last}", "portrait", 1, 1)
+        ws.print_options.horizontalCentered = True
+        ws.print_options.verticalCentered = False
     elif t in ("Haushaltsrechnung", "Vermögensaufstellung"):
         from openpyxl.utils import get_column_letter
         last = _footer_row(ws, 1, 5) or (50 if t == "Haushaltsrechnung" else 37)
@@ -1429,6 +1434,37 @@ def print_setup(ws):
         _smart(ws, "A", "E", _footer_row(ws, 1, 5) or 39)
     elif t == "Konfiguration":
         _smart(ws, "A", "G", _footer_row(ws, 1, 7) or 83)
+
+
+def _expose_right(ws, last):
+    """Rechte Druckkante des Exposés: rechtes Ende der Fußlinie (core.footer zieht die Oberkante über die volle
+    Inhaltsbreite); ohne Fußlinie die letzte sichtbare Spalte mit Inhalt/Verbund/Fläche ab Z. 4 (Kopfleiste Z. 1–3
+    läuft über die Inhaltsbreite hinaus). Diagramme zählen mit, ausgeblendete Hilfsspalten nie."""
+    from openpyxl.utils import get_column_letter
+    hidden = {k for k, d in ws.column_dimensions.items() if d.hidden}
+    vis = lambda cc: get_column_letter(cc) not in hidden   # noqa: E731
+    line = [c.column for c in ws._cells.values()
+            if c.row == last - 1 and vis(c.column) and c.border is not None and c.border.top is not None
+            and c.border.top.style]
+    right = max(line) if line else 0
+    if not right:
+        right = 2
+        for cell in ws._cells.values():
+            if not 4 <= cell.row <= last or not vis(cell.column):
+                continue
+            fill = cell.fill.fgColor.rgb if cell.fill is not None and cell.fill.fill_type == "solid" else None
+            if cell.value is not None or (isinstance(fill, str) and fill[-6:] not in ("FFFFFF", "000000")):
+                right = max(right, cell.column)
+        for mr in ws.merged_cells.ranges:
+            if 4 <= mr.min_row <= last and vis(mr.max_col):
+                right = max(right, mr.max_col)
+    right = max(right, _chart_right_col(ws))
+    # rechter Seitenrand wie links (Spalte A): eine schmale Randspalte mitdrucken, falls vorhanden und sichtbar
+    nxt = get_column_letter(right + 1)
+    w = ws.column_dimensions[nxt].width if nxt in ws.column_dimensions else None
+    if vis(right + 1) and w and w <= 5:
+        right += 1
+    return get_column_letter(right)
 
 
 def page_label(title):
