@@ -35,7 +35,9 @@ Reiterleiste mit allen Bereichen auf jedem Blatt (plus Zell-Links als Rückfall)
 „Weiter“ auf den zwölf Leitfaden-Seiten, Direktauswahl Privat / Kapitalgesellschaft auf der Startseite („Kauf als“),
 Feld „Erstellt für“, Dashboard als Management-Übersicht, einheitliche Komponenten (Kacheln, Einordnungs-Boxen,
 Abschnittsköpfe, Buttons, Summenstufen, Status-Pills), mehrfarbige Diagramme mit fester Farbbedeutung (3D nur für Kreise und einfache Säulen),
-Druckeinrichtung für A4 auf allen Blättern.
+Druckeinrichtung für A4 auf allen Blättern. Dazu: Titelblatt mit generierter Illustration (`icons.py`), eigenes
+Icon-System, echte Excel-Sparklines (`sparklines.py`), Kennzahl-Tachos auf dem Dashboard und ein druckfertiges
+Investment-Exposé (`layouts/expose.py`).
 
 Erzeugung aus der Vorlage `excel/quelle/Immobilien-Kalkulationstool_Pro_1.xlsx` (LibreOffice für die Neuberechnung):
 
