@@ -25,7 +25,7 @@ import zipfile
 from xml.sax.saxutils import escape
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from core import (ACCENT, BLUE, CONTENT_EDGE, MIST, MUTED, NAVY, SKY, TINT, WHITE,  # noqa: E402
+from core import (ACCENT, BLUE, CONTENT_EDGE, GOLD, ICE, MIST, MUTED, NAVY, NAVY_2, SKY, WHITE,  # noqa: E402
                   link_row, link_target, text_width)
 
 EMU = 9525  # je Pixel (96 dpi)
@@ -147,11 +147,19 @@ def area_of(sheet):
 
 
 # =============================================================================== Gestaltung
-# Farben: Reiter auf Navy (Leerlauf 1A3F66 = Navy aufgehellt, nur hier), Schritt-Zustände (P1-07)
-TAB_IDLE, TAB_TXT = "1A3F66", MIST
-# Schritt-Zustände (Runde 4 P3-10): erledigt „✓ 01“ auf D5E3F3 in BLUE · offen weiß, Rahmen C9D6E6, Schrift 64748B
-STEP_DONE_BG = "D5E3F3"
-STEP_NEXT_BG, STEP_NEXT_LINE, STEP_NEXT_TXT = WHITE, "C9D6E6", "64748B"
+# Farben (Runde 5 „Midnight & Gold“, nur core-Tokens): Kopfleiste NAVY mit GOLD-Linie (Z. 3); inaktive Reiter
+# NAVY_2 mit MIST-Schrift (8,4:1), aktiver Reiter weiß, Schrift NAVY fett, mit GOLD-Kante (Unterstrich im Reiter).
+TAB_IDLE, TAB_TXT = NAVY_2, MIST
+TAB_ON, TAB_ON_TXT, TAB_MARK = WHITE, NAVY, GOLD
+BAND_FILLS = (NAVY, GOLD, ACCENT)          # Zellfüllungen der Kopfleiste (ACCENT: Altstand vor Runde 5)
+# Schritt-Zustände: erledigt „✓ 01“ ICE mit BLUE · aktiv NAVY mit GOLD-Unterlinie · offen weiß, Rahmen MIST, Schrift MUTED
+STEP_DONE_BG = ICE
+STEP_NEXT_BG, STEP_NEXT_LINE, STEP_NEXT_TXT = WHITE, MIST, MUTED
+STEP_MARK = GOLD
+# WEITER = Primär-Button-Look (core.BTN["primary"]: Nachtblau, Goldrahmen, Schrift weiß)
+WEITER_BG, WEITER_LINE, WEITER_SUB = NAVY, GOLD, MIST
+# Pills (Unterreiter, Sprungleisten) = Chip-Look (core.BTN["chip"]): ICE, Rahmen MIST, Schrift BLUE; aktiv NAVY/weiß
+PILL_BG, PILL_LINE, PILL_TXT, PILL_ON = ICE, MIST, BLUE, NAVY
 
 # Reiterleiste mit FESTER Geometrie auf allen 28 Blättern (Runde 4 P1-08, Excel-Pixel ab Blattursprung,
 # xdr:absoluteAnchor – unabhängig von Spaltenbreiten, kein Einrasten auf Spaltengrenzen):
@@ -610,8 +618,8 @@ def tab_bar(cv, name, frame):
     if here:
         hw = TAB_X0 - BRAND_GAP - (NAV_X + brand_w + 12)
         hx = TAB_X0 - BRAND_GAP - hw
-        cv.add("Ortsmarke", hx, ty + 3, hw, TAB_H - 6, None,
-               [para([(here, 8, WHITE, True)])], line=MIST, radius=11,
+        cv.add("Ortsmarke", hx, ty + 3, hw, TAB_H - 6, TAB_IDLE,
+               [para([(here, 8, WHITE, True)])], line=SKY, radius=11,
                link=(name, None), tooltip=f"Sie sind hier: {here} · zum Blattanfang", lins=0, rins=0)
     cut = next((k for k, (x, *_r) in enumerate(pos) if split and x + TAB_W > split + 8), None)
     for k, (x, label, target, tip) in enumerate(pos):
@@ -622,10 +630,13 @@ def tab_bar(cv, name, frame):
         w = TAB_W
         if cut is not None and k == cut - 1 and x + w > split:
             w = split - x                          # Fixierlinie wenige px im Reiter (AfA-Vergleich): Reiter endet dort
-        cv.add(f"Reiter {label}", x, ty, w, TAB_H, WHITE if on else TAB_IDLE,
-               [para([(label, TAB_SIZE, NAVY if on else TAB_TXT, on)])],
+        cv.add(f"Reiter {label}", x, ty, w, TAB_H, TAB_ON if on else TAB_IDLE,
+               [para([(label, TAB_SIZE, TAB_ON_TXT if on else TAB_TXT, on)])],
                link=(target, None), tooltip=tip + (" (aktueller Bereich)" if on else ""),
                lins=0, rins=0)
+        if on:                                 # Goldkante des aktiven Reiters: Unterstrich unter der Beschriftung
+            mw = min(w - 16, int(text_px(label, TAB_SIZE, True)) + 16)
+            cv.add(f"Reiter {label} aktiv", x + (w - mw) / 2, ty + TAB_H - 5, mw, 2, TAB_MARK, prst="rect")
     cv.end(TAB_ANCHOR)
     return NAV_END
 
@@ -655,7 +666,7 @@ def step_widths(total, labels, min_pad=5):
 def step_bar(cv, step, frame):
     """Schritt-Leiste in Zeile 8 über die volle Inhaltsbreite: 12 Chips + „WEITER ›“. WEITER ist genau so breit wie
     der untere Weiter-Button (H:I) und steht bündig darüber; alle Abstände 4 px. Zustände (P3-10): erledigt „✓ 01“
-    (D5E3F3, BLUE), aktiv (Navy + Akzentstrich), offen (weiß, Rahmen C9D6E6, Schrift 64748B). Chip-Namen = Blatttitel
+    (ICE, BLUE), aktiv (Navy + Goldstrich), offen (weiß, Rahmen MIST, Schrift MUTED); WEITER im Primär-Button-Look. Chip-Namen = Blatttitel
     (P2-05). Verankerung editAs="absolute" (P1-08)."""
     g = cv.geo
     left, right = frame.edges(cv.sheet)
@@ -685,14 +696,14 @@ def step_bar(cv, step, frame):
                 para([(lab, 8, c_lab, False, spc)], "ctr", 95000)],
                link=(step_sheet(i), None), tooltip=tip, line=line, lins=STEP_INS, rins=STEP_INS)
         if cur:
-            cv.add(f"Schritt {step_no(i)} aktiv", x, y + h + 2, w, 3, ACCENT, prst="rect")
+            cv.add(f"Schritt {step_no(i)} aktiv", x, y + h + 2, w, 3, STEP_MARK, prst="rect")
         x += w + STEP_GAP
     nxt_sheet, nxt_caption = step_next(step)
     last = step >= 12
-    cv.add("Weiter", x_weiter, y, right - x_weiter, h, BLUE,
+    cv.add("Weiter", x_weiter, y, right - x_weiter, h, WEITER_BG,
            [para([("ZUM DASHBOARD  ›" if last else "WEITER  ›", 9, WHITE, True, 40)], "ctr", 90000),
-            para([(nxt_caption, 8, TINT, False)], "ctr", 90000)],
-           link=(nxt_sheet, None), lins=STEP_INS, rins=STEP_INS,
+            para([(nxt_caption, 8, WEITER_SUB, False)], "ctr", 90000)],
+           link=(nxt_sheet, None), lins=STEP_INS, rins=STEP_INS, line=WEITER_LINE, line_w=12700,
            tooltip=("Weiter zum Dashboard · Gesamtbewertung" if last else f"Weiter zu {nxt_caption}"))
     cv.end(FIXED)
 
@@ -705,14 +716,14 @@ def pill_w(label, size=PILL_SIZE, pad=PILL_PAD):
 def pill_row(cv, items, y, h=PILL_H, x_left=None, x_right=None, size=PILL_SIZE, pad=PILL_PAD, gap=PILL_GAP,
              active=None, name="Reiter"):
     """Reihe kleiner Reiter (Unterreiter / Sprungleiste) im einheitlichen Pill-Stil: E7EEF7 mit 1D4F8A,
-    aktiv 1D4F8A mit Weiß fett; links- oder rechtsbündig."""
+    Chip-Look ICE/Rahmen MIST/Schrift BLUE, aktiv NAVY mit Weiß fett (Runde 5); links- oder rechtsbündig."""
     widths = [pill_w(lab, size, pad) for lab, *_ in items]
     total = sum(widths) + gap * (len(items) - 1)
     x = x_left if x_left is not None else x_right - total
     for (label, target, cell, tip), w in zip(items, widths):
         on = label == active
-        cv.add(f"{name} {label}", x, y, w, h, BLUE if on else TINT,
-               [para([(label, size, WHITE if on else BLUE, on)])],
+        cv.add(f"{name} {label}", x, y, w, h, PILL_ON if on else PILL_BG,
+               [para([(label, size, WHITE if on else PILL_TXT, on)])], line=None if on else PILL_LINE,
                link=(target, cell), tooltip=tip, radius=3, lins=0, rins=0)
         x += w + gap
     return x
@@ -752,7 +763,7 @@ def trim_band(sxml, geo, styles, end_px):
             c = col_index(cm.group(2))
             sm = re.search(r'\bs="(\d+)"', cm.group(3))
             st = int(sm.group(1)) if sm else None
-            if cm.group(4) != "/>" or styles.fill(st) not in (NAVY, ACCENT) or geo.x(c + 1) <= end_px + 2:
+            if cm.group(4) != "/>" or styles.fill(st) not in BAND_FILLS or geo.x(c + 1) <= end_px + 2:
                 return cm.group(0)
             r = int(cm.group(1)[len(cm.group(2)):])
             geo.cells[(r, c)] = (0, False)
@@ -764,7 +775,7 @@ def trim_band(sxml, geo, styles, end_px):
 
 def band_extension(cv, styles, end_px):
     """Reicht die Navy-Fläche der Kopfleiste (Zeile 2) nicht bis end_px, wird sie mit zwei Flächenformen (Navy Z. 1–2,
-    Akzentlinie Z. 3) bis end_px verlängert (absolut verankert; wird nicht gedruckt)."""
+    Goldlinie Z. 3) bis end_px verlängert (absolut verankert; wird nicht gedruckt)."""
     g = cv.geo
     navy_cols = [c for (r, c), (st, _) in g.cells.items() if r == 2 and styles.fill(st) == NAVY]
     if not navy_cols:
@@ -776,7 +787,7 @@ def band_extension(cv, styles, end_px):
     h12 = g.row_px(1) + g.row_px(2)
     cv.begin("Kopfleiste Verlängerung")
     cv.add("Kopfleiste Fläche", start, 0, end_px - start, h12, NAVY, prst="rect")
-    cv.add("Kopfleiste Linie", start, h12, end_px - start, g.row_px(3), ACCENT, prst="rect")
+    cv.add("Kopfleiste Linie", start, h12, end_px - start, g.row_px(3), GOLD, prst="rect")
     cv.end(TAB_ANCHOR)
 
 

@@ -19,10 +19,12 @@ MATRIX_ROWFMT = '"Miete +"0 %;"Miete −"0 %;"Miete Basis"'
 MATRIX_COLFMT = '+0.0 %;"−"0.0 %;"Basis"'
 HEAD_PCT = '0.0 %;"−"0.0 %;0.0 %'          # Kopfwerte: 0 % ist ein echter Wert, kein „–“
 
-# Heatmaps (Runde 3, P21/P41): Statusfarben nie als Fläche – die Fläche zeigt nur die Höhe des Werts in einer
-# ruhigen Blau-Sequenz (niedrig F7F9FC → hoch C8D7EB), der Status steckt allein in der Schriftfarbe
-# (kritisch B42318 · prüfen B54708 · erfüllt neutral 1A1D21).
-SEQ_LO, SEQ_MID, SEQ_HI = "FBFCFE", "E7EEF7", "C8D7EB"
+# Heatmaps (Runde 3, P21/P41; Runde 5 „Midnight & Gold“): Statusfarben nie als Fläche – die Fläche zeigt nur die
+# Höhe des Werts in einer ruhigen Sequenz aus den core-Tokens (niedrig TINT_XL warm-weiß → ICE → zarter Nachtblau-
+# Ton, 16 % BLUE auf Weiß). Der Status steckt allein in der Schriftfarbe (Rot B42318 darauf ≥ 5,0:1).
+# Die aktuelle Annahme (Basis-Zeile/-Spalte) ist mappenweit GOLD_BG hinterlegt, die Basiszelle navy umrahmt.
+SEQ_LO, SEQ_MID, SEQ_HI = C.TINT_XL, C.ICE, C.mix(C.BLUE, C.WHITE, 0.84)
+BASE_BG = C.GOLD_BG
 
 LABELS = {
     "C10": "Break-even-Miete (Cashflow vor Steuern = 0)",
@@ -65,8 +67,8 @@ RAIL = [
      "(Cashflow unter 0 €).\n\n"
      "DSCR: Einnahmenüberschuss (NOI) geteilt durch den Kapitaldienst. Unter der Ampel-Schwelle „prüfen“ trägt die "
      "Bonität des Investors einen Teil des Kapitaldiensts; die Schwellen stehen in der Legende über der Matrix.\n\n"
-     "Farbton: Je dunkler das Blau, desto höher der Wert – unabhängig vom Status. Der eingerahmte Wert ist die "
-     "aktuelle Annahme (Miete Basis, Sollzins wie eingegeben)."),
+     "Farbton: Je kräftiger der Blauton, desto höher der Wert – unabhängig vom Status. Goldton und Rahmen "
+     "markieren die aktuelle Annahme (Miete Basis, Sollzins wie eingegeben)."),
     (43, "IRR-Matrix",
      "Für jede Kombination wird die vollständige Zahlungsreihe über die Haltedauer neu gerechnet: Die Mietänderung wirkt in jedem Jahr mit der Mietsteigerung fort, die "
      "Wertsteigerung bestimmt Verkaufspreis, Verkaufskosten und Steuer beim Verkauf."),
@@ -117,7 +119,7 @@ def _legend_formula(ws, coord, formula):
 
 def _matrix(ws, head, r1, r2, c_last, corner, base_row):
     """Matrix: Kopfzeile C:J (Spaltenwerte), Zeilenköpfe rechtsbündig an der Heatmap, Datenzellen mit Haarlinie.
-    Basis-Zeile: Kopf E7EEF7 fett Navy (P2-03)."""
+    Basis-Zeile: Kopf GOLD_BG fett Navy (P2-03, Runde 5)."""
     C.section(ws, head, "C", c_last, None, level=2, variant="fill", caps=False)
     corner_cell = ws[f"C{head}"]
     C.set_text(corner_cell, corner)
@@ -133,7 +135,7 @@ def _matrix(ws, head, r1, r2, c_last, corner, base_row):
         lab = ws[f"C{r}"]
         lab.number_format = MATRIX_ROWFMT
         lab.font = C.font(C.T_SMALL, True, C.NAVY if base else C.BLUE)
-        lab.fill = C.fill(C.TINT) if base else C.NOFILL
+        lab.fill = C.fill(BASE_BG) if base else C.NOFILL
         lab.alignment = C.align("right", "center", 1)
         lab.border = Border(bottom=C.side("hair", C.LINE), right=C.side("thin", C.ACCENT))
         for c in C.iter_cells(ws, "D", r, c_last, r):
@@ -145,7 +147,7 @@ def _matrix(ws, head, r1, r2, c_last, corner, base_row):
 
 
 def _base_head(cell):
-    cell.fill = C.fill(C.TINT)
+    cell.fill = C.fill(BASE_BG)
     cell.font = C.font(C.T_LABEL, True, C.NAVY)
 
 
@@ -319,10 +321,10 @@ def apply(wb):
         c.number_format = HEAD_PCT
     for c in C.iter_cells(ws, "D", 47, "H", 51):
         c.number_format = C.NUMFMT["pct1"]
-    # aktuelle Wertsteigerungsannahme: Kopf E7EEF7 fett Navy (keine Navy-Vollfläche mehr)
+    # aktuelle Wertsteigerungsannahme: Kopf GOLD_BG fett Navy (keine Navy-Vollfläche mehr)
     ws.conditional_formatting.add("D46:H46", FormulaRule(
         formula=["ABS(D46-Wertsteigerung)<0.00005"], stopIfTrue=True,
-        font=Font(color=C.NAVY, bold=True), fill=C.fill(C.TINT)))
+        font=Font(color=C.NAVY, bold=True), fill=C.fill(BASE_BG)))
     # Basiszelle (Basis-Miete × aktuelle Wertsteigerung): Navy-Rahmen + fett, Schrift in Statusfarbe – alles in EINEM
     # Bereich D47:H51 (LibreOffice wertet je Zelle nur einen Bereich aus); Basis-Zeile = Zeilenwert 0 in Spalte C
     nb = C.side("medium", C.NAVY)

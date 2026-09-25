@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import importlib  # noqa: E402
 import traceback  # noqa: E402
 
+import core as C  # noqa: E402
 import dashboard  # noqa: E402
 
 # Blatt-Layout-Module (excel/layouts/<name>.py, je Modul eine Funktion apply(wb)) in dieser Reihenfolge
@@ -50,25 +51,28 @@ def run_hook(label, fn, *args):
 # ============================================================================ Design-Tokens / Farbthemen
 # Rollen: TEAL = Primärfarbe (Banner, Titel), TEAL_MID = Sekundär, ACC = Akzent, TEAL_L/TEAL_XL = helle Flächen.
 THEMES = {
+    # Runde 5 „Midnight & Gold“: alle Rollen aus core.py (einzige Quelle), keine hart kodierten Hexwerte mehr.
     "blau": dict(
-        TEAL="0B2A4A", TEAL_MID="1D4F8A", ACC="4A86C8", TEAL_L="E7EEF7", TEAL_XL="F3F7FC", SUM_BG="F3F7FC",
-        ON_DARK_2="C8D7EB", ON_DARK_ACC="9CBBE2",
-        INPUT_BG="FFF5D6", INPUT_LINE="E6CB77", INPUT_FG="1D4F8A",
-        GROUP={"ein": "C4C8CE", "inp": "E6B940", "aus": "0B2A4A", "ber": "4A86C8", "bank": "8FA9C9", "anh": "DADCDF"},
-        # P18: feste Palette – Hauptgröße Navy, Vergleich Akzent/hell, Ausgaben in der Grau-Familie
-        SERIES=["0B2A4A", "4A86C8", "8FB3DE", "1D4F8A", "C9CED6", "5B6068"],
-        PIE_RAMP=["0B2A4A", "1D4F8A", "2F6BAE", "4A86C8", "8DB3DE", "C9DBEF"],   # Kreise: 6-stufige Blau-Rampe
-        PIE_MAIN="1D4F8A",
-        LOGO_DARK=(11, 42, 74), LOGO_LIGHT=(156, 187, 226),
+        TEAL=C.NAVY, TEAL_MID=C.BLUE, ACC=C.ACCENT, TEAL_L=C.TINT, TEAL_XL=C.TINT_XL, SUM_BG=C.TINT_XL,
+        ON_DARK_2=C.MIST, ON_DARK_ACC=C.SKY,
+        INPUT_BG=C.INPUT_BG, INPUT_LINE=C.INPUT_LINE, INPUT_FG=C.INPUT_FG,
+        # Registerfarben je Gruppe (finish_sheets setzt sie nach der Neuberechnung erneut über global_rules.tab_color)
+        GROUP={"ein": C.BLUE, "inp": C.ACCENT, "aus": C.GOLD, "ber": C.ACCENT, "bank": C.SKY, "anh": C.NEUTRAL_DASH},
+        # Grund-Restyle der Diagramme (finish_pro färbt danach nach C.CHART_SEMANTIC): mehrfarbige Kategorialpalette
+        SERIES=[C.C_BLUE, C.C_ORANGE, C.C_AQUA, C.C_GOLD, C.C_VIOLET, C.C_NEUTRAL],
+        PIE_RAMP=list(C.CHART_CAT),
+        PIE_MAIN=C.C_BLUE,
+        LOGO_DARK=tuple(int(C.NAVY[i:i + 2], 16) for i in (0, 2, 4)),
+        LOGO_LIGHT=tuple(int(C.GOLD[i:i + 2], 16) for i in (0, 2, 4)),
         INPUT_WORD="Gelb", LINK_WORD="Blau",
     ),
 }
-INK, INK2, MUTED, MUTED2 = "1A1D21", "3A3F45", "5B6068", "8A9099"
-HEAD_TINT = "EEF3FA"
-LINE, LINE2, HEAD_BG = "E6E8EB", "D5D9DE", "F3F4F5"
+INK, INK2, MUTED, MUTED2 = C.INK, C.INK2, C.MUTED, C.MUTED2
+HEAD_TINT = C.HEAD
+LINE, LINE2, HEAD_BG = C.LINE, C.LINE2, C.INACTIVE_BG
 ON_DARK = "FFFFFF"
-RED, AMB, GRN = "B42318", "B54708", "1F7A4D"
-RED_BG = "FBECEB"
+RED, AMB, GRN = C.RED, C.AMBER, C.GREEN
+RED_BG = C.RED_BG
 SANS, DISPLAY = "Calibri", "Calibri"
 
 TAB_GROUP = {"Cockpit": "aus", "Diagramme": "aus", "Eingaben": "inp", "Steuern": "ber", "Projektion": "ber",
@@ -102,7 +106,7 @@ def apply_theme(name):
                           "C6A45C": t["ON_DARK_ACC"], "0C0F0D": ON_DARK, "0F1C16": ON_DARK, "6B685E": t["ON_DARK_2"]}
     ser = t["SERIES"]
     g["SERIES_MAP"] = {"0f1c16": ser[0], "173026": ser[3], "a08a55": ser[1], "c6a45c": ser[2], "6f8f7a": ser[2],
-                       "6b685e": ser[5], "b9b4a6": ser[4], "e2dcce": "E6E8EB", "8c3b2e": RED, "4f81bd": ser[1],
+                       "6b685e": ser[5], "b9b4a6": ser[4], "e2dcce": C.LINE, "8c3b2e": RED, "4f81bd": ser[1],
                        "7f9aa6": ser[2], "ffffff": "FFFFFF"}
     g["TEXT_FIXES"] = {
         "Weiß mit Messinglinie – ausfüllen": f"{t['INPUT_WORD']} hinterlegt – hier eingeben",
@@ -330,7 +334,7 @@ def restyle_cell(ws, c, o, ctx):
             ln = side("thin", TEAL)
             c.border = Border(left=ln, right=ln, top=ln, bottom=ln)
         elif o.fname == "Fraunces":  # Bild-Platzhalter
-            c.fill = fill("F7F8F9")
+            c.fill = fill(C.TINT_XL)
             c.font = Font(name=SANS, sz=9, color=MUTED)
             c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             d = side("dashed", LINE2)

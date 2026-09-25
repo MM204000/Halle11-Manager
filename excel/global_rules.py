@@ -32,11 +32,14 @@ ORDER = ["Start", "Leitfaden"] + [None] * 12 + [
     "Dashboard", "Cockpit", "Diagramme", "Eingaben", "Projektion", "Steuern", "AfA-Vergleich", "Finanzierung",
     "Sensitivität", "Bankgespräch", "Haushaltsrechnung", "Vermögensaufstellung", "Hinweise", "Konfiguration"]
 
-TAB_COLOR = {"Start": C.NAVY, "Leitfaden": C.NAVY, "Dashboard": C.NAVY,
-             "Cockpit": C.ACCENT, "Diagramme": C.ACCENT, "Eingaben": C.ACCENT, "Projektion": C.ACCENT,
-             "Steuern": C.ACCENT, "AfA-Vergleich": C.ACCENT, "Finanzierung": C.ACCENT, "Sensitivität": C.ACCENT,
-             "Bankgespräch": "8FA9C9", "Haushaltsrechnung": "8FA9C9", "Vermögensaufstellung": "8FA9C9",
-             "Hinweise": "A0A7B1", "Konfiguration": "A0A7B1"}
+# Registerfarben (Runde 5 „Midnight & Gold“): Einstieg Nachtblau · Schritte Blau · Ergebnisse Gold · Berechnung/Eingaben
+# Stahlblau · Bank Sky · Anhang Neutral – nur core-Tokens.
+TAB_COLOR = {"Start": C.NAVY, "Leitfaden": C.NAVY,
+             "Dashboard": C.GOLD, "Cockpit": C.GOLD, "Diagramme": C.GOLD,
+             "Eingaben": C.ACCENT, "Projektion": C.ACCENT, "Steuern": C.ACCENT, "AfA-Vergleich": C.ACCENT,
+             "Finanzierung": C.ACCENT, "Sensitivität": C.ACCENT,
+             "Bankgespräch": C.SKY, "Haushaltsrechnung": C.SKY, "Vermögensaufstellung": C.SKY,
+             "Hinweise": C.NEUTRAL_DASH, "Konfiguration": C.NEUTRAL_DASH}
 
 
 def tab_color(name):
@@ -137,10 +140,10 @@ VERSAL_FIX = [(re.compile(r"§ 32A\b"), "§ 32a"), (re.compile(r"\bESTG\b"), "ES
               (re.compile(r"\bI\. D\. F\."), "i. d. F.")]
 
 OLD_FONTS = {None, "Aptos", "Aptos Display", "Aptos Narrow", "Inter", "Fraunces", "IBM Plex Mono", "Arial"}
-LINE_COLORS = {C.LINE, C.LINE2, "D6D0C2", "B9B4A6", "E2DCCE", "EBE6DB"}
+LINE_COLORS = {C.LINE, C.LINE2, "E6E8EB", "D5D9DE", "D6D0C2", "B9B4A6", "E2DCCE", "EBE6DB"}
 # Systemregel „entfällt“ (bedingte Formatierung): lesbar zurückgenommen statt fast unsichtbar (D0D5DD ≈ 1,4:1)
 FADED_OLD = {"D0D5DD", "DADCDF"}
-FADED = "98A2B3"
+FADED = C.NEUTRAL_DASH
 
 
 # =============================================================================== Hilfen
@@ -437,7 +440,7 @@ def table_rules(ws, c1, c2, first=8, last=None):
             kinds[r] = "band"
         elif C.HEAD in fills:
             kinds[r] = "head"
-        elif (fills & {C.TINT_XL, "F5F8FC", C.TINT}) and any(v.font.b for v in vals if v.value is not None):
+        elif (fills & {C.TINT_XL, C.TINT}) and any(v.font.b for v in vals if v.value is not None):
             kinds[r] = "sum"
         elif any(v.value is not None for v in vals):
             kinds[r] = "row"
@@ -1064,6 +1067,10 @@ def normalise(ws):
         if (f.sz or 11) not in SCALE:
             kw["sz"] = _map_size(c)
         if (kw.get("sz") or f.sz or 11) <= 9 and _rgb(f.color) == C.MUTED2 and _fill_rgb(c) != C.INACTIVE_BG:
+            kw["color"] = C.MUTED
+        # Runde 5: Beschriftungen ≤ 9 pt nie im Strich-Grau 9AA3AF (2,5:1) – das bleibt „–“/Symbolen vorbehalten
+        elif (kw.get("sz") or f.sz or 11) <= 9 and _rgb(f.color) == C.NEUTRAL_DASH and _static(c) \
+                and re.search(r"[^\W\d_]{2}", c.value) and _fill_rgb(c) != C.INACTIVE_BG:
             kw["color"] = C.MUTED
         # 4) nur Calibri (monochrome Symbolschrift bleibt erlaubt)
         if f.name in OLD_FONTS:

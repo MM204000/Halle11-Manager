@@ -20,13 +20,13 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.hyperlink import Hyperlink
 
 import core as C
-from core import (ACCENT, AMBER, BLUE, GREEN, INK, INK2, MIST, MUTED, NAVY, RED, SKY, WHITE, align, fill, font,
-                  side)
+from core import BLUE, GOLD, INK, INK2, LINE2, MIST, MUTED, NAVY, RED, SKY, WHITE, align, fill, font, side
 
 ui = C                                   # Altname (leitfaden.py importiert Helfer aus diesem Modul)
 SHEET = "Start"
 HERO_ROWS = range(5, 20)                 # B5:H19 Navy-Fläche, Z. 20 Weißraum
 HERO_COLS = "BCDEFGH"
+HERO_RULE = C.mix(NAVY, SKY, 0.3)       # zarte Trennlinie AUF Navy (Kennzahlenband) – aus Tokens gemischt, kein Blau-Akzent
 # Runde 4 (P1-08): rechte Kante des Heros = NAV_END der festen Reiterleiste (1 417 px = Kante der Schrittseiten)
 WIDTHS = {"C": 32, "D": 16, "E": 48, "F": 48, "G": 48}   # C:D = E = F = G = 336 px, H 21 px → Hero bis 1 417 px
 EMU = 9525                               # EMU je Pixel
@@ -213,7 +213,8 @@ def purchase_selector(wb):
 
 # ============================================================================ Hero
 def _logo_png(img):
-    """Logo für Navy nachschärfen (P45): Buchstaben Weiß, Ring C8D7EB, Linien leicht verstärkt und voll deckend –
+    """Logo für Navy nachschärfen (P45, Runde 5): Buchstaben Weiß, Ring in Edel-Gold C.GOLD (wie das Original-Signet,
+    nur kräftiger), Linien leicht verstärkt und voll deckend –
     das feine Original (Creme/Gold, 512 px) wirkt bei 150 px auf Navy sonst wie ein Wasserzeichen.
     Liefert einen Pfad auf eine temporäre PNG-Datei (openpyxl liest das Bild beim Speichern)."""
     import io
@@ -227,12 +228,12 @@ def _logo_png(img):
     for y in range(im.size[1]):
         for x in range(im.size[0]):
             pr, pg, pb, pa = px[x, y]
-            if pa and pr - pb > 45:                    # goldener Ring (R ≫ B) → MIST, Rest (Buchstaben) → Weiß
+            if pa and pr - pb > 45:                    # goldener Ring (R ≫ B) → GOLD, Rest (Buchstaben) → Weiß
                 rp[x, y] = 255
     ring = ring.filter(ImageFilter.MaxFilter(5))
     white = Image.new("RGBA", im.size, (255, 255, 255, 255))
-    mist = Image.new("RGBA", im.size, tuple(int(C.MIST[i:i + 2], 16) for i in (0, 2, 4)) + (255,))
-    out = Image.composite(mist, white, ring)
+    gold = Image.new("RGBA", im.size, tuple(int(GOLD[i:i + 2], 16) for i in (0, 2, 4)) + (255,))
+    out = Image.composite(gold, white, ring)
     out.putalpha(a)
     f = tempfile.NamedTemporaryFile(prefix="mm_logo_", suffix=".png", delete=False)
     out.save(f, format="PNG")
@@ -317,29 +318,31 @@ def hero(ws):
     for c, lab, val, fmt in band:
         put(f"{c}14", lab, C.T_MICRO, True, SKY, v="bottom")
         put(f"{c}15", val, C.T_H1, True, WHITE, fmt=fmt)        # P3-01: größte Zahl der Seite (22 pt > Kachel 20 pt)
+    hair = side("thin", HERO_RULE)
     for c in "EFG":
-        ws[f"{c}14"].border = Border(top=side("hair", ACCENT))
+        ws[f"{c}14"].border = Border(top=hair)
 
-    # Aktionszeile im Drittelraster E | F | G (P3-01) – drei Stufen auf Navy, gleiche Höhe (25,5 pt), 3-px-Fugen:
-    #   E  primär   weiß, Schrift 0B2A4A fett   – zuerst die Pflichtauswahl „Kauf als“ (Sprung auf D23)
-    #   F  sekundär 4A86C8, Schrift weiß fett   – Leitfaden starten
-    #   G  tertiär  1D4F8A, Rahmen 4A86C8 (core „ghost“) – Dashboard
-    p = C.btn(ws, "E", 17, "E", "Zuerst: Kauf als wählen  ↓", SHEET, "primary", target_cell="D23",
-              tooltip="Pflichtauswahl: Privatperson oder Gesellschaft (Liste)")
-    p.font = font(C.T_BODY, True, NAVY)
-    ws["E17"].fill = fill(WHITE)
-    s2 = C.btn(ws, "F", 17, "F", "Leitfaden starten  ›", "Leitfaden", "ghost", tooltip="Zur Übersicht der zwölf Schritte")
-    ws["F17"].fill = fill(ACCENT)
-    s2.font = font(C.T_BODY, True, WHITE)
+    # Aktionszeile im Drittelraster E | F | G (P3-01, Runde 5) – ausschließlich core-Buttons, gleiche Höhe (25,5 pt):
+    #   E  primary  Nachtblau mit Goldrahmen – zuerst die Pflichtauswahl „Kauf als“ (Sprung auf D23)
+    #   F  ghost    1B3553, Rahmen 3A5578    – Leitfaden starten
+    #   G  ghost    1B3553, Rahmen 3A5578    – Dashboard
+    # Auf der Navy-Fläche trägt der Primär-Button die Goldkante (EIN Goldelement je Komponente); die Fugen zwischen den
+    # Buttons sind 3-px-Kanten in Heldenfarbe (wie die Kachelrinnen).
+    C.btn(ws, "E", 17, "E", "Zuerst: Kauf als wählen  ↓", SHEET, "primary", target_cell="D23",
+          tooltip="Pflichtauswahl: Privatperson oder Gesellschaft (Liste)")
+    C.btn(ws, "F", 17, "F", "Leitfaden starten  ›", "Leitfaden", "ghost", tooltip="Zur Übersicht der zwölf Schritte")
     C.btn(ws, "G", 17, "G", "Dashboard  ›", "Dashboard", "ghost", tooltip="Gesamtbewertung auf einer Seite")
     gap = side("thick", NAVY)
-    white, acc = side("thin", WHITE), side("thin", ACCENT)
-    ws["E17"].border = Border(top=white, bottom=white, left=white, right=gap)
-    ws["F17"].border = Border(top=acc, bottom=acc, left=gap, right=gap)
-    ws["G17"].border = Border(top=acc, bottom=acc, left=gap, right=acc)
+    for c, left, right in (("E", False, True), ("F", True, True), ("G", True, False)):
+        b = ws[f"{c}17"].border
+        ws[f"{c}17"].border = Border(top=b.top, bottom=b.bottom, left=gap if left else b.left,
+                                     right=gap if right else b.right)
+    # Goldkante des Primär-Buttons auf Medium (2 px) – auf Nachtblau sonst zu fein; Ghost-Buttons bleiben 1 px
+    g2 = side("medium", GOLD)
+    ws["E17"].border = Border(top=g2, bottom=g2, left=g2, right=gap)
 
-    for c in HERO_COLS:                                                 # Abschluss: Akzentlinie
-        ws[f"{c}19"].border = Border(bottom=side("thick", ACCENT))
+    for c in HERO_COLS:                                                 # Abschluss: Goldlinie (Hero-Linie, Runde 5)
+        ws[f"{c}19"].border = Border(bottom=side("thick", GOLD))
     heights(ws, {4: C.H_HDR[4], 5: 16, 6: 14, 7: 18, 8: 12, 9: 42, 10: 6, 11: 18, 12: 14, 13: 12, 14: 20, 15: 34,
                  16: 16, 17: C.H_BTN, 18: 12, 19: 10, 20: 12})
     logo(ws)
@@ -371,7 +374,7 @@ def created_for(ws):
 
 
 # ============================================================================ Kauf als – Entscheidungskarte
-SEL_LINE = "C9A94A"                    # dunkler Eingabe-Goldton: Rahmen der Pflichtauswahl (Eingabefamilie, P06)
+SEL_LINE = GOLD                        # Edel-Gold C9A14A: Rahmen der Pflichtauswahl (Eingabefamilie, P06, Runde 5)
 
 
 def selector(ws):
@@ -382,7 +385,7 @@ def selector(ws):
     unmerge_in(ws, "C", 21, "H", 22)
     C.section(ws, 21, "C", "G", "Kauf als – Privatperson oder Gesellschaft", meta="Pflichtauswahl")
     lab = ws["C23"]
-    lab.value = rich(("KAUF ALS", C.T_BODY, True, NAVY), ("\nPflichtfeld", C.T_MICRO, False, BLUE))
+    lab.value = rich(("KAUF ALS", C.T_BODY, True, NAVY), ("\nPflichtfeld", C.T_MICRO, False, MUTED))
     lab.font = font(C.T_BODY, True, NAVY)
     lab.alignment = align("left", "center", 1, wrap=True)
     lab.border = Border()
@@ -473,7 +476,7 @@ def flow(ws):
         r = 35 + i
         C.safe_merge(ws, "C", r, "D", r)
         a = ws[f"C{r}"]
-        a.value = rich((ETAPPE[i], C.T_H3, True, ACCENT), ("   " + title + "  ›", C.T_BODY, True, BLUE))
+        a.value = rich((ETAPPE[i], C.T_H3, True, C.GOLD_INK), ("   " + title + "  ›", C.T_BODY, True, BLUE))
         a.hyperlink = Hyperlink(ref=a.coordinate, location=C.link_loc(sheet, target), display=title,
                                 tooltip="Zur Auswahl „Kauf als“" if sheet == SHEET else f"Zum Blatt „{sheet}“")
         a.font = font(C.T_BODY, True, BLUE)
@@ -497,7 +500,7 @@ def legend_and_sheets(ws):
     wipe(ws, "C", 46, "H", 63)
     C.section(ws, 46, "C", "E", "Legende")
     C.section(ws, 46, "F", "G", "Alle Blätter", meta="Schritte S01–S12: siehe Leitfaden")
-    ws["E46"].border = Border(bottom=side("thin", ACCENT), right=side("thick", WHITE))
+    ws["E46"].border = Border(bottom=side("thin", LINE2), right=side("thick", WHITE))   # Unterlinie wie section()
     C.set_height(ws, 47, 6)
     gutter = side("thick", WHITE)                 # Rinne Legende | Alle Blätter (P26) – wie die Kachelrinnen
     top = 48

@@ -1,22 +1,27 @@
 """Rechenblätter Steuern, Projektion, Finanzierung, AfA-Vergleich (Agent D) – Runde 4: EINE Komponentensprache.
 
+Runde 5 („Midnight & Gold“): keine hart kodierten Hexwerte mehr (nur core-Tokens). Jahreskopf Nachtblau NAVY /
+NAVY_2 mit EINER Goldlinie als Abschluss, Kalenderjahre in SKY, 5-Jahres-Kanten im Kopf Stahlblau. Verkaufsjahr
+als helles Gold (GOLD_BG; Kreuzung mit Endsummen eine Stufe kräftiger), Legendenmarke Gold. Darlehen II: Status
+„nicht genutzt“ als ruhiger Hinweis rechts im Band statt im Titel.
+
 Runde 4 (letzte Runde): Kopfschablone mit Rücksprung/Objekt/„Erstellt für“ rechts (P2-03), Werkzeugzeile unter dem
-Jahreskopf („Eingaben dazu …“ links, Legende rechts), Verkaufsjahr C8D7EB im Kopf (P1-11), Fünfjahreslinie als linker
+Jahreskopf („Eingaben dazu …“ links, Legende rechts), Verkaufsjahr im Kopf hervorgehoben (P1-11), Fünfjahreslinie als linker
 Rahmen der Folgespalte, Nullwerte grau (P1-11), Summen-/Kennzahlstufen (P2-06), Abschnittslinks „↑ nach oben“ an der
 rechten Kante des Erstbildschirms (P3-08), Fußzeile Zurück · Übersicht · Weiter in Reiterfolge (P3-08),
 AfA-Kacheln 18/30/20 (P1-02), Feinschliff Steuern/AfA (P3-06, P3-07).
 
 Alle Bausteine kommen aus core.py (CORE_API.md):
   Seitenkopf     C.page_header (Überzeile „REITER  ›  BLATT“, H1 22 pt, Untertitel 10 pt) + Legende mit Marken ● ■
-  Abschnitte     C.section(level=1) – E7EEF7, Akzentkante, 12,5 pt Titelschreibung, Meta rechts 8 pt
-                 C.section(level=2) – Tabellenköpfe (EEF3FA, 8 pt Versalien)
+  Abschnitte     C.section(level=1) – TINT-Band, Goldkante, 12,5 pt Titelschreibung, Meta rechts 8 pt
+                 C.section(level=2) – Tabellenköpfe (HEAD, 8 pt Versalien)
   Summenstufen   C.sum_row('deduct' | 'sub' | 'final' | 'kpi' | 'kpi_band' | 'plain' | 'memo')  (P2-06)
   Kacheln        C.tile (calm, 18/30/20) · Einordnung C.callout_box                          (P1-02)
   Links          C.text_link „↑ nach oben“ · C.btn_row Zurück · Übersicht · Weiter           (P3-08)
   Formate        C.NUMFMT (pct1/pct2/years_n/status_dot …)                                   (P2-12)
   CF-Abschluss   C.cf_close                                                                  (LibreOffice-Einzug)
 Blattspezifisch: Jahreskopf (Navy/Blau), 5-Jahres-Raster, Verkaufsjahr-Spalte, Rot-Regel für Ergebniszeilen
-(P2-01), „entfällt“ = „–“ in 98A2B3 kursiv inkl. Beschriftung (P2-02), Exit-Zeile Jahr 0 (P2-19),
+(P2-01), „entfällt“ = „–“ in NEUTRAL_DASH kursiv inkl. Beschriftung (P2-02), Exit-Zeile Jahr 0 (P2-19),
 Gliederung auf Steuern (P3-04), gleichmäßiger Zeilenrhythmus 16 pt (P3-05).
 
 Nur Darstellung: keine Formel, auf die etwas verweist, wird verändert; neue Formeln sind reine Anzeigeformeln
@@ -35,12 +40,15 @@ from openpyxl.worksheet.properties import Outline
 
 import core as C
 from core import (ACCENT, AMBER, BLUE, GREEN, INK, INK2, LINE, LINE2, MUTED, NAVY, NOFILL, NUMFMT, RED,
-                  T_BODY, T_MICRO, T_SMALL, TINT, WHITE, align, fill, font, side)
+                  T_BODY, T_MICRO, T_SMALL, WHITE, align, fill, font, side)
 
 # ------------------------------------------------------------------------------------------------ Konstanten
 FIRST, LAST = 4, 43                 # Jahresspalten D … AQ (Jahr 1 … 40)
 GRID = (9, 14, 19, 24, 29, 34, 39)  # I, N, S, X, AC, AH, AM: linke Kante VOR Jahr 6, 11, … 36 (P1-11: Luft an den Zahlen)
-FADED = "98A2B3"                    # „entfällt“ / Nullwerte (P1-11, P2-02)
+FADED = C.NEUTRAL_DASH              # „entfällt“ / Nullwerte 9AA3AF (P1-11, P2-02)
+# Runde 5 (Midnight & Gold): Verkaufsjahr = helles Gold statt kühlem Blau; in Endsummen eine Stufe kräftiger
+HL = C.GOLD_BG                      # F6EFDF – Spalte Verkaufsjahr (Körper und Kopf)
+HL_SUM = C.mix(C.GOLD_BG, C.GOLD_LINE, 0.5)   # Kreuzung Verkaufsjahr × Endsumme (auf dem TINT-Band sichtbar)
 H_DATA, H_YEAR, H_GAP = 16, 20, C.H_GAP
 H_TOOL = 20                         # Werkzeugzeile unter dem Jahreskopf („Eingaben dazu …“ · Legende)
 YEAR_FMT = '"Jahr "0'
@@ -94,7 +102,7 @@ def _rule(ws, ref, formula, fnt=None, fil=None, numfmt=None, border=None):
     ws.conditional_formatting.add(ref, r)
 
 
-def cf_rules(ws, ref, rules, base, year_cond=None, year_fill=TINT):
+def cf_rules(ws, ref, rules, base, year_cond=None, year_fill=HL):
     """Regeln [(bedingung, Font, numfmt|None[, fill])] für einen Bereich, danach eine Auffangregel mit der Grundfarbe.
 
     - Mit year_cond steht vor jeder Regel eine Kombination (Regel + Verkaufsjahr-Fläche), damit die
@@ -114,17 +122,17 @@ def cf_rules(ws, ref, rules, base, year_cond=None, year_fill=TINT):
 
 
 def zero(row, first="D"):
-    """P1-11: Nullwerte („–“) grau 98A2B3, nicht fett – mit Vorrang vor Summen-/Negativregeln."""
+    """P1-11: Nullwerte („–“) grau NEUTRAL_DASH, nicht fett – mit Vorrang vor Summen-/Negativregeln."""
     return (f"AND(ISNUMBER({first}{row}),{first}{row}=0)", ZERO_FONT)
 
 
 def row_rules(ws, spec, year_cond):
     """Je Datenzeile EIN Regelsatz: [entfällt …] + Nullwert + [Negativ-Rot …] + Grundfarbe, jeweils mit Verkaufsjahr.
-    spec: {zeile: dict(base=Farbe, pre=[…], rules=[…], fill=TINT|MIST)}."""
+    spec: {zeile: dict(base=Farbe, pre=[…], rules=[…], fill=HL|HL_SUM)}."""
     for r, sp in spec.items():
         rules = list(sp.get("pre", [])) + [zero(r)] + list(sp.get("rules", []))
         cf_rules(ws, f"D{r}:AQ{r}", rules, Font(color=sp.get("base", INK)), year_cond,
-                 year_fill=sp.get("fill", TINT))
+                 year_fill=sp.get("fill", HL))
 
 
 def neg_rule(r, bold=None):
@@ -155,7 +163,7 @@ def _calibri(ws):
 
 def _band_link(ws, row, col=EDGE, text=UP, target_sheet=None, target_cell=None, tooltip=None):
     """P3-08: Abschnittslink rechtsbündig an der rechten Kante des Erstbildschirms (nie über Spalte C),
-    8,5 pt 1D4F8A regulär – „↑ nach oben“ (Blätter ohne Sprungleiste) bzw. „Eingaben dazu …  ›“."""
+    8,5 pt BLUE regulär – „↑ nach oben“ (Blätter ohne Sprungleiste) bzw. „Eingaben dazu …  ›“."""
     cell = ws[f"{col}{row}"]
     C.text_link(cell, text, target_sheet or ws.title, target_cell, size=C.T_LABEL, bold=False,
                 tooltip=tooltip or ("Zum Seitenanfang" if text == UP else None))
@@ -185,7 +193,7 @@ def header(ws, eyebrow, title, subtitle, edge=EDGE, back=None):
 
 
 def legend(*items, size=T_SMALL):
-    """Legende als Rich-Text: items = (text, marke|None, markenfarbe) – Marke ● / ■ in Farbe, Text 5B6068."""
+    """Legende als Rich-Text: items = (text, marke|None, markenfarbe) – Marke ● / ■ in Farbe, Text MUTED."""
     parts = []
     for i, (text, mark, color) in enumerate(items):
         if i:
@@ -197,12 +205,12 @@ def legend(*items, size=T_SMALL):
 
 
 def year_legend(*extra):
-    """Legende der Jahrestabellen (8,5 pt): Verkaufsjahr-Marke wie im Kopf (C8D7EB), Rot-Regel, Zusätze."""
-    return legend(("Verkaufsjahr", "■", C.MIST), ("negatives Ergebnis", "●", RED), *extra, size=C.T_LABEL)
+    """Legende der Jahrestabellen (8,5 pt): Verkaufsjahr-Marke Gold, Rot-Regel, Zusätze."""
+    return legend(("Verkaufsjahr", "■", C.GOLD), ("negatives Ergebnis", "●", RED), *extra, size=C.T_LABEL)
 
 
 def toolbar(ws, row, link_text, target, legend_rich):
-    """Werkzeugzeile direkt unter dem Jahreskopf: links „Eingaben dazu: Sxx …  ›“ (9 pt fett 1D4F8A, in den fixierten
+    """Werkzeugzeile direkt unter dem Jahreskopf: links „Eingaben dazu: Sxx …  ›“ (9 pt fett BLUE, in den fixierten
     Spalten), rechts bündig an der Kante des Erstbildschirms die Legende (8,5 pt)."""
     _clear_row(ws, row, 2, LAST)
     for c in C.iter_cells(ws, 2, row, LAST, row):
@@ -234,15 +242,16 @@ def year_head(ws, r_year, r_dup, r_cal):
     ws.cell(r_year, 3).value = None
     ws.row_dimensions[r_year].height = H_YEAR
     C.hide_rows(ws, r_dup, r_dup)
+    # Runde 5: zweite Nachtblau-Stufe + EINE Goldlinie als Abschluss des Kopfs (Kalenderjahre SKY, 8,0:1)
     for c in C.iter_cells(ws, 2, r_cal, LAST, r_cal):
-        c.fill = fill(BLUE)
-        c.border = Border(bottom=side("medium", ACCENT))
+        c.fill = fill(C.NAVY_2)
+        c.border = Border(bottom=side("medium", C.GOLD))
         if c.column >= FIRST:
             c.number_format = NUMFMT["year"]
-            c.font = font(T_SMALL, False, WHITE)
+            c.font = font(T_SMALL, False, C.SKY)
             c.alignment = align("right", "center", 1)
     C.set_text(ws.cell(r_cal, 2), "Kalenderjahr")
-    ws.cell(r_cal, 2).font = font(T_SMALL, False, WHITE)
+    ws.cell(r_cal, 2).font = font(T_SMALL, False, C.SKY)
     ws.cell(r_cal, 2).alignment = align("left", "center", 1)
     ws.row_dimensions[r_cal].height = H_YEAR
 
@@ -291,7 +300,7 @@ def data_row(ws, row, kind="data", fmt=NUM, label=None, unit=True):
     elif kind == "memo":
         C.memo(ws, row, 2, LAST)
         b.alignment = align("left", "center", 1)
-    elif kind == "info":          # P2-06: Nebeninfo 8,5 pt 98A2B3, ohne Rot-Regel
+    elif kind == "info":          # P2-06: Nebeninfo 8,5 pt NEUTRAL_DASH, ohne Rot-Regel
         for c in C.iter_cells(ws, 2, row, LAST, row):
             c.font = font(C.T_LABEL, False, FADED)
     elif kind == "memo_plain":    # nachrichtlich, aber lesbar (Break-even): 9 pt aufrecht 1A1D21
@@ -314,13 +323,15 @@ def gap(ws, row, h=H_GAP):
     ws.row_dimensions[row].height = h
 
 
-def grid(ws, rows):
-    """5-Jahres-Raster (P1-11): linke Kante thin D5D9DE an I, N, S, … – die Zahlen davor behalten ihren Einzug."""
+def grid(ws, rows, head=()):
+    """5-Jahres-Raster (P1-11): linke Kante thin LINE2 an I, N, S, … – die Zahlen davor behalten ihren Einzug.
+    Im Nachtblau-Jahreskopf (head) ist die Kante Stahlblau statt der warmen Hellinie (ruhiger auf Navy)."""
     for r in rows:
+        col = C.ACCENT if r in head else LINE2
         for cc in GRID:
             c = ws.cell(r, cc)
             b = c.border
-            c.border = Border(right=b.right, top=b.top, bottom=b.bottom, left=side("thin", LINE2))
+            c.border = Border(right=b.right, top=b.top, bottom=b.bottom, left=side("thin", col))
 
 
 def footer(ws, row, merge_to="M", line_to=LAST, old=None):
@@ -354,8 +365,8 @@ def nav_row(ws, row, cols):
 
 
 def year_marks(ws, head_ref, cond):
-    """Verkaufsjahr (P1-11): Kopf C8D7EB mit Schrift 0B2A4A fett (≈ 10:1); Tabellenspalte E7EEF7 (row_rules)."""
-    _rule(ws, head_ref, cond, Font(color=NAVY, bold=True), fill(C.MIST))
+    """Verkaufsjahr (P1-11, Runde 5): Kopf GOLD_BG mit Schrift NAVY fett (14:1); Tabellenspalte GOLD_BG (row_rules)."""
+    _rule(ws, head_ref, cond, Font(color=NAVY, bold=True), fill(HL))
     return cond
 
 
@@ -394,7 +405,7 @@ def projektion(ws):
     for r, text in ((8, "Jahr 0"), (10, "Kauf")):
         c = ws.cell(r, 3)
         C.set_text(c, text)
-        c.font = font(T_SMALL, r == 8, WHITE)
+        c.font = font(T_SMALL, r == 8, WHITE if r == 8 else C.SKY)
         c.alignment = align("right", "center", 1)
     toolbar(ws, 11, "Eingaben dazu: S11 Prognose & Exit  ›", "S11 Prognose & Exit",
             year_legend(("Steuer: + Zahlung / − Erstattung", None, None),
@@ -433,7 +444,7 @@ def projektion(ws):
     footer(ws, 53, old=51)
     nav_row(ws, 51, (("B", "B"), ("D", "G"), ("I", EDGE)))
     gap(ws, 52, H_GAP)
-    grid(ws, [8, 10] + [r for r, s in rows.items() if s[0] != "gap"])
+    grid(ws, [8, 10] + [r for r, s in rows.items() if s[0] != "gap"], head=(8, 10))
     ws.freeze_panes = "D11"
     # Bedingte Formatierung (nur Anzeige) – je Zeile: Nullwert grau, Negativ-Rot, Verkaufsjahr-Spalte
     ycond = year_marks(ws, "D8:AQ10", "D$9=Haltedauer")
@@ -441,10 +452,10 @@ def projektion(ws):
     for r in (15, 29, 33, 36, 37, 38, 43, 44, 49):
         spec[r]["rules"] = [neg_rule(r, True if r in (36, 43, 49) else None)]
     for r in (36, 43, 49):
-        spec[r]["fill"] = C.MIST
+        spec[r]["fill"] = HL_SUM
     row_rules(ws, spec, ycond)
     C.neg_red(ws, "C49")
-    _rule(ws, "D11:AQ49", ycond, None, fill(TINT))
+    _rule(ws, "D11:AQ49", ycond, None, fill(HL))
 
 
 # ------------------------------------------------------------------------------------------------ Finanzierung
@@ -458,7 +469,7 @@ def finanzierung(ws):
            "Tilgungsverlauf Darlehen I und II  ·  Annuitätendarlehen mit konstanter Rate", back="Dashboard")
     year_head(ws, 8, 9, 10)
     toolbar(ws, 11, "Eingaben dazu: S07 Finanzierung  ›", "S07 Finanzierung",
-            legend(("Verkaufsjahr", "■", C.MIST), ("Anschlusszins nach der Zinsbindung", "●", BLUE),
+            legend(("Verkaufsjahr", "■", C.GOLD), ("Anschlusszins nach der Zinsbindung", "●", BLUE),
                    ("– entfällt (getilgt bzw. nicht genutzt)", None, None), size=C.T_LABEL))
     rows = {
         12: ("band", "Darlehen I"),
@@ -466,7 +477,7 @@ def finanzierung(ws):
         17: ("data", "– Reguläre Tilgung"), 18: ("data", "– Sondertilgung"),
         19: ("final", "= Restschuld Jahresende"), 20: ("plain", KD_LABEL),
         21: ("gap",),
-        22: ("band", '="Darlehen II"&IF(Darlehen_II=0,"  ·  nicht genutzt","")'),
+        22: ("band", "Darlehen II"),
         23: ("data", None), 24: ("data", None), 25: ("data", None), 26: ("data", None),
         27: ("data", "– Reguläre Tilgung"), 28: ("data", "– Sondertilgung"),
         29: ("data", "– Tilgungszuschuss (KfW, kein Zahlungsabfluss)"),
@@ -487,39 +498,40 @@ def finanzierung(ws):
         ws.row_dimensions[r].hidden = d2 == 0
     ws.row_dimensions[32].collapsed = d2 == 0
     hint = ws.cell(22, _col("K"))
-    hint.value = ('=IF(Darlehen_II=0,"▸ ausgeblendet  ·  über das „+“ der Gliederung links einblenden",'
-                  '"▸ über die Gliederung links ein-/ausklappbar")')
+    # Runde 5: Status „nicht genutzt“ nicht mehr im 12,5-pt-Titel, sondern als ruhiger Hinweis rechts im Band
+    hint.value = ('=IF(Darlehen_II=0,"nicht genutzt  ·  Zeilen ausgeblendet – über das „+“ der Gliederung links '
+                  'einblenden","über die Gliederung links ein-/ausklappbar")')
     hint.font = font(C.T_LABEL, False, MUTED)
     hint.alignment = align("right", "center", 1)
     ws.sheet_format.outlineLevelRow = max(ws.sheet_format.outlineLevelRow or 0, 1)
     footer(ws, 44, old=42)
     nav_row(ws, 42, (("B", "B"), ("D", "G"), ("I", EDGE)))
     gap(ws, 43, H_GAP)
-    grid(ws, [8, 10] + [r for r, s in rows.items() if s[0] != "gap"])
+    grid(ws, [8, 10] + [r for r, s in rows.items() if s[0] != "gap"], head=(8, 10))
     ws.freeze_panes = "D11"
     ycond = year_marks(ws, "D8:AQ10", "D$9=Haltedauer")
     faded = Font(color=FADED, bold=False, italic=True)
     switch = Font(bold=True, color=BLUE)          # Zinswechsel nach der Zinsbindung
-    # P2-02/P43: entfallene Werte „–“ in 98A2B3 kursiv, nicht fett – Darlehen I nach Volltilgung (Z. 13–20),
+    # P2-02/P43: entfallene Werte „–“ in NEUTRAL_DASH kursiv, nicht fett – Darlehen I nach Volltilgung (Z. 13–20),
     # Summenblock nach Volltilgung (Z. 34–40), Darlehen II ungenutzt (Z. 23–31); sonst Nullwerte grau (P1-11)
     base = base_colors(rows)
     spec = {}
     for r in range(13, 21):
         spec[r] = {"base": base[r], "pre": [("D$13=0", faded, DASH_FMT)],
                    "rules": [("AND(ISNUMBER(C14),D14<>C14)", switch)] if r == 14 else [],
-                   "fill": C.MIST if r == 19 else TINT}
+                   "fill": HL_SUM if r == 19 else HL}
     for r in range(23, 32):
         pre = [("Darlehen_II=0", faded, DASH_FMT, fill(WHITE) if r == 30 else None)]
         spec[r] = {"base": base[r], "pre": pre,
                    "rules": [("AND(ISNUMBER(C24),D24<>C24)", switch)] if r == 24 else [],
-                   "fill": C.MIST if r == 30 else TINT}
+                   "fill": HL_SUM if r == 30 else HL}
     for r in range(34, 41):
-        spec[r] = {"base": base[r], "pre": [("D$34=0", faded, DASH_FMT)], "fill": C.MIST if r == 38 else TINT}
+        spec[r] = {"base": base[r], "pre": [("D$34=0", faded, DASH_FMT)], "fill": HL_SUM if r == 38 else HL}
     row_rules(ws, spec, ycond)
     # Beschriftung B:C der inaktiven Zeilen ebenso zurücknehmen (Summenzeilen dann weiß, nicht fett)
     _rule(ws, "B23:C29", "Darlehen_II=0", Font(color=FADED, bold=False, italic=True))
     _rule(ws, "B30:C31", "Darlehen_II=0", Font(color=FADED, bold=False, italic=True), fill(WHITE))
-    _rule(ws, "D11:AQ40", ycond, None, fill(TINT))
+    _rule(ws, "D11:AQ40", ycond, None, fill(HL))
 
 
 def _input_value(wb, name):
@@ -653,7 +665,7 @@ def steuern(ws):
         73: ("final", "= Steuer (+ Zahlung / − Erstattung)"), 74: ("memo", None),
     }
     render(ws, rows, {71: PCT2, 72: PCT2})
-    grid(ws, [40, 42] + [r for r, s in rows.items() if s[0] != "gap"])
+    grid(ws, [40, 42] + [r for r, s in rows.items() if s[0] != "gap"], head=(40, 42))
     gap(ws, 75, H_GAP)
     C.hide_rows(ws, 76, 76)
     # ---- Exit-Block
@@ -703,10 +715,10 @@ def steuern(ws):
     spec[67]["rules"] = [neg_rule(67)]
     spec[69]["rules"] = [neg_rule(69)]
     # Z. 73: Steuer-Sicht laut Beschriftung – negative Werte (Erstattung) bewusst NICHT rot (P07)
-    spec[73]["fill"] = C.MIST
+    spec[73]["fill"] = HL_SUM
     row_rules(ws, spec, ycond)
     _rule(ws, "B71:C71", "Rechtsform_Idx=1", faded)
-    _rule(ws, "D43:AQ74", ycond, None, fill(TINT))
+    _rule(ws, "D43:AQ74", ycond, None, fill(HL))
     # Exit-Block: negative Ergebnisse rot (P2-01, C92 kumulierter Cashflow)
     C.neg_red(ws, "C92")
     # Nullwerte im Parameter-/Exit-Block grau (P1-11), außer Ja/Nein-Feldern

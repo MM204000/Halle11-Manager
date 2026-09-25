@@ -26,6 +26,13 @@ eine einzelne E6CB77-Kante und der Zustand „überschreibbar“ FFF9EA), dropdo
 als Hinweis direkt darunter), link_tooltip (P3-17, jeder Zell-Link hat einen ScreenTip), druck_umbruch (fitToPage und
 manuelle Umbrüche schließen sich aus), minus_text (Bindestrich-Minus in Textverkettungen). button_hoehe akzeptiert in
 gemischten Reihen die größte Soll-Höhe; kpi_statusfarbe erkennt „●“ und „▲“ als Statuswort.
+Runde 5 (Farbdesign „Midnight & Gold“, DECISIONS „Nutzerentscheidung Runde 5“): altfarbe (kein int7-Hexwert aus
+core.OLD_TO_NEW in Zellflächen/-schriften/-rahmen, bedingten Formaten, Datenbalken, Formen und Registerfarben; je Blatt,
+Farbe und Ort gebündelt), gold_text (Gold nie als lesbarer Text unter 16 pt oder auf hellem Grund – Farbmuster „■“ und
+Linien sind erlaubt, Text in Bronze C.GOLD_INK), kontrast (WCAG über C.contrast: Fließtext ≥ 4,5:1, ab 18 pt bzw.
+14 pt fett ≥ 3:1; reine Symbol-/Legendenzeichen und der inaktive Zustand MUTED2 auf INACTIVE_BG ausgenommen; je Zeile
+gebündelt), diagramm_altfarbe, diagramm_einfarbig (≥ 3 sichtbare Serien/Kreissegmente in einer Farbe; Hilfsreihen nach
+core._CHART_HELPER zählen nicht) und diagramm_textfarbe (Werte-/Achsentexte nie in einer CHART_CAT-Serienfarbe).
 Selbsttest (python excel/lint_pro.py --selftest) prüft jede Regel und als Gegenprobe, dass core.tile/callout_box/btn
 keinen Befund auslösen.
 
@@ -60,7 +67,7 @@ RULES = {
     "schrift_min":     (FEHLER, "Zellschrift unter 8 pt"),
     "form_schrift_min": (FEHLER, "Formschrift unter 7 pt"),
     "diagramm_schrift": (WARNUNG, "Diagrammschrift unter 7 pt"),
-    "grau_klein":      (FEHLER, "Text ≤ 9 pt in 8A9099 (Sekundärtext bis 9 pt nur in 5B6068)"),
+    "grau_klein":      (FEHLER, f"Text ≤ 9 pt in {core.MUTED2} (Sekundärtext bis 9 pt nur in C.MUTED {core.MUTED})"),
     "schriftart":      (FEHLER, "Schriftart außerhalb {Calibri, Calibri Light} (Zellen, dxf, Formen, Diagramme)"),
     "schriftart_leer": (WARNUNG, "leere Eingabe-/Tabellenzelle mit fremder Schriftart (wird beim Tippen sichtbar)"),
     "text_ueberlauf":  (FEHLER, "Text breiter als die Zelle und Nachbarzelle belegt (abgeschnitten)"),
@@ -97,11 +104,18 @@ RULES = {
     "neg_rot":         (WARNUNG, "Negative Summe/Endsumme (core.sum_row) ohne Negativ-Rot (P15)"),
     "button_hoehe":    (WARNUNG, "Button-Zeile weicht von der Button-Höhe core.BTN ab (Runde 4: alle Typen 25,5 pt; gemischte Reihe: größte Höhe – P1-03)"),
     # Runde 4 (review4 P1-04, P3-17, Themen „Farbsemantik“, „Druck“, „Formatbibliothek“)
-    "eingabe_gelb":    (FEHLER, "Eingabe-Gelb FFF5D6 bzw. Eingaberahmen E6CB77 auf Formel- oder Link-Zelle (Gelb nur für echte Eingaben; Links/Chips E7EEF7, überschreibbar = FFF9EA – P1-04)"),
+    "eingabe_gelb":    (FEHLER, "Eingabe-Gelb FFF5D6 bzw. Eingaberahmen E6CB77 auf Formel- oder Link-Zelle (Gelb nur für echte Eingaben; Links/Chips C.ICE, überschreibbar = C.NOTE_BG – P1-04)"),
     "dropdown_zeichen": (FEHLER, "„▾“ an einer Zelle ohne Datenüberprüfung (▾ nur an Auswahllisten bzw. als Hinweis direkt darunter – P1-04)"),
     "link_tooltip":    (FEHLER, "Zell-Link ohne ScreenTip (hyperlink.tooltip leer; core.patch_tooltips nach der Neuberechnung – P3-17)"),
     "druck_umbruch":   (FEHLER, "„Anpassen an“ (fitToPage) zusammen mit manuellen Seitenumbrüchen – Excel ignoriert die Umbrüche"),
     "minus_text":      (WARNUNG, "Text/Textverkettung zeigt negative Zahl mit Bindestrich „-12“ statt „−12“ (C.minus_text / C.fixed_m)"),
+    # Runde 5 (Farbdesign „Midnight & Gold“, DECISIONS „Nutzerentscheidung Runde 5“, CORE_API Runde 5)
+    "altfarbe":        (FEHLER, "Alt-Farbe aus int7 (core.OLD_TO_NEW) in Zellstil, bedingtem Format, Form oder Registerfarbe – Token verwenden"),
+    "gold_text":       (FEHLER, "Gold als Textfarbe unter 16 pt oder auf hellem Grund (Gold nur Linie/Kante/Fläche; Text in Bronze C.GOLD_INK)"),
+    "kontrast":        (WARNUNG, "Textkontrast gegen die Zellfläche unter WCAG (Fließtext < 4,5:1, große Schrift < 3:1 – C.contrast)"),
+    "diagramm_altfarbe": (WARNUNG, "Diagramm mit Alt-Farbe aus int7 (Blau-/Grauwerte) statt C.chart_color / C.CHART_CAT"),
+    "diagramm_einfarbig": (WARNUNG, "Diagramm mit ≥ 3 sichtbaren Serien bzw. Kreissegmenten in nur einer Farbe (Runde 5: mehrfarbig nach Semantik)"),
+    "diagramm_textfarbe": (WARNUNG, "Werte-/Achsen-/Legendentext in einer Serienfarbe (C.CHART_CAT) statt C.CHART_TEXT / CHART_TEXT2"),
 }
 
 # Bewusste Ausnahmen: (Blatt, Zelle oder Bereich oder "*", Regel) → Begründung
@@ -137,6 +151,20 @@ for _k, _v in getattr(core, "BTN", {}).items():
 ERROR_VALUES = ("#DIV/0!", "#N/A", "#NV", "#NAME?", "#NULL!", "#NUM!", "#REF!", "#VALUE!", "#WERT!", "#BEZUG!",
                 "#ZAHL!", "#NAME", "#GETTING_DATA", "Err:", "#SPILL!", "#CALC!")
 MUTED2 = core.MUTED2.upper()
+# Runde 5: Farbdesign „Midnight & Gold“
+OLD_COLORS = {k.upper(): v.upper() for k, v in getattr(core, "OLD_TO_NEW", {}).items()}
+TOKEN_NAME = {}
+for _n in ("NAVY", "NAVY_2", "BLUE", "ACCENT", "GOLD", "GOLD_BG", "GOLD_LINE", "GOLD_INK", "SKY", "MIST", "ICE", "TINT",
+           "TINT_XL", "HEAD", "INK", "INK2", "MUTED", "MUTED2", "LINE", "LINE2", "LINE_SUB", "INACTIVE_BG",
+           "NEUTRAL_DASH"):
+    if isinstance(getattr(core, _n, None), str):
+        TOKEN_NAME.setdefault(getattr(core, _n).upper(), _n)
+GOLD_TEXT = {getattr(core, "GOLD", "C9A14A").upper(), "C9A94A", "C6A45C"}         # Edel-Gold (+ Alt-Gold)
+GOLD_TEXT_OK_BG = {core.NAVY.upper(), getattr(core, "NAVY_2", core.NAVY).upper()}   # Gold-Text nur ≥ 16 pt auf Navy
+SERIES_COLORS = {x.upper() for x in getattr(core, "CHART_CAT", ())}
+WHITE = "FFFFFF"
+INACTIVE_BG = getattr(core, "INACTIVE_BG", "F2F1ED").upper()
+SYMBOL_RE = re.compile(r"[^\W_]")          # Buchstabe oder Ziffer: Lauf ist lesbarer Text (sonst Farbmuster/Symbol)
 SEPARATORS = " \u00a0·|–—/•›‹"     # reine Trennzeichen-Läufe dürfen 8A9099 sein (Rich-Text-Trenner)
 
 # Zeilenraster (pt): EINE Quelle – core.ROW_RASTER (Tokens inkl. H_PILL + Umbruchhöhen n × 13 + 8 / n × 13 + 10)
@@ -582,6 +610,7 @@ class Linter:
         self.skip = set(skip)
         self.found = []
         self.minus_cells = []     # (Blatt, Zelle, Format, Anzeige) – je Blatt und Format gebündelt gemeldet
+        self.old_colors = defaultdict(list)   # (Blatt, Alt-Hex, Ort) → [Zellen] – gebündelt gemeldet (altfarbe)
         self.geo = {}
         self.merged = {}
         self.names = {}
@@ -653,7 +682,9 @@ class Linter:
             self.check_drawing(ws, wv)
             self.check_nav(ws)
             self.check_neg(ws, wv)
+            self.check_colors(ws, wv)
         self.report_minus()
+        self.report_old_colors()
         if not self.only:
             self.check_dxf()
             self.check_theme()
@@ -1202,6 +1233,117 @@ class Linter:
                     continue
                 self.add(ws.title, c.coordinate, "dropdown_zeichen", f"„{short(v, 36)}“ ohne Datenüberprüfung")
 
+    # ------------------------------------------------------------------ Runde 5: Farbdesign „Midnight & Gold“
+    def note_old(self, sheet, hexv, where, ref):
+        if hexv and hexv in OLD_COLORS:
+            self.old_colors[(sheet, hexv, where)].append(ref)
+
+    def check_colors(self, ws, wv):
+        """Runde 5 (DECISIONS „Nutzerentscheidung Runde 5“): keine Alt-Hexwerte aus int7 (core.OLD_TO_NEW) in Zellstilen,
+        bedingten Formaten und der Registerfarbe (altfarbe, je Blatt/Farbe/Ort gebündelt); Gold nie als Text unter 16 pt
+        oder auf hellem Grund (gold_text); WCAG-Kontrast Text/Fläche (kontrast: < 4,5:1, ab 18 pt bzw. 14 pt fett < 3:1).
+        Leere Zellen zählen für altfarbe mit (Flächen und Rahmen sind sichtbar), ausgeblendete Zeilen/Spalten nicht."""
+        geo = self.g(ws)
+        _, inner = self.merges(ws)
+        title = ws.title
+        low = defaultdict(list)      # kontrast je Zeile/Farbe gebündelt
+        tab = ws.sheet_properties.tabColor if ws.sheet_properties is not None else None
+        self.note_old(title, rgb_of(tab), "Registerfarbe", "-")
+        for (r, col), c in sorted(ws._cells.items()):
+            if geo.row_hidden(r) or geo.col_hidden(col):
+                continue
+            ref = c.coordinate
+            fl = c.fill
+            bg = WHITE
+            if fl is not None and fl.fill_type == "solid":
+                bg = rgb_of(fl.fgColor)
+                self.note_old(title, bg, "Fläche", ref)
+            elif fl is not None and fl.fill_type not in (None, "none"):
+                bg = None                       # Muster/Verlauf: Kontrast nicht bestimmbar
+            bd = c.border
+            if bd is not None:
+                for sd in (bd.left, bd.right, bd.top, bd.bottom):
+                    if sd is not None and sd.style:
+                        self.note_old(title, rgb_of(sd.color), "Rahmen", ref)
+            f = c.font
+            fcol = rgb_of(f.color) if f is not None and f.color is not None else None
+            if (col, r) in inner or is_empty(c.value):
+                continue
+            v = wv.cell(r, col).value if c.data_type == "f" else c.value
+            if is_empty(v):
+                continue
+            base_sz = float(f.sz or 11) if f is not None else 11.0
+            base_b = bool(f.b) if f is not None else False
+            runs = []           # (text, pt, fett, farbe | "theme")
+            if isinstance(c.value, CellRichText) and c.data_type != "f":
+                for blk in c.value:
+                    if isinstance(blk, TextBlock):
+                        ft = blk.font
+                        runs.append((blk.text, float(ft.sz or base_sz),
+                                     bool(ft.b) if ft.b is not None else base_b,
+                                     (rgb_of(ft.color) or "theme") if ft.color is not None else (fcol or "000000")))
+                    else:
+                        runs.append((str(blk), base_sz, base_b, fcol or ("theme" if f is not None and f.color is not None else "000000")))
+            else:
+                runs.append((str(v), base_sz, base_b,
+                             fcol or ("theme" if f is not None and f.color is not None else "000000")))
+            for text, sz, bold, fg in runs:
+                if not text.strip() or fg == "theme":
+                    continue
+                self.note_old(title, fg, "Schrift", ref)
+                if not SYMBOL_RE.search(text):
+                    continue         # reines Zeichen (■ ━ ● ◌ – –): Farbmuster/Legendenmarke, keine Schrift zum Lesen
+                if fg in GOLD_TEXT and (sz < KPI_BIG_PT or bg not in GOLD_TEXT_OK_BG):
+                    self.add(title, ref, "gold_text",
+                             f"Gold {fg} als Schrift {sz:g} pt auf {bg or 'Muster'}: „{short(text, 28)}“ (Text → C.GOLD_INK)")
+                    continue
+                if bg is None or not self.in_print(ws, col, r) or (fg == MUTED2 and bg == INACTIVE_BG):
+                    continue         # inaktiver Zustand (WCAG 1.4.3: deaktivierte Bedienelemente ausgenommen)
+                cr = core.contrast(fg, bg)
+                large = sz >= 18 or (bold and sz >= 14)
+                need = 3.0 if large else 4.5
+                if cr < need - 0.005:
+                    shown = text if isinstance(v, str) or isinstance(c.value, CellRichText) else \
+                        self.display_text(c, wv.cell(r, col))[0] or text
+                    low[(r, fg, bg, sz, bold)].append((ref, shown, cr, need))
+        for (r, fg, bg, sz, bold), items in sorted(low.items(), key=lambda x: (x[0][0], x[1][0][0])):
+            ref0, shown, cr, need = items[0]
+            rng = ref0 if len(items) == 1 else f"{ref0}:{items[-1][0]}"
+            more = f" (+{len(items) - 1} Zellen)" if len(items) > 1 else ""
+            self.add(title, rng, "kontrast",
+                     f"{fg} auf {bg}: {cr:.2f}:1 (< {need:g}:1) bei {sz:g} pt{' fett' if bold else ''}: „{short(shown, 28)}“{more}")
+        # bedingte Formate (dxf je Regel): Schrift, Fläche, Rahmen
+        for cf in ws.conditional_formatting:
+            ref = str(cf.sqref).split(" ")[0]
+            for rule in cf.rules:
+                d = rule.dxf
+                if d is None:
+                    continue
+                if d.font is not None and d.font.color is not None:
+                    self.note_old(title, rgb_of(d.font.color), "bedingte Schrift", ref)
+                if d.fill is not None:
+                    for x in (d.fill.bgColor, d.fill.fgColor):
+                        self.note_old(title, rgb_of(x), "bedingte Fläche", ref)
+                if d.border is not None:
+                    for sd in (d.border.left, d.border.right, d.border.top, d.border.bottom):
+                        if sd is not None and sd.style:
+                            self.note_old(title, rgb_of(sd.color), "bedingter Rahmen", ref)
+            for rule in cf.rules:          # Datenbalken/Farbskalen
+                for obj in (getattr(rule, "dataBar", None), getattr(rule, "colorScale", None)):
+                    if obj is None:
+                        continue
+                    for colr in (getattr(obj, "color", None) or []) if isinstance(getattr(obj, "color", None), list) \
+                            else [getattr(obj, "color", None)]:
+                        self.note_old(title, rgb_of(colr), "Datenbalken/Farbskala", ref)
+
+    def report_old_colors(self):
+        """altfarbe gebündelt: je Blatt, Alt-Hex und Ort eine Zeile mit Zellanzahl und Beispielen."""
+        for (sheet, hexv, where), refs in sorted(self.old_colors.items()):
+            new = OLD_COLORS.get(hexv, "?")
+            tok = TOKEN_NAME.get(new, "Token")
+            ex = ", ".join(refs[:3]) + (f" … (+{len(refs) - 3})" if len(refs) > 3 else "")
+            self.add(sheet, refs[0], "altfarbe", f"{where} {hexv} → C.{tok} {new}: {len(refs)}× ({ex})")
+
     # ------------------------------------------------------------------ Zeichnungen (Formen, Diagramme)
     def check_drawing(self, ws, wv):
         part = self.pkg.drawing_of(ws.title)
@@ -1248,6 +1390,7 @@ class Linter:
                     if tf and not tf.startswith("+") and tf not in ALLOWED_FONTS:
                         self.add(title, ref, "schriftart", f"{label}: „{tf}“")
             if chart is None:
+                self.check_shape_colors(title, ref, name, el)
                 txt = "".join(t.text or "" for t in el.iter("{%s}t" % NS["a"]))
                 emo = EMOJI_RE.findall(txt)
                 if emo:
@@ -1296,6 +1439,103 @@ class Linter:
                     self.add(title, ref, "diagramm_rand",
                              f"„{name}“ endet bei {x1:.0f}/{y1:.0f} px, Druckbereich bis {geo.x(pc2 + 1):.0f}/{geo.y(pr2 + 1):.0f} px")
 
+    def check_shape_colors(self, sheet, ref, name, el):
+        """Runde 5: Alt-Hexwerte in Formen (Füllung, Linie, Text) → altfarbe; Gold-Text in Formen nur ≥ 16 pt auf Navy."""
+        a = "{%s}" % NS["a"]
+        for clr in el.iter(a + "srgbClr"):
+            self.note_old(sheet, (clr.get("val") or "").upper(), f"Form „{name}“", ref)
+        for sp in el.iter():
+            if sp.tag.split("}")[1] not in ("sp", "cxnSp"):
+                continue
+            sppr = sp.find("xdr:spPr", NS)
+            fill = sppr.find("a:solidFill/a:srgbClr", NS) if sppr is not None else None
+            bg = (fill.get("val") or "").upper() if fill is not None else None
+            for rpr in sp.iter():
+                if rpr.tag.split("}")[1] not in ("rPr", "defRPr", "endParaRPr"):
+                    continue
+                c = rpr.find("a:solidFill/a:srgbClr", NS)
+                if c is None or (c.get("val") or "").upper() not in GOLD_TEXT:
+                    continue
+                sz = int(rpr.get("sz") or 1100) / 100
+                if rpr.tag.endswith("endParaRPr"):
+                    continue
+                if sz < KPI_BIG_PT or bg not in GOLD_TEXT_OK_BG:
+                    self.add(sheet, ref, "gold_text", f"Form „{name}“: Gold-Text {sz:g} pt auf {bg or 'ohne Fläche'}")
+                    break
+
+    @staticmethod
+    def helper_series(ser):
+        """Hilfsreihe (Wasserfall-Basis, Verbindungslinien …) nach core._CHART_HELPER – bleibt unsichtbar/neutral."""
+        v = ser.find("c:tx//c:v", NS)
+        nm = (v.text or "") if v is not None else ""
+        rx, key = getattr(core, "_CHART_HELPER", None), getattr(core, "_chart_key", None)
+        if not nm or rx is None or key is None:
+            return False
+        try:
+            return bool(rx.search(key(nm)))
+        except Exception:
+            return False
+
+    def check_chart_colors(self, sheet, ref, name, root):
+        """Runde 5: Diagramme mehrfarbig nach C.CHART_SEMANTIC – keine int7-Altfarben, ≥ 3 sichtbare Serien bzw.
+        Kreissegmente nicht einfarbig, Werte-/Achsentexte nicht in Serienfarbe."""
+        c_, a_ = "{%s}" % NS["c"], "{%s}" % NS["a"]
+        old = sorted({(x.get("val") or "").upper() for x in root.iter(a_ + "srgbClr")} & set(OLD_COLORS))
+        if old:
+            self.add(sheet, ref, "diagramm_altfarbe", f"„{name}“: {', '.join(old[:5])}{' …' if len(old) > 5 else ''}")
+
+        def color_of(sppr, line=False):
+            if sppr is None:
+                return None
+            if not line:
+                if sppr.find("a:noFill", NS) is not None:
+                    return "none"
+                x = sppr.find("a:solidFill/a:srgbClr", NS)
+                if x is not None:
+                    return (x.get("val") or "").upper()
+            ln = sppr.find("a:ln", NS)
+            if ln is not None:
+                if ln.find("a:noFill", NS) is not None:
+                    return "none"
+                x = ln.find("a:solidFill/a:srgbClr", NS)
+                if x is not None:
+                    return (x.get("val") or "").upper()
+            return None
+
+        for plot in root.iter(c_ + "plotArea"):
+            for grp in plot:
+                kind = grp.tag.split("}")[1]
+                if not kind.endswith("Chart"):
+                    continue
+                line = kind in ("lineChart", "scatterChart", "radarChart")
+                sers = grp.findall("c:ser", NS)
+                pie = kind in ("pieChart", "pie3DChart", "doughnutChart", "ofPieChart")
+                if pie:
+                    for ser in sers:
+                        cols = [color_of(dp.find("c:spPr", NS)) for dp in ser.findall("c:dPt", NS)]
+                        cols = [x for x in cols if x and x != "none"]
+                        if len(cols) >= 3 and len(set(cols)) == 1:
+                            self.add(sheet, ref, "diagramm_einfarbig",
+                                     f"„{name}“: {len(cols)} Kreissegmente alle {cols[0]} (C.chart_palette)")
+                    continue
+                cols = [color_of(ser.find("c:spPr", NS), line) for ser in sers if not self.helper_series(ser)]
+                cols = [x for x in cols if x and x != "none"]
+                if len(cols) >= 3 and len(set(cols)) == 1:
+                    self.add(sheet, ref, "diagramm_einfarbig",
+                             f"„{name}“ ({kind}): {len(cols)} Serien alle {cols[0]} (C.chart_color je Serie)")
+        bad = set()
+        for tx in root.iter():
+            if tx.tag.split("}")[1] not in ("txPr", "rich"):
+                continue
+            for rpr in tx.iter():
+                if rpr.tag.split("}")[1] not in ("defRPr", "rPr"):
+                    continue
+                x = rpr.find("a:solidFill/a:srgbClr", NS)
+                if x is not None and (x.get("val") or "").upper() in SERIES_COLORS:
+                    bad.add((x.get("val") or "").upper())
+        if bad:
+            self.add(sheet, ref, "diagramm_textfarbe", f"„{name}“: Text in {', '.join(sorted(bad))} (C.CHART_TEXT/CHART_TEXT2)")
+
     def check_chart_part(self, sheet, ref, name, part):
         if not part:
             self.add(sheet, ref, "link_ziel", f"Diagramm „{name}“: Diagrammteil fehlt")
@@ -1305,6 +1545,7 @@ class Linter:
             self.add(sheet, ref, "link_ziel", f"Diagramm „{name}“: {part} fehlt")
             return
         root = ET.fromstring(data)
+        self.check_chart_colors(sheet, ref, name, root)
         bad_fonts, small, minus = set(), set(), set()
         for el in root.iter():
             t = el.tag.split("}")[1]
@@ -1592,6 +1833,26 @@ def selftest():
     ws.sheet_properties.pageSetUpPr.fitToPage = True                                  # druck_umbruch
     ws.page_setup.fitToWidth, ws.page_setup.fitToHeight = 1, 0
     ws.row_breaks.append(Break(id=30))
+    # Runde 5: altfarbe, gold_text, kontrast, diagramm_altfarbe/einfarbig/textfarbe
+    from openpyxl.chart.text import RichText
+    from openpyxl.drawing.text import CharacterProperties, Paragraph, ParagraphProperties
+    from openpyxl.styles import PatternFill
+    old_hex = next(iter(core.OLD_TO_NEW))
+    ws["F46"], ws["F46"].fill = "Altfarbe", PatternFill("solid", fgColor=old_hex)   # altfarbe (Fläche int7)
+    ws["F46"].font = Font(name="Calibri", sz=10, color=core.WHITE)
+    ws["F47"], ws["F47"].font = "Gold-Text", Font(name="Calibri", sz=10, color=core.GOLD)   # gold_text
+    ws["F48"], ws["F48"].font = "blass", Font(name="Calibri", sz=10, color="C8C8C8")        # kontrast
+    for i in range(12, 20):
+        for k in (2, 3):
+            ws.cell(i, k, i * k)
+    ch2 = BarChart()
+    ch2.add_data(Reference(ws, min_col=1, max_col=3, min_row=12, max_row=19))
+    for ser in ch2.series:
+        ser.graphicalProperties.solidFill = old_hex                                   # einfarbig + Altfarbe
+    ch2.dataLabels = None
+    ch2.x_axis.txPr = RichText(p=[Paragraph(pPr=ParagraphProperties(
+        defRPr=CharacterProperties(sz=900, solidFill=core.CHART_CAT[0])), endParaRPr=CharacterProperties())])
+    ws.add_chart(ch2, "N40")                                                           # Achsentext in Serienfarbe
     # Gegenprobe: neue Bausteine dürfen keine Befunde auslösen (Kachel mit Chip, Callout mit Texthöhe)
     ok = wb.create_sheet("OK")
     for c in "BCDEFGH":
@@ -1621,6 +1882,10 @@ def selftest():
     ok["B22"], ok["C22"] = "= Cashflow", -300
     ok["C22"].number_format = core.NUMFMT["eur"]
     core.sum_row(ok, 22, "B", "C", stage="final")                                     # neg_red automatisch: kein Befund
+    ok["H24"], ok["H24"].font = "■", Font(name="Calibri", sz=10, color=core.GOLD)   # Farbmuster (Legende): kein Befund
+    ok["H25"], ok["H25"].font = "LEITFADEN › SCHRITT 01", Font(name="Calibri", sz=8.5, bold=True, color=core.GOLD_INK)
+    ok["H26"], ok["H26"].font = "inaktiv", Font(name="Calibri", sz=10, color=core.MUTED2)
+    ok["H26"].fill = PatternFill("solid", fgColor=core.INACTIVE_BG)                      # inaktiver Zustand: kein Befund
     ok.page_setup.paperSize = 9
     ok.print_area = "A1:M40"
     tmp = os.path.join(tempfile.mkdtemp(prefix="lint_selftest_"), "t.xlsx")
@@ -1632,7 +1897,8 @@ def selftest():
             "gueltigkeit", "link_ziel", "umbruch_hoehe", "zeile_zu_niedrig",
             "typo_skala", "emoji", "kpi_statusfarbe", "status_flaeche", "button_hoehe",
             "nav_rueckweg", "formel_text", "minus_typo", "neg_rot",
-            "eingabe_gelb", "dropdown_zeichen", "link_tooltip", "druck_umbruch", "minus_text"}
+            "eingabe_gelb", "dropdown_zeichen", "link_tooltip", "druck_umbruch", "minus_text",
+            "altfarbe", "gold_text", "kontrast", "diagramm_altfarbe", "diagramm_einfarbig", "diagramm_textfarbe"}
     missing = want - got
     false_pos = [f"{f['ref']} {f['rule']}: {f['msg']}" for f in found if f["sheet"] == "OK"]
     print("Selbsttest:", "OK" if not missing else f"FEHLT {sorted(missing)}", f"({len(want)} Regeln)")

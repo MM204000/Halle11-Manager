@@ -9,7 +9,7 @@ from openpyxl.styles import Border
 
 from openpyxl.utils import column_index_from_string, get_column_letter
 
-from core import ACCENT, CONTENT_EDGE, H_GAP, NAVY, NOFILL, col_px, fill
+from core import CONTENT_EDGE, GOLD, H_GAP, NAVY, NOFILL, col_px, fill
 
 # Runde 4 (P1-08): Die Reiterleiste hat auf allen Blättern dieselbe feste Pixelgeometrie (navigation.NAV_X …
 # NAV_END); das Navy-Band reicht bis navigation.BAND_END (rechts derselbe Innenabstand wie links), bei etwas
@@ -43,7 +43,7 @@ def band_end_col(ws):
 
 
 def masthead(ws):
-    """Kopfleiste als Farbfläche: Z. 1 (6 pt) und 2 (33 pt) Navy, Z. 3 (3 pt) Akzentlinie. Endet nach dem
+    """Kopfleiste als Farbfläche: Z. 1 (6 pt) und 2 (33 pt) Navy, Z. 3 (3 pt) Goldlinie (Runde 5). Endet nach dem
     Zuschnitt (navigation.trim_band) an der Bandkante (navigation.Frame.band); dahinter bleibt die Kopfzone weiß."""
     for mr in list(ws.merged_cells.ranges):
         if mr.min_row <= 2 <= mr.max_row:
@@ -57,7 +57,7 @@ def masthead(ws):
         ws.row_dimensions[r].height = h
         for cc in range(1, max(last_col, ws.max_column) + 1):
             c = ws.cell(r, cc)
-            c.fill = fill(ACCENT if r == 3 else NAVY) if cc <= last_col else NOFILL
+            c.fill = fill(GOLD if r == 3 else NAVY) if cc <= last_col else NOFILL
             c.border = Border()
 
 

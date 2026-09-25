@@ -460,10 +460,11 @@ def _form_header(ws):
         cell.hyperlink = None
     _made_for(ws["M6"])
     lg = ws["M7"]
-    lg.value = C.rich([("■ ", C.T_LABEL, True, C.INPUT_LINE), ("Eingabe", C.T_LABEL, False, C.MUTED),
+    # Runde 5: Legende nur als Text (Gold-/Gelb-Glyphen auf Weiß erreichen keinen Textkontrast), Schlüsselwörter fett
+    lg.value = C.rich([("Gelbe Felder", C.T_LABEL, True, C.INK2), (" = Eingabe", C.T_LABEL, False, C.MUTED),
                        ("   ·   ", C.T_LABEL, False, C.MUTED),
-                       ("□ ", C.T_LABEL, True, C.INPUT_LINE),
-                       ("gestrichelt = aus Kalkulation, überschreibbar", C.T_LABEL, False, C.MUTED)])
+                       ("gestrichelt", C.T_LABEL, True, C.INK2),
+                       (" = aus der Kalkulation, überschreibbar", C.T_LABEL, False, C.MUTED)])
     lg.font = C.font(C.T_LABEL, False, C.MUTED)
     lg.alignment = C.align("right", "top")
 

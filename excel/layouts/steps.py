@@ -417,6 +417,238 @@ def variants(expr, ref_chars=7):
     return ["0" * ref_chars]
 
 
+# ---------------------------------------------------------------------------- Innenabstand rechts für Formeltexte
+# Runde 5: Excel kennt bei linksbündigem Text keinen Einzug rechts – Formeltexte der Einordnungs-Boxen liefen deshalb
+# bis an die rechte Boxkante. Die Anzeigeformel wird so umgebaut, dass jeder Zweig feste Umbrüche („\n“ im
+# Textliteral) auf Boxbreite − Einzug links − Innenabstand rechts bekommt. Dynamische Teile (FIXED, Namen) werden mit
+# einer eher zu breiten Stellvertreterzahl bemessen – echte Werte sind höchstens schmaler, Excel bricht dann nie
+# zusätzlich um. IF-Zweige innerhalb einer Verkettung werden dafür ausmultipliziert (A&IF(c,x,y)&B →
+# IF(c,A&x&B,A&y&B), anzeigegleich). Nur für nicht referenzierte Anzeigeformeln.
+_FN_RE = re.compile(r"(IFERROR|IF)\((.*)\)", re.S)
+
+
+class _FN:   # noqa: N801 – wie ein re-Muster benutzt: fullmatch nur, wenn die erste Klammer am Ende schließt
+    @staticmethod
+    def fullmatch(expr):
+        m = _FN_RE.fullmatch(expr)
+        if not m:
+            return None
+        depth, q = 0, False
+        start = len(m.group(1))
+        for k in range(start, len(expr)):
+            ch = expr[k]
+            if ch == '"':
+                q = not q
+            elif not q and ch == "(":
+                depth += 1
+            elif not q and ch == ")":
+                depth -= 1
+                if depth == 0:
+                    return m if k == len(expr) - 1 else None
+        return None
+
+
+def _placeholder(expr):
+    """Stellvertreter-Text eines dynamischen Formelteils (eher breit geschätzt)."""
+    e = expr.replace(" ", "")
+    if e.upper() == "CHAR(10)":
+        return "\n"
+    m = re.findall(r"FIXED\(.*?,(\d)\)", e)
+    if "FIXED(" in e:
+        d = int(m[-1]) if m else 0
+        neg = "" if "ABS(" in e or "-" not in e and "SUBSTITUTE" not in e else "−"
+        if "*100" in e:
+            return "00.0" if d >= 1 else "000"
+        if d >= 2:
+            return "0.00"
+        if d == 1:
+            return "00.0"
+        return neg + ("0,000" if "/12" in e else "000,000")
+    if e.endswith("_Txt"):                 # Textnamen, z. B. Volltilgung_Txt „Jahr 32 (2057)“
+        return "Jahr 00 (0000)"
+    if "YEAR(" in e or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", e):
+        return "0000"
+    return "0000000"
+
+
+def _is_lit(p):
+    return len(p) >= 2 and p.startswith('"') and p.endswith('"')
+
+
+def _expand(expr, budget):
+    """Formel → Liste der Zweige als (Aufbau, Blätter): Aufbau ist eine Funktion, die aus den umbrochenen Blättern die
+    Formel zurückbaut. Liefert None, wenn die Struktur zu verzweigt oder unbekannt ist."""
+    expr = expr.strip()
+    parts = _concat_parts(expr)
+    if len(parts) == 1:
+        m = _FN.fullmatch(expr)
+        if m:
+            args = _split_args(m.group(2))
+            fn = m.group(1)
+            if fn == "IF" and len(args) == 3:
+                idx = (1, 2)
+            elif fn == "IFERROR" and len(args) == 2:
+                idx = (0, 1)
+            else:
+                return None
+            subs = []
+            for i in idx:
+                s = _expand(args[i], budget)
+                if s is None:
+                    return None
+                subs.append(s)
+            leaves = [lf for s in subs for lf in s[1]]
+
+            def build(new_leaves, subs=subs, args=args, idx=idx, fn=fn):
+                out, k = list(args), 0
+                for i, s in zip(idx, subs):
+                    n = len(s[1])
+                    out[i] = s[0](new_leaves[k:k + n])
+                    k += n
+                return f"{fn}(" + ",".join(a.strip() for a in out) + ")"
+            return build, leaves
+        return (lambda nl: "&".join(nl[0])), [[expr]]
+    # Verkettung: erstes IF-/IFERROR-Glied ausmultiplizieren
+    for i, p in enumerate(parts):
+        mm = _FN.fullmatch(p.strip())
+        if mm:
+            args = _split_args(mm.group(2))
+            fn = mm.group(1)
+            idx = (1, 2) if fn == "IF" and len(args) == 3 else ((0, 1) if fn == "IFERROR" and len(args) == 2 else None)
+            if idx is None:
+                return None
+            for j in idx:
+                top = re.sub(r'"[^"]*"', "", args[j])
+                while re.search(r"\([^()]*\)", top):
+                    top = re.sub(r"\([^()]*\)", "", top)
+                if re.search(r"[<>=]", top):
+                    return None
+            new_args = list(args)
+            for j in idx:
+                new_args[j] = "&".join(parts[:i] + [args[j].strip()] + parts[i + 1:])
+            budget[0] -= 1
+            if budget[0] < 0:
+                return None
+            return _expand(f"{fn}(" + ",".join(a.strip() for a in new_args) + ")", budget)
+    return (lambda nl: "&".join(nl[0])), [parts]
+
+
+def _wrap_leaf(parts, avail, size):
+    """Ein Zweig (Glieder einer Verkettung): Leerzeichen in Textliteralen dort durch „\n“ ersetzen, wo die Zeile die
+    Breite `avail` überschreiten würde. Liefert (neue Glieder, Zeilenzahl)."""
+    chars = []            # (Zeichen, Glied, Position im Literal | None)
+    lits = {}
+    for pi, p in enumerate(parts):
+        if _is_lit(p):
+            s = p[1:-1].replace('""', '"')
+            lits[pi] = list(s)
+            chars += [(ch, pi, k) for k, ch in enumerate(s)]
+        else:
+            chars += [(ch, pi, None) for ch in _placeholder(p)]
+    n_lines = 0
+    para = []
+    paras = []
+    for c in chars:
+        if c[0] == "\n":
+            paras.append(para)
+            para = []
+        else:
+            para.append(c)
+    paras.append(para)
+    for para in paras:
+        words, cur = [], []
+        for c in para:
+            if c[0] == " " and c[2] is not None:
+                words.append((cur, c))
+                cur = []
+            else:
+                cur.append(c)
+        words.append((cur, None))
+        n_lines += 1
+        line = ""
+        prev_space = None
+        for w, space_after in words:
+            wt = "".join(ch for ch, _, _ in w)
+            cand = (line + " " + wt) if line else wt
+            if line and C.text_width(cand, size) > avail and prev_space is not None:
+                lits[prev_space[1]][prev_space[2]] = "\n"
+                n_lines += 1
+                line = wt
+            else:
+                line = cand
+            prev_space = space_after
+    out = []
+    for pi, p in enumerate(parts):
+        if pi in lits:
+            out.append('"' + "".join(lits[pi]).replace('"', '""') + '"')
+        else:
+            out.append(p)
+    return out, n_lines
+
+
+def wrap_formula(value, width_px, size=C.T_SMALL, indent=1, right_pad=None):
+    """Anzeigeformel mit festen Umbrüchen (Innenabstand rechts). Liefert (Formel, Zeilenzahl) oder (value, None)."""
+    if not (isinstance(value, str) and C.is_formula(value)):
+        return value, None
+    pad = 9 * max(indent, 1) if right_pad is None else right_pad
+    avail = max(C.cell_inner_px(width_px, indent) * 0.98 - pad, 20)
+    try:
+        res = _expand(value[1:], [12])
+        if res is None:
+            return value, None
+        build, leaves = res
+        new, n = [], 0
+        for lf in leaves:
+            nl, k = _wrap_leaf(lf, avail, size)
+            new.append(nl)
+            n = max(n, k)
+        f = "=" + build(new)
+        if len(f) > 7500:
+            return value, None
+        return f, n
+    except Exception as exc:  # noqa: BLE001 – im Zweifel die Formel unverändert lassen
+        print(f"  steps: wrap_formula übersprungen ({exc})")
+        return value, None
+
+
+def wrap_runs(runs, avail):
+    """Rich-Text-Läufe [(Text, Größe, fett, Farbe)] mit festen Umbrüchen auf `avail` px (Innenabstand rechts).
+    Liefert (Läufe, Zeilenzahl)."""
+    chars = [(ch, i) for i, r in enumerate(runs) for ch in r[0]]
+
+    def width(seq):
+        tot, k = 0.0, 0
+        while k < len(seq):
+            j = k
+            while j < len(seq) and seq[j][1] == seq[k][1]:
+                j += 1
+            r = runs[seq[k][1]]
+            tot += C.text_width("".join(ch for ch, _ in seq[k:j]), r[1], r[2])
+            k = j
+        return tot
+    out = [list(r[0]) for r in runs]
+    pos = {}
+    k = 0
+    for i, r in enumerate(runs):
+        for j in range(len(r[0])):
+            pos[k] = (i, j)
+            k += 1
+    line_start, last_space, n = 0, None, 1
+    for idx, (ch, _) in enumerate(chars):
+        if ch == " ":
+            if width(chars[line_start:idx]) > avail and last_space is not None:
+                i, j = pos[last_space]
+                out[i][j] = "\n"
+                line_start = last_space + 1
+                n += 1
+            last_space = idx
+    if width(chars[line_start:]) > avail and last_space is not None and last_space >= line_start:
+        i, j = pos[last_space]
+        out[i][j] = "\n"
+        n += 1
+    return [("".join(o),) + tuple(r[1:]) for o, r in zip(out, runs)], n
+
+
 def text_bound(value):
     """Längster Anzeigetext (in Zeilen gemessen wird später) – statisch oder je Formelzweig."""
     if value is None:
@@ -610,8 +842,11 @@ def box(ws, heights, head, title, kpi=None, text=None, body=None, fixed_end=None
     if isinstance(cell.value, str):
         cell.value = C.minus_text(cell.value) if C.is_formula(cell.value) else C.hard_wrap(cell.value, w, C.T_SMALL,
                                                                                             indent=1)
+    n_wrap = None
+    if isinstance(cell.value, str) and C.is_formula(cell.value):   # Runde 5: Innenabstand rechts auch für Formeln
+        cell.value, n_wrap = wrap_formula(cell.value, w, C.T_SMALL, indent=1)
     heights[head] = max(heights.get(head, 0), C.H_CALLOUT_HEAD)
-    need = C.callout_height(box_lines(ws, cell.value, c1, c2))
+    need = C.callout_height(n_wrap or box_lines(ws, cell.value, c1, c2))
     end = fixed_end or stack(heights, body, need)
     if draw:
         kw = dict(kpi=kpi, value_ref=VALUE_REF[kpi], suffix=val_text(kpi)) if kpi else {}
@@ -632,10 +867,12 @@ def next_card(ws, heights, head, n, names):
     for c in C.iter_cells(ws, "H", body, "I", body):
         c.fill, c.border = C.NOFILL, Border()
     cell = ws.cell(body, 8)
-    cell.value = C.rich([(LONG[n], C.T_BODY, True, C.NAVY), (f"  ·  {desc}", C.T_SMALL, False, C.MUTED)])
+    # Runde 5: feste Umbrüche mit Innenabstand rechts (wie die Einordnungs-Boxen)
+    avail = C.cell_inner_px(C.span_px(ws, "H", "I"), 1) * 0.98 - 9
+    runs, n_l = wrap_runs([(LONG[n], C.T_BODY, True, C.NAVY), (f"  ·  {desc}", C.T_SMALL, False, C.MUTED)], avail)
+    cell.value = C.rich(runs)
     cell.font = C.font(C.T_SMALL, False, C.MUTED)
     cell.alignment = C.align("left", "top", 1, wrap=True)
-    n_l = lines(f"{LONG[n]}  ·  {desc}", C.span_px(ws, "H", "I") * 0.95, C.T_SMALL, False, 1)
     need = C.grid_height(n_l * C.line_pt(C.T_BODY) + 5)
     return body, need
 

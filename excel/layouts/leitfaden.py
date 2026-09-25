@@ -17,7 +17,7 @@ from openpyxl.styles import Border, Font
 from openpyxl.worksheet.hyperlink import Hyperlink
 
 import core as C
-from core import ACCENT, AMBER, BLUE, GREEN, INK2, MUTED, WHITE, align, fill, font, side
+from core import AMBER, BLUE, GREEN, INK2, MUTED, WHITE, align, font, side
 from layouts.start import TILE_SUB, cells_of, clear_rows, drop_cf, heights, rich, set_widths, unmerge_in, wipe
 
 SHEET = "Leitfaden"
@@ -40,7 +40,7 @@ CONTENT = [
     "Cashflow nach Steuern, Eigenkapitalrendite, Vermögensaufbau und Rente nach Volltilgung.",
 ]
 FIRST_ROW, N_STEPS = 18, 12
-OPT_MARK, OPT_GREY = "◌", "94A3B8"                    # Status „optional“ (Schritt 05, P3-11)
+OPT_MARK, OPT_GREY = "◌", C.NEUTRAL_DASH             # Status „optional“ (Schritt 05, P3-11) – Token 9AA3AF
 
 
 def step_sheets(wb):
@@ -111,10 +111,10 @@ def steps(ws):
     # Legende der Statussymbole (P3-11: ehrlich – ✓ heißt nur „Angaben vorhanden“), rechtsbündig über E:F
     C.safe_merge(ws, "E", 16, "F", 16)
     lg = ws["E16"]
-    lg.value = rich(("✓", C.T_MICRO, True, GREEN), ("  Angaben vorhanden (auch Beispielwerte)      ", C.T_MICRO, False, BLUE),
-                    ("○", C.T_MICRO, True, AMBER), ("  Angaben fehlen      ", C.T_MICRO, False, BLUE),
-                    (OPT_MARK, C.T_SMALL, True, OPT_GREY), ("  optional", C.T_MICRO, False, BLUE))
-    lg.font = font(C.T_MICRO, False, BLUE)
+    lg.value = rich(("✓", C.T_MICRO, True, GREEN), ("  Angaben vorhanden (auch Beispielwerte)      ", C.T_MICRO, False, MUTED),
+                    ("○", C.T_MICRO, True, AMBER), ("  Angaben fehlen      ", C.T_MICRO, False, MUTED),
+                    (OPT_MARK, C.T_SMALL, True, OPT_GREY), ("  optional", C.T_MICRO, False, MUTED))
+    lg.font = font(C.T_MICRO, False, MUTED)
     lg.alignment = align("right", "center", 1)
     for c in "CDEF":
         ws[f"{c}17"].value = None
@@ -132,7 +132,7 @@ def steps(ws):
         st.border = Border()
         st.number_format = "General"
         d = ws[f"D{r}"]
-        d.value = rich((f"{num:02d}", C.T_H3, True, ACCENT), (f"   {long}  ›", C.T_BODY, True, BLUE))
+        d.value = rich((f"{num:02d}", C.T_H3, True, C.GOLD_INK), (f"   {long}  ›", C.T_BODY, True, BLUE))
         d.hyperlink = Hyperlink(ref=d.coordinate, location=C.link_loc(name), display=long,
                                 tooltip=f"Schritt {num:02d} · {long} öffnen")
         d.font = font(C.T_BODY, True, BLUE)

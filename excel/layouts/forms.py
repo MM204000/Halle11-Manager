@@ -171,6 +171,26 @@ def _footer(ws, row, c1, c2, gap=C.H_GAP):
     ws.row_dimensions[row - 1].height = gap
 
 
+def _nav(ws, row, back, fwd, gap_above=None, last=None):
+    """Blattfuß-Navigation (Befund „Fußzeilen-Navigation“, Runde 5): „‹  Zurück: …“ sekundär links, „Weiter: …  ›“
+    primär rechts – core.btn_row, Reihenfolge wie die Reiterleiste. back/fwd = (c1, c2, Text, Zielblatt)."""
+    if last:  # alter Seitenfuß (Vorlage/Vorrunde) stand hier – Zeile und Folgezeile vollständig leeren
+        for r in (row, row + 1):
+            _clear_row(ws, r, 2, last)
+            for c in C.iter_cells(ws, 2, r, last, r):
+                c.font = font(T_BODY, False, INK)
+    items = []
+    for spec, kind in ((back, "secondary"), (fwd, "primary")):
+        if spec and spec[3] in ws.parent.sheetnames:
+            c1, c2, text, target = spec
+            _clear_row(ws, row, c1, c2)
+            items.append(dict(c1=c1, c2=c2, text=text, target=target, kind=kind))
+    if items:
+        C.btn_row(ws, row, items)
+    if gap_above:
+        ws.row_dimensions[row - 1].height = gap_above
+
+
 def _row_height(ws, r, c1, c2, hints=None):
     """core.fit_row mit 4 pt Innenabstand: 1/2/3 Zeilen → 18/30/42 pt, danach n × 13 + 8."""
     return C.fit_row(ws, r, c1, c2, pad=4, hints=hints)
@@ -440,7 +460,10 @@ def eingaben(wb):
         dv.prompt = dv.prompt or ("Satz in % eingeben (z. B. 2,5 %)." if dv.type == "decimal"
                                   else "Zinsbindung in Jahren (1–40).")
 
-    _footer(ws, EIN_LAST + 2, 2, L_)
+    # Blattfuß: Zurück/Weiter in Reiterreihenfolge (Diagramme › Eingaben › Projektion), darunter der Seitenfuß
+    _nav(ws, EIN_LAST + 2, ("B", "B", "‹  Zurück: Diagramme", "Diagramme"),
+         ("I", "L", "Weiter: Projektion  ›", "Projektion"), gap_above=C.H_GAP, last=L_)
+    _footer(ws, EIN_LAST + 4, 2, L_)
 
 
 def _data_row(ws, wb, steps, r, last):
@@ -690,7 +713,15 @@ def konfiguration(wb):
     for coord in ("C28", "C29", "C30", "C31", "C61", "C62"):
         ws[coord].number_format = NUMFMT["eur"]
 
-    _footer(ws, 82, 2, last, gap=C.H_ROW)
+    # Ampel-Tabelle: Statuspunkt in der Spaltenfarbe vor „GRÜN AB“ / „GELB AB“ (semantisch, nur der Punkt farbig)
+    for coord, colr, word in (("C75", C.GREEN, "GRÜN AB"), ("D75", C.AMBER, "GELB AB")):
+        ws[coord].value = C.rich([("●  ", C.T_LABEL, True, colr), (word, C.T_LABEL, True, BLUE)])
+        ws[coord].alignment = align("right", "center", 1)
+    # Blattfuß: Zurück zu Hinweise, Weiter zur Startseite (Konfiguration ist das letzte Blatt der Reiterleiste);
+    # beide Buttons so breit wie die Tabellenspalten B (301 px) und E (308 px) – bündig an beiden Tabellenkanten
+    _nav(ws, 82, ("B", "B", "‹  Zurück: Hinweise", "Hinweise"), ("E", "E", "Weiter: Startseite  ›", "Start"),
+         gap_above=C.H_ROW, last=last)
+    _footer(ws, 84, 2, last)
 
 
 # ================================================================================================ Hinweise
@@ -743,7 +774,7 @@ def hinweise(wb):
             c.alignment = align("left", "top", 1, wrap=True)
         C.fit_row(ws, r, "B", "E", metric=True)
     _clear_row(ws, 27, 2, last, values=False)
-    ws.row_dimensions[27].height = C.H_ROW
+    ws.row_dimensions[27].height = C.H_GAP
 
     # ---- Modellannahmen: Kopfzeile wie Z. 9 (THEMA · VEREINFACHUNG · EINORDNUNG), Text nur über C:D
     _clear_row(ws, 28, 2, last)
@@ -760,20 +791,24 @@ def hinweise(wb):
         _clear_row(ws, r, 2, last)
         C.set_text(ws.cell(r, 2), topic)
         ws.cell(r, 2).font = font(T_SMALL, True, NAVY)
-        ws.cell(r, 2).alignment = align("left", "top", 1, wrap=True)
+        ws.cell(r, 2).alignment = align("left", "center", 1, wrap=True)
         C.safe_merge(ws, "C", r, "D", r)
         t = ws.cell(r, 3)
         C.set_text(t, _typo(text))
         t.font = font(T_BODY, False, INK)
-        t.alignment = align("left", "top", 1, wrap=True)
+        t.alignment = align("left", "center", 1, wrap=True)
         k = ws.cell(r, 5)
         C.set_text(k, kind)
         k.font = font(T_MICRO, False, MUTED)
-        k.alignment = align("left", "top", 1, wrap=True)
+        k.alignment = align("left", "center", 1, wrap=True)
         for c in C.iter_cells(ws, 2, r, last, r):
             c.border = Border(bottom=side("hair", LINE2))
-        C.fit_row(ws, r, "B", "E", metric=True)
-    _footer(ws, 38, 2, last)
+        # Formularraster 18/30 pt (wie Eingaben/Konfiguration), mittig – kompakter als der Fließtextblock darüber
+        n = C.lines_needed_metric(C.display_text(t) or "", C.span_px(ws, "C", "D"), T_BODY, False, 1)
+        ws.row_dimensions[r].height = C.H_ROW if n <= 1 else C.H_ROW2 if n == 2 else C.grid_height(n * 13 + 8)
+    _nav(ws, 38, ("B", "B", "‹  Zurück: Vermögen", "Vermögensaufstellung"),
+         ("E", "E", "Weiter: Konfiguration  ›", "Konfiguration"), gap_above=C.H_GAP, last=last)
+    _footer(ws, 40, 2, last)
 
 
 # ================================================================================================

@@ -67,9 +67,13 @@ DOT_COL = "AL"                                     # Punkt auf der Nettovermöge
 MARK_LABEL = "AK62"                                # Beschriftung der Verkaufsmarke (Reihenname)
 N_HINTS = 6
 
-INFLOW, OUTFLOW, TOTAL = C.ACCENT, "9AA8B8", C.NAVY   # Wasserfall-Semantik: Zufluss · Abfluss · Summe (P2-10)
+TOTAL = C.C_INK                                    # Summen („= vor/nach Steuern“) in Tinte (Runde 5)
+# Wasserfall-Kategorien nach der mappenweiten Diagramm-Semantik (C.chart_color, Runde 5): Miete Blau · Bewirtschaftung
+# Orange · Zinsen Violett · Tilgung Aqua · Steuer Gold · Summen Tinte – dieselbe Größe hat überall dieselbe Farbe.
+WF_COLORS = {"Miete": C.chart_color("Miete"), "Bewirtschaftung": C.chart_color("Bewirtschaftung"),
+             "Zinsen": C.chart_color("Zinsen"), "Tilgung": C.chart_color("Tilgung"), "Steuer": C.chart_color("Steuer")}
 BAR_CHAR, BAR_STEPS = "█", 10                      # Erreichungsbalken als Textbalken in Statusfarbe (P1-14)
-MARK_FILL = "CEDDF0"                               # Verkaufsmarke: 9CBBE2 zu 50 % auf Weiß
+MARK_FILL = C.GOLD_LINE                            # Verkaufsmarke: zarte Goldsäule (Hervorhebung Verkaufsjahr, Runde 5)
 WARN_SYM, INFO_SYM = "▲", "•"                      # monochrome Kennzeichnung (ⓘ fehlt in Calibri)
 
 
@@ -121,7 +125,7 @@ def _chrome(ws):
         C.set_height(ws, r, h)
         for cc in range(1, CHROME_COLS + 1):
             c = ws.cell(r, cc)
-            c.fill = C.fill(C.ACCENT if r == 3 else C.NAVY)
+            c.fill = C.fill(C.GOLD if r == 3 else C.NAVY)   # Goldlinie unter der Kopfleiste (Runde 5)
             c.border = Border()
 
 
@@ -188,8 +192,13 @@ def _verdict(ws, rows):
     status_rng = f"$H${R_CHECK}:$H${R_CHECK + 5}"
     # Urteil in Statusfarbe (wie ein Kachelwert, P11) – Regel VOR der Kante anlegen und ohne stopIfTrue,
     # sonst stoppt die Kantenregel (B12) die Schriftfarbe
+    # B12 trägt Schrift UND Statuskante in derselben Regel: LibreOffice wendet je Zelle nur die erste zutreffende Regel an,
+    # sonst bliebe die Kante in Z. 12 blau, während Z. 11 schon rot ist
     for cond, lvl in conds:
-        C.cf_rule(ws, f"B{r2}:I{r2}", cond, font_=Font(color=C.STATUS_COLORS[lvl][0], bold=True), stop=False)
+        fg = C.STATUS_COLORS[lvl][0]
+        C.cf_rule(ws, f"B{r2}", cond, font_=Font(color=fg, bold=True), border=Border(left=C.side("thick", fg)),
+                  stop=False)
+        C.cf_rule(ws, f"C{r2}:I{r2}", cond, font_=Font(color=fg, bold=True), stop=False)
     C.status_banner(ws, "B", r1, "R", r2, conditions=conds)
     # Status rechts in der Label-Zeile – wie die Kachel-Anatomie: links Beschriftung, rechts „● Wort“ (Statusfarbe)
     pill = ws[f"E{r1}"]
@@ -368,10 +377,11 @@ def _abs_ref(ref):
 
 
 def _legend_meta(ws, row, unit):
-    """Mini-Legende „■ Zufluss  ■ Abfluss  ■ Summe · € je Monat“ rechts im Abschnittskopf (P2-10)."""
+    """Lesehilfe rechts im Abschnittskopf: Die Kategorien tragen ihre Semantikfarbe und sind an der Achse beschriftet,
+    deshalb erklärt die Legende nur die Richtung (Zufluss über, Abfluss unter dem Balken) und die Summen (P2-10)."""
     c = ws[f"R{row}"]
-    c.value = C.rich([("■ ", C.T_MICRO, False, INFLOW), ("Zufluss   ", C.T_MICRO, False, C.MUTED),
-                      ("■ ", C.T_MICRO, False, OUTFLOW), ("Abfluss   ", C.T_MICRO, False, C.MUTED),
+    c.value = C.rich([("+ ", C.T_MICRO, True, C.INK), ("Zufluss   ", C.T_MICRO, False, C.MUTED),
+                      (C.MINUS + " ", C.T_MICRO, True, C.INK), ("Abfluss   ", C.T_MICRO, False, C.MUTED),
                       ("■ ", C.T_MICRO, False, TOTAL), ("Summe", C.T_MICRO, False, C.MUTED),
                       (f"   ·   {unit}", C.T_MICRO, False, C.BLUE)])
     c.alignment = C.align("right", "center", 1)
@@ -381,9 +391,9 @@ def _line_legend(ws, row):
     """Linienlegende „— Immobilienwert  – – Restschuld  — Nettovermögen · T€ · Jahresende“ rechts im Abschnittskopf
     (P3-04) – gleiche Bauart wie die Wasserfall-Legende (8 pt, Symbol in Serienfarbe, Einheit in 1D4F8A)."""
     c = ws[f"R{row}"]
-    c.value = C.rich([("— ", C.T_MICRO, True, C.ACCENT), ("Immobilienwert   ", C.T_MICRO, False, C.MUTED),
-                      ("– – ", C.T_MICRO, True, "8A94A6"), ("Restschuld   ", C.T_MICRO, False, C.MUTED),
-                      ("— ", C.T_MICRO, True, C.NAVY), ("Nettovermögen", C.T_MICRO, False, C.MUTED),
+    c.value = C.rich([("━━  ", C.T_MICRO, True, C.chart_color("Immobilienwert")), ("Immobilienwert   ", C.T_MICRO, False, C.MUTED),
+                      ("– – –  ", C.T_MICRO, True, C.chart_color("Restschuld")), ("Restschuld   ", C.T_MICRO, False, C.MUTED),
+                      ("━━  ", C.T_MICRO, True, C.chart_color("Nettovermögen")), ("Nettovermögen", C.T_MICRO, False, C.MUTED),
                       ("   ·   T€ · jeweils Jahresende", C.T_MICRO, False, C.BLUE)])
     c.alignment = C.align("right", "center", 1)
 
@@ -391,7 +401,8 @@ def _line_legend(ws, row):
 def _waterfall(ws):
     """Cashflow Jahr 1 als flacher Wasserfall aus gestapelten Säulen (2D laut Nutzerentscheidung).
 
-    Farbsemantik (P2-10): Zufluss 4A86C8 · Abfluss B8C3D1 · Summen („= vor/nach Steuern“) 0B2A4A mit fettem Label.
+    Farbsemantik (Runde 5, C.chart_color): jede Kategorie in ihrer mappenweiten Farbe, Summen („= vor/nach Steuern“)
+    in Tinte mit fettem Label; die Richtung zeigt die Lage des Balkens und das Vorzeichen der Beschriftung.
     Die Steuer ist je nach Vorzeichen Zufluss (Erstattung) oder Abfluss (Zahlung): Ihr sichtbarer Teil liegt
     deshalb in zwei Reihen, von denen je nach Vorzeichen genau eine belegt ist.
     Excel stapelt positive und negative Werte getrennt. Jede Säule [unten, oben] wird in einen positiven Teil
@@ -403,12 +414,13 @@ def _waterfall(ws):
     C.section(ws, R_BAND1, "K", "R", "Cashflow Jahr 1")
     _legend_meta(ws, R_BAND1, "€ je Monat")
     # (Kategorie, Formel, verkettet, Farbe, Summe?, Vorzeichenfarbe?)
-    cats = [("Miete", "=Miete_Ist_J1/12", False, INFLOW, False),
-            ("Bewirt-\nschaftung", "=-BWK_J1/12", True, OUTFLOW, False),
-            ("Zinsen", "=-Zins_J1/12", True, OUTFLOW, False),
-            ("Tilgung", "=-Tilgung_J1/12", True, OUTFLOW, False),
+    F = WF_COLORS
+    cats = [("Miete", "=Miete_Ist_J1/12", False, F["Miete"], False),
+            ("Bewirt-\nschaftung", "=-BWK_J1/12", True, F["Bewirtschaftung"], False),
+            ("Zinsen", "=-Zins_J1/12", True, F["Zinsen"], False),
+            ("Tilgung", "=-Tilgung_J1/12", True, F["Tilgung"], False),
             ("= vor Steuern", "=CF_vSt_J1/12", False, TOTAL, True),
-            ("Steuer", "=-Steuer_J1/12", True, INFLOW, False),
+            ("Steuer", "=-Steuer_J1/12", True, F["Steuer"], False),
             ("= nach Steuern", "=CF_nSt_J1/12", False, TOTAL, True)]
     tax = 5
     K = W_COLS
@@ -486,7 +498,7 @@ def _waterfall(ws):
                 s.dPt.append(pt)
         elif role in ("alt_p", "alt_n"):
             s.tx = SeriesLabel(v=names[role])
-            s.graphicalProperties = _solid(OUTFLOW)
+            s.graphicalProperties = _solid(F["Steuer"])   # enthält nur die Steuer (als Zahlung)
         else:
             r = W_ROW + car
             is_sum = cats[car][4]
@@ -548,9 +560,9 @@ def _wealth_chart(ws, wb):
     lbl.value = (f'="Verkauf "&{sale_year}&CHAR(10)&"Nettovermögen"&CHAR(10)'
                  '&FIXED(INDEX(Projektion!$D$43:$AQ$43,Haltedauer)/1000,0)&" T€"')
     line = LineChart()
-    spec = [(41, "Immobilienwert", C.ACCENT, 19050, None),
-            (42, "Restschuld", "8A94A6", 12700, "dash"),
-            (43, "Nettovermögen", C.NAVY, 31750, None)]
+    spec = [(41, "Immobilienwert", C.chart_color("Immobilienwert"), 22225, None),
+            (42, "Restschuld", C.chart_color("Restschuld"), 15875, "dash"),
+            (43, "Nettovermögen", C.chart_color("Nettovermögen"), 31750, None)]
     P = wb["Projektion"]
     for row, title, colr, w, dash in spec:
         line.add_data(Reference(P, min_col=4, max_col=43, min_row=row), from_rows=True, titles_from_data=False)
@@ -565,8 +577,8 @@ def _wealth_chart(ws, wb):
     dot = line.series[-1]
     dot.tx = SeriesLabel(v="Verkaufspunkt")
     dot.smooth = False
-    dot.marker = Marker(symbol="circle", size=7)
-    dot.marker.graphicalProperties = GraphicalProperties(solidFill=C.NAVY)
+    dot.marker = Marker(symbol="circle", size=8)
+    dot.marker.graphicalProperties = GraphicalProperties(solidFill=C.CHART_MARK)   # Gold-Marke (Verkaufspunkt)
     dot.marker.graphicalProperties.line = LineProperties(solidFill=C.WHITE, w=12700)
     dot.graphicalProperties = GraphicalProperties()
     dot.graphicalProperties.line = LineProperties(noFill=True)
@@ -583,7 +595,7 @@ def _wealth_chart(ws, wb):
                              showSerName=True, showPercent=False, showBubbleSize=False)
     mk.dLbls.txPr = _txpr(C.T_MICRO, C.NAVY, True)      # dreizeilig: „Verkauf 2037“ / „Nettovermögen“ / „197 T€“
     mk.dLbls.spPr = GraphicalProperties(solidFill=C.WHITE)
-    mk.dLbls.spPr.line = LineProperties(solidFill=C.TINT, w=6350)
+    mk.dLbls.spPr.line = LineProperties(solidFill=C.GOLD_LINE, w=6350)
     mark.set_categories(Reference(P, min_col=4, max_col=43, min_row=10))
     mark.legend = None                             # Legende steht als Text im Abschnittskopf (P3-04, wie „Cashflow Jahr 1“)
     mark.plot_area.layout = Layout(manualLayout=ManualLayout(layoutTarget="inner", xMode="edge", yMode="edge",

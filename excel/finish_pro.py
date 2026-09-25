@@ -10,7 +10,7 @@ je Punkt). Deshalb wird das Diagramm-Styling hier – nach der Neuberechnung –
 * Achsen: Werteachse ohne Linie, ab 10.000 in „T€“, Hauptgitter 0,5 pt E6E8EB; Jahresachsen waagerecht im 5er-/2er-Takt,
   Beschriftung immer unten (tickLblPos low); Kategorien als einfache Zahlen-/Textreihe.
 * Legende unten 8 pt (schmale Diagramme rechts), bei Kreisen und Einzelreihen entfernt; 3D nur für Kreise (ruhige
-  Parameter, alle Segmente beschriftet), sonst flach. Reihenfarben mappenweit fest je Kennzahl (SERIES_RULES).
+  Parameter, alle Segmente beschriftet), sonst flach. Reihenfarben mappenweit fest je Kennzahl (Runde 5: Semantik-Tabelle core.CHART_SEMANTIC, mehrfarbig).
 * Wasserfall, Summen über Säulen und dynamische Reihennamen kommen aus Anzeige-Hilfsreihen (layouts/diagramme.py).
 Zellwerte werden nicht berührt, die berechneten Ergebnisse bleiben gültig.
 """
@@ -244,77 +244,49 @@ FMT_PCT = "0 %"
 LBL_EUR = '#,##0" €";"−"#,##0" €"'
 LBL_EUR_POS = '#,##0" €";;'
 LBL_TEUR1 = '#,##0.0," T€";"−"#,##0.0," T€";'
-# ---- Mappenweite Farbzuordnung (P2-02, Runde 4): alles in der Blau-Rampe, Status-Rot nur für negative Ergebnisse
-INTEREST = K.BLUE      # Zinsen 1D4F8A
-TILG = K.ACCENT        # Tilgung 4A86C8
-BAR_GREY = K.SKY       # Bewirtschaftung 9CBBE2
-TAX_IN = "7FA7D6"      # Steuererstattung (Zufluss) bzw. -zahlung (eine Reihe, dynamischer Name)
-TAX_PAY = TAX_IN
-KUM_TILG = "8DB3DE"    # kumulierte Tilgung (gestrichelt)
-LINE_GREY = "8A94A6"   # Restschuld (gestrichelt)
-CF_VST = "8FB3DE"      # Cashflow vor Steuern (Säulen)
-NEG = K.RED            # negative Cashflow-Jahre (P1-07: B42318, leicht gedämpft)
-NEG_ALPHA = 80
-NEG_SOFT = NEG
-OUTFLOW = K.MUTED2     # Abfluss in Brücken 8A9099 (P1-07)
-PALE = "C9D6E8"        # nicht anwendbar
-LEADER = "9AA5B4"      # Führungslinien Kreis
-GRID_SENS = "D9DEE7"   # Hilfslinien im Sensitivitäts-Panel
-WHITE_ON = {K.NAVY, K.BLUE, K.ACCENT, K.RED}   # weiße Beschriftung nur auf diesen Flächen
+# ---- Mappenweite Farbzuordnung – Runde 5 „Midnight & Gold“: mehrfarbig nach der Semantik-Tabelle in core.py
+# (K.chart_color / K.chart_palette; gleiche Größe = gleiche Farbe in der ganzen Mappe). Hier stehen nur Linienstärken,
+# Stricharten und wenige lokale Präzisierungen; die Farbe selbst kommt immer aus core.
+INTEREST = K.C_VIOLET  # Zinsen
+TILG = K.C_AQUA        # Tilgung
+NEG = K.C_NEG          # negative Cashflow-Jahre / Abfluss / Lücke (divergierend zu C_POS)
+NEG_ALPHA = None
+OUTFLOW = K.C_NEG
+PALE = K.C_NEUTRAL_LIGHT          # nicht anwendbar
+LEADER = K.MUTED2                 # Führungslinien Kreis
+GRID_SENS = K.CHART_GRID          # Hilfslinien im Sensitivitäts-Panel
+AREA_ALPHA = 14                   # Nettovermögen: zarte Aqua-Fläche (Vermögen) unter der Tintenlinie (%)
+SEP_PT = 1.5                      # 2-px-Trennlinie zwischen Kreissegmenten/Stapeln (C.CHART_SEP)
 
-# Serienfarben nach Name: (Muster, Farbe, Linienstärke pt, Strichart) – mappenweit fest je Kennzahl (P2-07, P2-09)
-SERIES_RULES = [
-    (r"^immobilienwert", K.ACCENT, 1.5, None),
-    (r"^nettoverm", K.NAVY, 2.5, None),
-    (r"^restschuld", LINE_GREY, 1.0, "dash"),
-    (r"^darlehen ii\b", K.SKY, None, None),
-    (r"^darlehen i\b", K.BLUE, None, None),
-    (r"^ende zinsbindung", K.ACCENT, None, None),
-    (r"^nettokaltmiete", K.NAVY, None, None),
-    (r"^steuererstattung", TAX_IN, None, None),
-    (r"^steuerzahlung", TAX_PAY, None, None),
-    (r"^kumulierte zinsen", K.BLUE, 2.0, None),
-    (r"^zinsen", INTEREST, None, None),
-    (r"^kumulierte tilgung", KUM_TILG, 2.0, "dash"),
-    (r"^tilgung", TILG, None, None),
-    (r"^bewirtschaftung", BAR_GREY, None, None),
-    (r"^cashflow v(or|\.)", K.NAVY, 2.0, None),       # Linie im Kombidiagramm (P1-07: 0B2A4A, 2 pt)
-    (r"^cashflow n(ach|\.)", K.BLUE, None, None),
-    (r"^kumulierter cashflow", K.NAVY, 2.25, None),
-    (r"^kumulierte steuer", K.ACCENT, 1.5, None),
-    (r"^afa regul", K.BLUE, None, None),
-    (r"sonder-afa", K.ACCENT, None, None),
-    (r"7h", K.ACCENT, None, None),
-    (r"^bewegliche", K.SKY, None, None),
-    (r"^steuerliches ergebnis", K.BLUE, None, None),
-    (r"^steuer\b", K.SKY, None, None),                 # P1-15: Steuer-Reihe hell, klar vom Ergebnis getrennt
-    (r"^(ü|ue)berschuss", K.BLUE, None, None),
-    (r"^unterdeckung", NEG, None, None),
-    # Wasserfall / AfA-Summe / Haushalt (Hilfsreihen aus layouts/diagramme.py)
-    (r"^basis", None, None, None),
-    (r"^zufluss", K.ACCENT, None, None),
-    (r"^abfluss", OUTFLOW, None, None),
-    (r"^ergebnis", K.NAVY, None, None),
-    (r"^anwendbar", K.ACCENT, 1.5, None),
-    (r"^nicht anwendbar", PALE, 1.0, None),
-    (r"^bestehender haushalt", K.BLUE, None, None),
-    (r"^neues objekt", K.ACCENT, None, None),
-    (r"^verm(ö|oe)genswerte", K.BLUE, None, None),
-    # AfA-Varianten (AfA-Vergleich, kumuliert): Farbe nach Anwendbarkeit, keine Strichvarianten (P33)
-    (r"^im modell", K.NAVY, 2.5, None),
+# Lokale Präzisierung VOR der core-Semantik (Muster, Farbe): Kaufnebenkosten gehören zu „Nebenkosten/Sonstiges“
+# (Magenta), nicht zu „Kosten“ (Orange); der Cashflow v. St. im Kombidiagramm steht als Tintenlinie über den
+# grün/roten Säulen (Kontrast), der kumulierte Cashflow ebenso als Ergebnislinie.
+LOCAL_SEMANTIC = [
+    (r"^(kauf)?nebenkosten|^kaufneben", K.C_MAGENTA),
+    (r"^cashflow v(or|\.)", K.C_INK),
 ]
-# Mietszenarien (Sensitivität, P1-15): geordnete Blau-Rampe in Richtung der Mietänderung, Basis kräftig
-IRR_RULES = [(r"[-−]\s*10", "C9D6E6", 1.0), (r"[-−]\s*5", K.SKY, 1.0), (r"basis", K.NAVY, 2.25),
-             (r"\+\s*5", K.ACCENT, 1.0), (r"\+\s*10", K.BLUE, 1.0)]
-FALLBACK = [K.NAVY, K.ACCENT, K.SKY, K.BLUE, "6E7F96", K.MIST]
+# Linienstärke/Strichart je Kennzahl (Farbe: core) – (Muster, Stärke pt, Strichart)
+SERIES_W = [
+    (r"^nettoverm", 2.5, None),
+    (r"^immobilienwert", 1.75, None),
+    (r"^restschuld", 1.25, "dash"),
+    (r"^kumulierter cashflow", 2.25, None),
+    (r"^kumulierte ", 2.0, None),
+    (r"^cashflow v(or|\.)", 2.0, None),
+    (r"^im modell", 2.5, None),
+    (r"^anwendbar", 1.5, None),
+    (r"^nicht anwendbar", 1.0, None),
+]
+# Mietszenarien (Sensitivität): divergierend in Richtung der Mietänderung – Minus rot, Plus grün, Basis Tinte kräftig
+IRR_RULES = [(r"[-−]\s*10", K.C_NEG, 1.25), (r"[-−]\s*5", K.muted(K.C_NEG, 0.45), 1.25), (r"basis", K.C_INK, 2.5),
+             (r"\+\s*5", K.muted(K.C_POS, 0.45), 1.25), (r"\+\s*10", K.C_POS, 1.25)]
+FALLBACK = list(K.CHART_CAT) + [K.C_NEUTRAL]
 
-# Kreise (P1-01): Farbfolge fest nach Wert absteigend – größtes Segment 0B2A4A, dann 1D4F8A, 4A86C8, 9CBBE2, C9D6E6
-PIE_RANK = ["0B2A4A", "1D4F8A", "4A86C8", "9CBBE2", "C9D6E6"]
-PIE_RANK7 = ["0B2A4A", "1D4F8A", "2F6BAE", "4A86C8", "7FA7D6", "9CBBE2", "C9D6E6"]
 PIE_INSIDE = 0.35        # Innen-Etikett nur ab 35 % (höchstens zwei je Kreis), sonst außen
 PIE_MAX_INSIDE = 2
 PIE_IN_MAX_PX = 100      # Innen-Etikett höchstens so breit (px), sonst außen
 PIE_ALL_OUT = 5          # mehr als 5 Segmente (S06): alle Etiketten außen mit Führungslinie
+PIE_ROTX = 50            # Neigung der 3D-Kreise: runder, füllt die Kreisreihe besser (vorher 40)
 # Kurzlabels der Kategorien: Art → [(Muster, Kurzname)]
 CAT_SHORT = {
     "invest": [(r"^kaufpreis", "Kaufpreis"), (r"^kaufneben", "Nebenkosten"), (r"^finanzierungsneben", "Finanzierungskosten"),
@@ -556,12 +528,31 @@ def chart_kind(sheet, root):
     return None
 
 
-def match_series(name):
+def sem_color(name):
+    """Serien-/Kategorienfarbe: lokale Präzisierung, sonst core-Semantik (None = Hilfsreihe/kein Treffer)."""
     n = (name or "").strip().lower()
-    for pat, color, w, dash in SERIES_RULES:
+    for pat, col in LOCAL_SEMANTIC:
         if re.search(pat, n):
-            return color, w, dash
-    return None
+            return col
+    return K.chart_color(name)
+
+
+def match_series(name):
+    """(Farbe, Linienstärke, Strichart) je Reihe – Farbe nach Semantik (core), Stärke/Strich nach SERIES_W."""
+    n = (name or "").strip().lower()
+    if K._CHART_HELPER.search(K._chart_key(name)):
+        return None, None, None                 # Hilfsreihe (Basis, Summe, Beschriftung): unsichtbar
+    color = sem_color(name)
+    w = dash = None
+    for pat, w_, d_ in SERIES_W:
+        if re.search(pat, n):
+            w, dash = w_, d_
+            break
+    if dash is None and K.chart_dashed(name) and not n.startswith("ende zinsbindung"):
+        dash = "dash"
+    if color is None and w is None:
+        return None
+    return color, w, dash
 
 
 def short_cat(kind, name):
@@ -573,15 +564,26 @@ def short_cat(kind, name):
 
 
 def pie_colors(kind, cats, vals):
-    """Farbe je Segment (P1-01): fest nach Wert absteigend. Zwei Segmente: 0B2A4A + 4A86C8 (klarer Kontrast)."""
-    n = len(cats)
-    order = sorted(range(n), key=lambda i: -(vals[i] if i < len(vals) else 0))
-    m = sum(1 for v in vals if v > 0) or 1
-    ramp = PIE_RANK7 if m > len(PIE_RANK) else ([PIE_RANK[0], PIE_RANK[2]] if m == 2 else PIE_RANK)
-    colors = [None] * n
-    for rank, i in enumerate(order):
-        colors[i] = ramp[min(rank, len(ramp) - 1)]
-    return colors
+    """Farbe je Segment (Runde 5): Kategorienreihenfolge, Semantik aus core (K.chart_palette) – z. B. Darlehen I Blau,
+    Darlehen II Violett, Eigenkapital Aqua; Kaufnebenkosten Magenta (lokale Präzisierung); nie zyklisch."""
+    names = [short_cat(kind, c) for c in cats]
+    local_ = [next((col for pat, col in LOCAL_SEMANTIC if re.search(pat, (n or "").lower())), None) for n in names]
+    if any(local_):
+        # lokale Farben zuerst vergeben, die übrigen Segmente über chart_palette ohne diese Farben
+        base = K.chart_palette(names)
+        used = {c for c in local_ if c}
+        out, taken = [], set(used)
+        for n, lc_, bc_ in zip(names, local_, base):
+            if lc_:
+                out.append(lc_)
+                continue
+            c = K.chart_color(n)
+            if c is None or c in taken and c not in (K.C_NEUTRAL, K.C_NEUTRAL_LIGHT, K.C_INK):
+                c = next((x for x in K.CHART_CAT if x not in taken), K.C_NEUTRAL)
+            taken.add(c)
+            out.append(c)
+        return out
+    return K.chart_palette(names)
 
 
 def fix_literal_names(root):
@@ -696,7 +698,7 @@ def make_3d(root, n_cat, kind_name=None):
         drop(chart, tag)
     v = E("c:view3D")
     if kind == "pie":
-        SE(v, "c:rotX", 40)
+        SE(v, "c:rotX", PIE_ROTX)
         SE(v, "c:rotY", pie_rotation(root))
         SE(v, "c:rAngAx", 0)
         SE(v, "c:perspective", 10)
@@ -908,7 +910,7 @@ def style_axes(root, kind, n_cat, size=None, horizontal=False):
             if kind in HBAR_KINDS:
                 put(ax, sppr(ln=line(nofill=True)), o)
             elif horizontal:
-                put(ax, sppr(ln=line(0.75, "C5CDD8")), o)
+                put(ax, sppr(ln=line(0.75, K.CHART_AXIS)), o)
             else:
                 # Nulllinie 0,75 pt 8A9099 (P1-07), bei negativen Werten 1 pt
                 put(ax, sppr(ln=line(1.0 if lo < 0 else 0.75, K.MUTED2)), o)
@@ -1011,7 +1013,7 @@ def pie_labels(ser, kind, cats, size=8, bold=False, vals=(), colors=(), rot=0):
         if share <= 0:
             d.append(dlbl_delete(i))
             continue
-        col = colors[i] if i < len(colors) else K.BLUE
+        col = colors[i] if i < len(colors) else K.C_BLUE
         lb = SE(d, "c:dLbl")
         SE(lb, "c:idx", i)
         lb.append(num_fmt(f'[=0]"";"{short} · "0 %'))
@@ -1126,7 +1128,7 @@ def style_series(root, kind, n_cat, size=None):
                     ser.remove(ser.find(q("c:spPr")))
                 colors = pie_colors(kind, cats, vals)
                 for i, col in enumerate(colors):
-                    put(ser, dpt(i, col, ln=line(1, K.WHITE)), so)
+                    put(ser, dpt(i, col, ln=line(SEP_PT, K.CHART_SEP)), so)
                 rot = pie_rotation(root) if ctn == "pie3DChart" else 0
                 pie_labels(ser, kind, cats, vals=vals, colors=colors, rot=rot)
                 continue
@@ -1141,6 +1143,8 @@ def style_series(root, kind, n_cat, size=None):
             if kind == "afa_kum" and afa_cls:
                 # Farbe nach Anwendbarkeit (P33); Legende je Klasse ein Eintrag (Reihenname = Klasse)
                 color, w, dash = match_series(afa_cls)
+                if afa_cls == "Nicht anwendbar":
+                    color = K.C_NEUTRAL                # dünne Linie: Neutralgrau statt der Balkenfläche (lesbar, gedämpft)
                 tx = ser.find(q("c:tx"))
                 if tx is not None:
                     for ch_ in list(tx):
@@ -1149,7 +1153,7 @@ def style_series(root, kind, n_cat, size=None):
                 if not any(abs(v) > 1e-9 for v in cache_values(ser)):
                     color = None                       # Variante ohne Werte (z. B. kein RND-Gutachten): keine Linie
                 elif ser.get("afa_halo"):
-                    color, w = K.ACCENT, 5.0           # deckungsgleich mit dem Modell: 4A86C8-Rand um die Modell-Linie
+                    color, w = K.muted(K.C_AQUA, 0.35), 5.5   # deckungsgleich mit dem Modell: Aqua-Rand (anwendbar) um die Modell-Linie
             k += 1
             # ---- Linienreihen
             if ctn in ("lineChart", "line3DChart"):
@@ -1222,7 +1226,7 @@ def style_series(root, kind, n_cat, size=None):
                     vals = cache_values(ser)
                     if lname.startswith("lücke"):
                         # leerer, rot umrandeter Stapelteil „Lücke −453 €“ (P2-02)
-                        put(ser, sppr(nofill=True, ln=line(1.0, K.RED, "dash")), so)
+                        put(ser, sppr(nofill=True, ln=line(1.25, K.C_NEG, "dash")), so)
                         d = E("c:dLbls")
                         d.append(num_fmt('"Lücke −"#,##0" €";;'))
                         d.append(sppr(nofill=True, ln=line(nofill=True)))
@@ -1232,7 +1236,7 @@ def style_series(root, kind, n_cat, size=None):
                         set_ser_dlbls(ser, d, so)
                         hidden.append(idx)
                         continue
-                    put(ser, sppr(solid(color), line(0.75, K.WHITE)), so)
+                    put(ser, sppr(solid(color), line(SEP_PT, K.CHART_SEP)), so)
                     d = E("c:dLbls")
                     for i, v in enumerate(vals):
                         tot = bar_totals.get(i, 0)
@@ -1247,14 +1251,11 @@ def style_series(root, kind, n_cat, size=None):
                     set_ser_dlbls(ser, d, so)
                     continue
                 if kind in ("afa_summe", "hh", "va"):
-                    put(ser, sppr(solid(color or K.BLUE), line(nofill=True)), so)
+                    put(ser, sppr(solid(color or K.C_BLUE), line(nofill=True)), so)
                     fmt = LBL_TEUR1 if kind == "afa_summe" else LBL_EUR_POS
                     set_ser_dlbls(ser, dlbls_val(fmt, 8, K.INK2, pos="outEnd"), so)
                     continue
-                if color == NEG:
-                    put(ser, sppr(solid(color, NEG_ALPHA), line(nofill=True)), so)
-                else:
-                    put(ser, sppr(solid(color), line(nofill=True)), so)
+                put(ser, sppr(solid(color or K.C_NEUTRAL), line(nofill=True)), so)
                 drop(ser, "dLbls")
                 if kind == "restschuld" and lname.startswith("ende zinsbindung"):
                     hidden.append(idx)                  # Beschriftung am Balken statt Legendeneintrag
@@ -1327,7 +1328,7 @@ def bestand_extras(root, mark):
         tx = deepcopy(nv.find(q("c:tx")))
         if tx is not None:
             s.append(tx)
-        s.append(sppr(solid(K.ACCENT, 25), line(nofill=True)))
+        s.append(sppr(solid(K.C_AQUA, AREA_ALPHA), line(nofill=True)))
         s.append(deepcopy(nv.find(q("c:cat"))))
         s.append(deepcopy(nv.find(q("c:val"))))
         s.set("helper", "1")
@@ -1359,7 +1360,7 @@ def bestand_extras(root, mark):
             sc = SE(sr, "c:strCache")
             SE(sc, "c:ptCount", 1)
             SE(SE(sc, "c:pt", idx=0), "c:v").text = f"Verkaufspreis Jahr {at + 1}"
-            s.append(sppr(solid(K.NAVY, 75), line(nofill=True)))   # schmale navy Säule = Lot zur Achse
+            s.append(sppr(solid(K.CHART_MARK), line(nofill=True)))   # schmale Goldsäule = Lot zur Achse (Marke)
             SE(s, "c:invertIfNegative", 0)
             d = SE(s, "c:dLbls")
 
@@ -1426,7 +1427,7 @@ def restschuld_extras(root):
     SE(lb, "c:idx", at)
     lb.append(lbl_offset(0.0, -0.035))
     lb.append(sppr(solid(K.WHITE), line(nofill=True)))
-    lb.append(txpr(8, K.BLUE, True, wrap="none"))
+    lb.append(txpr(8, K.NAVY, True, wrap="none"))
     SE(lb, "c:dLblPos", "r")
     _flags(lb, showSerName=True)
     _flags(d)
