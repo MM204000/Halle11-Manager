@@ -227,18 +227,18 @@ W_VALUE, W_LANE = 16.8, 9.1               # 118 px · 64 px
 LANE_CARDS = {("F", "upper"), ("J", "upper"), ("J", "lower")}
 TREND_YEARS = 30
 PJ = "Projektion"
-TRENDS = [   # (Zielzelle, Projektion-Zeile, Sparkline-Vorlage, Zusatzargumente)
-    ("H16", 13, "rent", {}),                       # Jahresnettokaltmiete (Soll)
-    ("H18", 26, "costs", {}),                      # Bewirtschaftung
-    ("H20", 29, "trend", {"markers": True}),       # Einnahmenüberschuss (NOI)
-    ("H28", 45, "trend", {"markers": True}),       # Eigenkapitalrendite je Jahr
-    ("L14", 42, "debt", {}),                       # Darlehen → Restschuld Jahresende
-    ("L23", 32, "trend", {"markers": True}),       # Kapitaldienst pro Jahr
-    ("L36", 41, "value", {}),                      # Verkaufspreis → Immobilienwert
-    ("L38", 42, "debt", {}),                       # Restschuld (Ablösung)
-    ("L43", 38, "cashflow", {}),                   # kumulierter Cashflow n. St.
-    ("D46", 33, "cashflow", {}),                   # Ausblick: Cashflow v. St.
-    ("D47", 36, "cashflow", {}),                   # Ausblick: Cashflow n. St.
+TRENDS = [   # (Zielzelle, Projektion-Zeile, Sparkline-Vorlage, Zusatzargumente) – Farben nach CHART_SEMANTIC
+    ("H16", 13, "rent", {}),                                           # Jahresnettokaltmiete → Miete Blau
+    ("H18", 26, "costs", {}),                                          # Bewirtschaftung → Orange
+    ("H20", 29, "trend", {"color": "C_BLUE", "markers": True}),        # Einnahmenüberschuss (NOI) → Blau
+    ("H28", 45, "value", {}),                                          # Eigenkapitalrendite je Jahr → Aqua
+    ("L14", 42, "debt", {}),                                           # Darlehen → Restschuld Jahresende (grau)
+    ("L23", 32, "costs", {}),                                          # Kapitaldienst pro Jahr → Orange
+    ("L36", 41, "value", {}),                                          # Verkaufspreis → Immobilienwert (Aqua)
+    ("L38", 42, "debt", {}),                                           # Restschuld (Ablösung)
+    ("L43", 38, "cashflow", {"color": "C_BLUE"}),                      # kumulierter Cashflow n. St. (Blau/Rot)
+    ("D46", 33, "cashflow", {}),                                       # Ausblick: Cashflow v. St. (Aqua/Rot)
+    ("D47", 36, "cashflow", {}),                                       # Ausblick: Cashflow n. St.
 ]
 LANE_CAPTION = f"Verlauf Jahre 1–{TREND_YEARS}"
 LANE_CAPTIONS = ("H31", "L31", "L48")      # unter der Verlaufsspalte, direkt unter der Kartenunterkante
