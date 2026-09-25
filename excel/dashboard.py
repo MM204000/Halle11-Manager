@@ -398,8 +398,9 @@ def _gauge_data(ws, hc, kpi, name):
     # Zeiger mittig auf dem Wert; liegt der Wert näher als eine halbe Zeigerbreite an einer Schwelle, rückt der Zeiger
     # ganz auf die Seite seines Status (4,0 % bei „gelb ab 4,0 %“ zeigt in die gelbe Zone, nicht auf die Fuge)
     v_, w2 = f"{hc}{V}", f"{hc}{W}/2"
-    snap = (f"IF(AND({v_}>={g},{v_}-{g}<{w2}),{g},IF(AND({v_}>={y},{v_}-{y}<{w2}),{y},"
-            f"IF(AND({v_}<{y},{y}-{v_}<{w2}),{y}-2*{w2},IF(AND({v_}<{g},{g}-{v_}<{w2}),{g}-2*{w2},{v_}-{w2}))))")
+    # (Abstand eine halbe Zeigerbreite zur Fuge: die Zone des Zeigers bleibt auf beiden Seiten eindeutig)
+    snap = (f"IF(AND({v_}>={g},{v_}-{g}<{w2}),{g}+{w2},IF(AND({v_}>={y},{v_}-{y}<{w2}),{y}+{w2},"
+            f"IF(AND({v_}<{y},{y}-{v_}<{w2}),{y}-3*{w2},IF(AND({v_}<{g},{g}-{v_}<{w2}),{g}-3*{w2},{v_}-{w2}))))")
     P0 = put("p0", f"=MIN(MAX({snap},0),{hc}{M}-{hc}{W})")
     P1 = put("p1", f"={hc}{P0}+{hc}{W}")
     m, w, p0, p1 = (f"{hc}{x}" for x in (M, W, P0, P1))
